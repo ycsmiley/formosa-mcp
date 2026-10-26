@@ -5,7 +5,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const client = new Client({ name: 'formosa-live-check', version: '1.0.0' });
 const transport = new StdioClientTransport({
   command: 'node',
-  args: [fileURLToPath(new URL('../dist/index.js', import.meta.url)), '--toolsets=invoice'],
+  args: [fileURLToPath(new URL('../dist/stdio.js', import.meta.url)), '--toolsets=invoice'],
 });
 
 async function call(name: string, args: Record<string, string> = {}) {

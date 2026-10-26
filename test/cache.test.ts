@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { TtlCache } from '../src/lib/cache.js';
+import { TtlCache } from '../src/core/cache.js';
 it('deduplicates in-flight loads and expires at TTL', async () => {
   let now = 0;
   const cache = new TtlCache<number>(100, () => now);

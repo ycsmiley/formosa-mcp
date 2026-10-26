@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { fetchInvoiceFeed } from '../src/toolsets/invoice/source.js';
+import { fetchInvoiceFeed } from '../src/core/invoice/source.js';
 it('fetches the official RSS with user agent and timeout signal', async () => {
   const fake = vi.fn<typeof fetch>().mockResolvedValue(new Response('<rss/>'));
   expect(await fetchInvoiceFeed(fake)).toBe('<rss/>');

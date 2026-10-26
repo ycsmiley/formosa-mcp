@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { parseToolsetsArg } from '../src/cli.js';
-import { registerToolsets } from '../src/toolsets/index.js';
+import { parseToolsetsArg } from '../src/mcp/cli.js';
+import { registerToolsets } from '../src/mcp/toolsets.js';
 it('defaults to all', () => expect(parseToolsetsArg([], ['invoice', 'other'])).toEqual(['invoice', 'other']));
 it.each([['--toolsets=invoice'], ['--toolsets', 'invoice']])('parses %j', (...argv) => expect(parseToolsetsArg(argv, ['invoice'])).toEqual(['invoice']));
 it('supports comma-separated toolsets', () => expect(parseToolsetsArg(['--toolsets=invoice,other'], ['invoice', 'other'])).toEqual(['invoice', 'other']));

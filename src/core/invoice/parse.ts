@@ -1,4 +1,4 @@
-import { taipeiParts, type Clock } from '../../lib/clock.js';
+import { taipeiParts, type Clock } from '../clock.js';
 export type Period = { rocYear: number; evenMonth: number };
 export type Draw = { period: Period; special: string; grand: string; first: string[]; extraSixth: string[]; pubDate?: string; sourceUrl?: string };
 const pad = (n: number) => String(n).padStart(2, '0');

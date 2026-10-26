@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
-import { checkNumber } from '../src/toolsets/invoice/match.js';
-import type { Draw } from '../src/toolsets/invoice/parse.js';
+import { checkNumber } from '../src/core/invoice/match.js';
+import type { Draw } from '../src/core/invoice/parse.js';
 const draw: Draw = { period: { rocYear: 115, evenMonth: 8 }, special: '89996565', grand: '91098182', first: ['54348835', '44991397', '06595111'], extraSixth: ['123'] };
 it.each([
   ['89996565', '特別獎', 10000000], ['91098182', '特獎', 2000000], ['54348835', '頭獎', 200000],

@@ -1,15 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createInvoiceToolset } from '../src/toolsets/invoice/index.js';
+import { createServer } from '../src/mcp/server.js';
 const xml = readFileSync(new URL('./fixtures/invoice.xml', import.meta.url), 'utf8');
 const clients: Client[] = [];
 afterEach(async () => { await Promise.all(clients.splice(0).map(c => c.close())); });
 async function setup(date: string | (() => Date) = '2026-10-26T00:00:00+08:00', fetchFeed = async () => xml) {
-  const server = new McpServer({ name: 'test', version: '1' });
-  createInvoiceToolset({ fetchFeed, clock: typeof date === 'function' ? date : () => new Date(date) }).register(server);
+  const server = createServer({ fetchFeed, clock: typeof date === 'function' ? date : () => new Date(date) });
   const client = new Client({ name: 'test-client', version: '1' });
   clients.push(client);
   const [a, b] = InMemoryTransport.createLinkedPair();

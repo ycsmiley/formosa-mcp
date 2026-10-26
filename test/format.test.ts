@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { formatAmount, formatCheckResult, formatWinningNumbers } from '../src/toolsets/invoice/format.js';
-import { parseInvoiceFeed } from '../src/toolsets/invoice/parse.js';
-import { checkNumber } from '../src/toolsets/invoice/match.js';
+import { formatAmount, formatCheckResult, formatWinningNumbers } from '../src/core/invoice/format.js';
+import { parseInvoiceFeed } from '../src/core/invoice/parse.js';
+import { checkNumber } from '../src/core/invoice/match.js';
 const draw = parseInvoiceFeed(readFileSync(new URL('./fixtures/invoice.xml', import.meta.url), 'utf8'))[0];
 const clock = () => new Date('2026-10-26T00:00:00+08:00');
 it('formats winning numbers and claim period without an empty extra prize line', () => {

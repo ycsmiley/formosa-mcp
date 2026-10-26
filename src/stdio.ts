@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { createServer } from './mcp/server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { parseToolsetsArg } from './cli.js';
-import { registerToolsets, toolsets } from './toolsets/index.js';
+import { parseToolsetsArg } from './mcp/cli.js';
+import { toolsets } from './mcp/toolsets.js';
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`formosa-mcp — 讓 AI agent 懂台灣 / Taiwan MCP server
@@ -18,8 +18,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
   try {
     const selected = parseToolsetsArg(argv, toolsets.map(t => t.name));
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
-    const server = new McpServer({ name: 'formosa-mcp', version });
-    registerToolsets(server, toolsets.filter(t => selected.includes(t.name)));
+    const server = createServer({ toolsets: selected, env: process.env, version });
     await server.connect(new StdioServerTransport());
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

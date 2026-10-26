@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { normalizePeriod, parseInvoiceFeed, periodCode, periodLabel, previousPeriod, comparePeriods } from '../src/toolsets/invoice/parse.js';
+import { normalizePeriod, parseInvoiceFeed, periodCode, periodLabel, previousPeriod, comparePeriods } from '../src/core/invoice/parse.js';
 const xml = readFileSync(new URL('./fixtures/invoice.xml', import.meta.url), 'utf8');
 describe('period normalization', () => {
   it.each(['11510', '11509', '115-09', '115-10', '115/9', '115年9-10月', '115年09～10月', '115年 09~10月', '115年10月', '2026-09', '2026-10'])('%s', input => {

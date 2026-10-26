@@ -1,4 +1,4 @@
-import { taipeiParts, type Clock } from '../../lib/clock.js';
+import { taipeiParts, type Clock } from '../clock.js';
 import { claimPeriod, expectedDrawDate, isClaimable, periodLabel, type Draw } from './parse.js';
 import type { CheckResult } from './match.js';
 export const formatAmount = (amount: number) => amount >= 10000 ? `${(amount / 10000).toLocaleString('en-US')} 萬元` : `${amount.toLocaleString('en-US')} 元`;

@@ -16,7 +16,7 @@ npx formosa-mcp
 本機執行（將 `<owner>` 換成實際擁有者）：
 
 ```sh
-git clone https://github.com/<owner>/formosa-mcp && cd formosa-mcp && npm install && npm run build && node dist/index.js
+git clone https://github.com/<owner>/formosa-mcp && cd formosa-mcp && npm install && npm run build && node dist/stdio.js
 ```
 
 ## MCP client 設定
@@ -41,7 +41,7 @@ Claude Desktop / Cursor 的 `mcpServers` 設定（發布後可用）：
   "mcpServers": {
     "formosa": {
       "command": "node",
-      "args": ["/absolute/path/formosa-mcp/dist/index.js", "--toolsets=invoice"]
+      "args": ["/absolute/path/formosa-mcp/dist/stdio.js", "--toolsets=invoice"]
     }
   }
 }
@@ -57,7 +57,7 @@ Claude Desktop / Cursor 的 `mcpServers` 設定（發布後可用）：
 使用 `--toolsets=invoice` 啟用發票工具組；未指定時啟用所有已實作工具組，目前只有 invoice。
 
 ```sh
-node dist/index.js --toolsets=invoice
+node dist/stdio.js --toolsets=invoice
 ```
 
 ## 資料來源
@@ -65,6 +65,8 @@ node dist/index.js --toolsets=invoice
 [財政部 RSS](https://invoice.etax.nat.gov.tw/invoice.xml)，免金鑰，只含最近 6 期，6 小時快取。每逢單數月 25 日開獎；實際查詢依財政部已公布資料回答。
 
 ## 開發
+
+src/core 核心函式庫獨立於 MCP，目前使用 stdio，未來可支援遠端 Workers。
 
 ```sh
 npm install
@@ -78,10 +80,12 @@ npm run live-check
 
 ## English
 
+The core library in src/core is MCP-independent: stdio now, remote Workers later.
+
 formosa-mcp is a TypeScript MCP server for Taiwan daily information.
 Invoice lookup and checking are available; rail, stocks, and weather are in development.
 Requires Node.js 20 or later. After publication, run `npx formosa-mcp`.
-For local use, install dependencies, run `npm run build`, then `node dist/index.js`.
+For local use, install dependencies, run `npm run build`, then `node dist/stdio.js`.
 Configure your MCP client with the examples above; select invoices with `--toolsets=invoice`.
 Invoice data comes from the Ministry of Finance RSS, requires no API key, and is cached for six hours.
 Run `npm test` for tests and `npm run live-check` for a live MCP check.

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
-import { claimPeriod, expectedDrawDate, isClaimable, latestExpectedDrawnPeriod } from '../src/toolsets/invoice/parse.js';
-import { taipeiParts } from '../src/lib/clock.js';
+import { claimPeriod, expectedDrawDate, isClaimable, latestExpectedDrawnPeriod } from '../src/core/invoice/parse.js';
+import { taipeiParts } from '../src/core/clock.js';
 const clock = (iso: string) => () => new Date(iso);
 it.each([
   ['2026-11-24T15:59:59Z', 115, 8], ['2026-11-24T16:00:00Z', 115, 10],
