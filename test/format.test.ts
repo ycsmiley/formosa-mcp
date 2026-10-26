@@ -18,7 +18,7 @@ it.each([[10000000, '1,000 萬元'], [2000000, '200 萬元'], [200000, '20 萬�
 it('explains partial wins and tax threshold', () => {
   const partial = formatCheckResult(draw, checkNumber('835', draw));
   expect(partial).toContain('至少中六獎 200 元，請對完整 8 碼看有沒有更大獎');
-  expect(partial).toContain('只能判斷六獎，大獎要對完整 8 碼');
+  expect(partial).not.toContain('只能判斷六獎，大獎要對完整 8 碼');
   expect(formatCheckResult(draw, checkNumber('00348835', draw))).toContain('提醒：三獎以上扣 20% 所得稅；五獎以上領獎扣 0.4% 印花稅，匯入帳戶免。');
   expect(formatCheckResult(draw, checkNumber('00048835', draw))).not.toContain('所得稅');
   const fifth = formatCheckResult(draw, checkNumber('00008835', draw));
@@ -32,6 +32,8 @@ it('keeps all formatted result types clean and human-readable', () => {
   const values = [formatWinningNumbers(draw, clock), formatWinningNumbers(extraDraw, clock),
     ...['89996565', '91098182', '54348835', '04348835', '00348835', '00048835', '00008835', '00000835', '00000123', '00000000', '835', '48835', '123', '999', 'bad'].map(n => formatCheckResult(extraDraw, checkNumber(n, extraDraw)))];
   for (const value of values) {
+    expect(value).toBe(value.trim());
+    expect(value).not.toContain('\n\n\n');
     expect(value).not.toMatch(/undefined|null|\[object Object\]|NaN/);
     expect(value).not.toContain('{"');
     expect(() => JSON.parse(value)).toThrow();

@@ -28,7 +28,6 @@ export function formatCheckResult(draw: Draw, result: CheckResult, clock: Clock 
     ? `至少中六獎 200 元，請對完整 8 碼看有沒有更大獎（對中 ${prize.matchedNumber}）`
     : `恭喜！中了 ${prize.name}，獎金 ${formatAmount(prize.amount)}（對中 ${prize.matchedNumber}）`) : '沒中';
   return [`【${periodLabel(draw.period)}】${message}`,
-    ...(result.partial ? ['只能判斷六獎，大獎要對完整 8 碼。'] : []),
     ...(prize && prize.amount >= 1000 ? [`提醒：${prize.amount >= 10000 ? '三獎以上扣 20% 所得稅；' : ''}五獎以上領獎扣 0.4% 印花稅，匯入帳戶免。`] : []),
     ...(beforeClaim ? [`領獎期間 ${rocDate(start)} 起，還不能領`] : []),
   ].join('\n');

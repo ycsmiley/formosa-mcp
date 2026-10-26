@@ -51,14 +51,18 @@ export function createInvoiceService({ fetchFeed = fetchInvoiceFeed, clock = () 
       if (!validation.ok) return text(validation.error, true);
       return safely(async () => {
         const draws = await load();
+        const formatResults = (selected: Draw[]) => [
+          ...selected.map(d => formatCheckResult(d, checkNumber(number, d), clock)),
+          ...(validation.partial ? ['只能判斷六獎，大獎要對完整 8 碼。'] : []),
+        ].join('\n\n');
         if (p) {
           const draw = draws.find(d => comparePeriods(d.period, p) === 0);
-          return draw ? text(formatCheckResult(draw, checkNumber(number, draw), clock)) : text(missing(p, draws));
+          return draw ? text(formatResults([draw])) : text(missing(p, draws));
         }
         const selected = [draws[0]];
         const previous = draws.find(d => comparePeriods(d.period, previousPeriod(draws[0].period)) === 0);
         if (previous && isClaimable(previous.period, clock)) selected.push(previous);
-        return text(selected.map(d => formatCheckResult(d, checkNumber(number, d), clock)).join('\n\n'));
+        return text(formatResults(selected));
       });
     },
   };
