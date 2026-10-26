@@ -1,7 +1,7 @@
 {
   "name": "formosa-mcp",
   "version": "0.1.0",
-  "description": "讓 AI agent 懂台灣的 MCP server：發票對獎（之後：高鐵、台股、氣象）",
+  "description": "讓 AI agent 懂台灣的 MCP server：發票對獎、台股（上市＋上櫃）；高鐵、台鐵開發中",
   "license": "MIT",
   "type": "module",
   "bin": {

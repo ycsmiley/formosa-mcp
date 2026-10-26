@@ -8,5 +8,15 @@
   {"id":"invoice-007","question":"發票12a45678這樣能對嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"12a45678"},"expected_key_facts":["請輸入 3～8 碼發票數字"],"notes":"預期isError；12345是有效的部分號碼，不應當成無效輸入。"},
   {"id":"invoice-008","question":"現在還沒11月25號，115年9-10月發票號碼出來了嗎？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年9-10月"},"expected_key_facts":["尚未開獎","115年11月25日"],"notes":"評估日期固定為2026-10-26，且財政部尚未發布該期；開獎後需更新。"},
   {"id":"invoice-009","question":"115年7-8月的發票什麼時候可以領獎？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年07-08月"},"expected_key_facts":["領獎期間 115年10月06日～116年01月05日"],"notes":"日期範圍固定；是否目前可領須依評估日期判斷。"},
-  {"id":"invoice-010","question":"115年7-8月發票號碼AB-54348835中了沒？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"AB-54348835","period":"115年07-08月"},"expected_key_facts":["頭獎","20 萬元"],"notes":"接受兩碼英文字母前綴與連字號。"}
+  {"id":"invoice-010","question":"115年7-8月發票號碼AB-54348835中了沒？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"AB-54348835","period":"115年07-08月"},"expected_key_facts":["頭獎","20 萬元"],"notes":"接受兩碼英文字母前綴與連字號。"},
+  {"id":"stock-001","question":"2330收盤多少？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"2330"},"expected_key_facts":["台積電","盤後資料，非即時"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-002","question":"台積電今天股價？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"台積電"},"expected_key_facts":["台積電","資料日期"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-003","question":"上櫃6488環球晶行情？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"6488"},"expected_key_facts":["環球晶","上櫃"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-004","question":"國泰股價？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"國泰"},"expected_key_facts":["找到","請指定代號"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-005","question":"近期有哪些除權息？","toolset":"stock","expected_tool":"stock_dividends","expected_args":{},"expected_key_facts":["近期除權息","依日期排序"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-006","question":"台積電近期除息日？","toolset":"stock","expected_tool":"stock_dividends","expected_args":{"query":"2330"},"expected_key_facts":["台積電","近期除權息"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-007","question":"台積電本益比和殖利率？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"2330"},"expected_key_facts":["本益比","殖利率"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-008","question":"不存在的股票zz股價？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"不存在的股票zz"},"expected_key_facts":["找不到","請輸入股票代號"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-009","question":"００４００Ａ股價多少？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"００４００Ａ"},"expected_key_facts":["00400A","盤後資料"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
+  {"id":"stock-010","question":"00719B漲跌多少？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"00719B"},"expected_key_facts":["除息（不計漲跌）"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"}
 ]

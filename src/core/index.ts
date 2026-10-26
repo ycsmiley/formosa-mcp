@@ -5,3 +5,8 @@ export * from './invoice/parse.js';
 export * from './invoice/match.js';
 export * from './invoice/format.js';
 export * from './invoice/service.js';
+export * from './stock/source.js';
+export * from './stock/parse.js';
+export * from './stock/lookup.js';
+export * from './stock/format.js';
+export * from './stock/service.js';

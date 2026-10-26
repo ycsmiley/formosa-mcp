@@ -7,12 +7,12 @@ import { toolsets } from './mcp/toolsets.js';
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`formosa-mcp — 讓 AI agent 懂台灣 / Taiwan MCP server
-用法 / Usage: formosa-mcp [--toolsets invoice]
+用法 / Usage: formosa-mcp [--toolsets invoice,stock]
 預設啟用所有已實作工具集 / Default: all implemented toolsets
-工具集 / Toolsets: invoice
+工具集 / Toolsets: invoice, stock
 範例 / Examples:
-  formosa-mcp --toolsets=invoice
-  formosa-mcp --toolsets invoice
+  formosa-mcp --toolsets=invoice,stock
+  formosa-mcp --toolsets invoice,stock
   formosa-mcp --help`);
 } else {
   try {

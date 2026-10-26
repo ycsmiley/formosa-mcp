@@ -5,7 +5,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const client = new Client({ name: 'formosa-live-check', version: '1.0.0' });
 const transport = new StdioClientTransport({
   command: 'node',
-  args: [fileURLToPath(new URL('../dist/stdio.js', import.meta.url)), '--toolsets=invoice'],
+  args: [fileURLToPath(new URL('../dist/stdio.js', import.meta.url)), '--toolsets=invoice,stock'],
 });
 
 async function call(name: string, args: Record<string, string> = {}) {
@@ -49,6 +49,9 @@ try {
   await call('invoice_check', { number: first[0].slice(-3) });
   // Expected to say 尚未開獎 before 2026-11-25; later runs show the live result.
   await call('invoice_get_winning_numbers', { period: '115年9-10月' });
+  for (const query of ['2330', '台積電', '6488', '不存在的股票zz']) await call('stock_quote', { query });
+  await call('stock_dividends');
+  await call('stock_dividends', { query: '2330' });
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

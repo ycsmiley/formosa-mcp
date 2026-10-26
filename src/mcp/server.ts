@@ -6,6 +6,7 @@ export interface ServerOptions {
   env?: Record<string, string | undefined>;
   version?: string;
   clock?: Clock;
+  fetchJson?: (url: string) => Promise<unknown>;
   fetchFeed?: () => Promise<string>;
   log?: (msg: string) => void;
 }

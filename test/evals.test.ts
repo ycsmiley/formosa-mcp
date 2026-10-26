@@ -7,14 +7,14 @@ import { createServer } from '../src/mcp/server.js';
 
 it('validates eval schema, unique ids, and registered tool names', async () => {
   const schema = z.array(z.object({
-    id: z.string().regex(/^invoice-\d{3}$/),
+    id: z.string().regex(/^(invoice|stock)-\d{3}$/),
     question: z.string().min(1),
-    toolset: z.literal('invoice'),
+    toolset: z.enum(['invoice', 'stock']),
     expected_tool: z.string().min(1),
-    expected_args: z.object({ number: z.string().optional(), period: z.string().optional() }).strict(),
+    expected_args: z.object({ query: z.string().optional(), number: z.string().optional(), period: z.string().optional() }).strict(),
     expected_key_facts: z.array(z.string().min(1)).min(1),
     notes: z.string().min(1),
-  }).strict()).length(10);
+  }).strict()).length(20);
   const questions = schema.parse(JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8')));
   expect(new Set(questions.map(q => q.id)).size).toBe(questions.length);
   const server = createServer();

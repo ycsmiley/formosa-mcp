@@ -1,0 +1,34 @@
+[
+  {
+    "Date": "1151022",
+    "Code": "2303",
+    "Name": "聯電",
+    "PEratio": "18.87",
+    "DividendYield": "2.08",
+    "PBratio": "3.55"
+  },
+  {
+    "Date": "1151022",
+    "Code": "2317",
+    "Name": "鴻海",
+    "PEratio": "16.15",
+    "DividendYield": "2.93",
+    "PBratio": "1.80"
+  },
+  {
+    "Date": "1151022",
+    "Code": "2330",
+    "Name": "台積電",
+    "PEratio": "27.65",
+    "DividendYield": "0.92",
+    "PBratio": "9.61"
+  },
+  {
+    "Date": "1151022",
+    "Code": "1101",
+    "Name": "台泥",
+    "PEratio": "",
+    "DividendYield": "2.86",
+    "PBratio": "0.91"
+  }
+]
