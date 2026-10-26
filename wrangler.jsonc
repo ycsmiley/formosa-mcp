@@ -1,0 +1,12 @@
+{
+  "name": "formosa-mcp",
+  "main": "src/worker/index.ts",
+  // Newest date supported by the pinned worker test pool (workerd 2026-08-15).
+  "compatibility_date": "2026-08-15",
+  // Placeholder: replace with a real namespace ID before any future deployment.
+  "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "00000000000000000000000000000000" }],
+  "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }],
+  // UTC: stock weekdays every 30m (Taipei Mon 08:00–Sat 07:30), daily 00/06/12/18 UTC.
+  // Invoice every 3h; odd-month draw day Taipei 13:00–23:50 every 10m.
+  "triggers": { "crons": ["*/30 * * * 1-5", "0 */6 * * *", "0 */3 * * *", "*/10 5-15 25 1,3,5,7,9,11 *"] }
+}

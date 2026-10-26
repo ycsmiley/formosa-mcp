@@ -10,3 +10,4 @@ export * from './stock/parse.js';
 export * from './stock/lookup.js';
 export * from './stock/format.js';
 export * from './stock/service.js';
+export * from './snapshot.js';

@@ -24,7 +24,24 @@
 
 ## 開發者
 
-需要 Node.js 20 以上。目前提供 stdio；src/core 核心函式庫獨立於 MCP，未來可支援遠端 Workers。
+需要 Node.js 20 以上。提供 stdio；src/core 核心函式庫獨立於 MCP。Worker 開發工具需要 Node.js 22 以上。
+
+### 本機跑遠端版（Cloudflare Workers）
+
+目前僅供本機測試，沒有公開 URL，也不需要 Cloudflare 登入。
+
+```sh
+npm run dev:worker
+# 另一個終端：排程抓上游並填入本機 KV
+curl "http://localhost:8787/__scheduled"
+npm run remote-check
+# 額外驗證每 IP 每分鐘 30 次限流
+npm run remote-check -- --burst
+```
+
+請求只讀 KV；尚未填入時回覆「資料更新中」。排程保留失敗市場的前次資料，資料未變不寫入 KV。
+`wrangler.jsonc` 的 namespace ID 是佔位值，任何未來部署前都必須替換；目前不部署。
+執行 `npm run typecheck:worker`、`npm run test:worker` 驗證 Worker；stdio 建置不包含 Worker。
 
 發布到 npm 後可用：
 
@@ -108,7 +125,11 @@ Stock data is end-of-day, not real-time (TWSE/TPEx OpenAPI, no API key, one-hour
 
 ### Developers
 
-Requires Node.js 20 or later. The MCP-independent core in src/core uses stdio today; remote Workers support is planned.
+Requires Node.js 20 or later. The MCP-independent core in src/core supports stdio. Worker development tools require Node.js 22 or later.
+
+### Local Cloudflare Workers remote
+
+Local-only for now; no public URL exists and no Cloudflare login is needed. With Node.js 22+, run `npm run dev:worker`, then `curl "http://localhost:8787/__scheduled"` to fill local KV and `npm run remote-check` (add `-- --burst` to check rate limiting). Requests only read snapshots; scheduled refreshes fetch upstream. The KV ID is a deployment placeholder. Use `npm run typecheck:worker` and `npm run test:worker`; the stdio build excludes Worker code.
 
 After publication to npm:
 

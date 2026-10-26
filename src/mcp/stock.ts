@@ -5,7 +5,7 @@ const result = ({ text, isError }: StockResult) => ({ content: [{ type: 'text' a
 export const stock: Toolset = {
   name: 'stock', description: '台股盤後行情與除權息 Taiwan stocks (TWSE+TPEx, end-of-day)',
   register(server, ctx) {
-    const service = createStockService({ fetchJson: ctx.fetchJson, clock: ctx.clock });
+    const service = createStockService({ snapshot: ctx.snapshot, fetchJson: ctx.fetchJson, clock: ctx.clock });
     server.registerTool('stock_quote', {
       description: '以股票代號或名稱查詢上市／上櫃盤後行情、本益比與殖利率，非即時。Taiwan TWSE/TPEx end-of-day quote by code or name, not real-time.',
       inputSchema: { query: z.string() },
