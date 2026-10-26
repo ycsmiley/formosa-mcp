@@ -31,3 +31,18 @@ it('defaults to six hours', async () => {
   await cache.getOrLoad('k', loader);
   expect(loader).toHaveBeenCalledTimes(2);
 });
+
+it('computes each entry TTL from its loaded value', async () => {
+  let now = 0;
+  const cache = new TtlCache<number>(value => value * 100, () => now);
+  const loader = vi.fn().mockResolvedValueOnce(1).mockResolvedValue(2);
+  await cache.getOrLoad('k', loader);
+  now = 100;
+  expect(await cache.getOrLoad('k', loader)).toBe(2);
+  now = 299;
+  await cache.getOrLoad('k', loader);
+  expect(loader).toHaveBeenCalledTimes(2);
+  now = 300;
+  await cache.getOrLoad('k', loader);
+  expect(loader).toHaveBeenCalledTimes(3);
+});

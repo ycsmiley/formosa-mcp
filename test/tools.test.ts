@@ -7,9 +7,9 @@ import { createInvoiceToolset } from '../src/toolsets/invoice/index.js';
 const xml = readFileSync(new URL('./fixtures/invoice.xml', import.meta.url), 'utf8');
 const clients: Client[] = [];
 afterEach(async () => { await Promise.all(clients.splice(0).map(c => c.close())); });
-async function setup(date = '2026-10-26T00:00:00+08:00', fetchFeed = async () => xml) {
+async function setup(date: string | (() => Date) = '2026-10-26T00:00:00+08:00', fetchFeed = async () => xml) {
   const server = new McpServer({ name: 'test', version: '1' });
-  createInvoiceToolset({ fetchFeed, clock: () => new Date(date) }).register(server);
+  createInvoiceToolset({ fetchFeed, clock: typeof date === 'function' ? date : () => new Date(date) }).register(server);
   const client = new Client({ name: 'test-client', version: '1' });
   clients.push(client);
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -75,4 +75,39 @@ it('tool output cleanliness includes errors and missing periods', async () => {
     expect(value).not.toContain('{"');
     expect(() => JSON.parse(value)).toThrow();
   }
+});
+
+const newerXml = xml.replace('</channel>', `<item>
+  <title>11510</title>
+  <description><![CDATA[<p>特別獎：89996565</p><p>特獎：91098182</p><p>頭獎：54348835、44991397、06595111</p>]]></description>
+</item></channel>`);
+it.each([
+  ['2026-11-25T10:00:00+08:00', false, 2],
+  ['2026-11-25T10:00:00+08:00', true, 1],
+  ['2026-11-20T10:00:00+08:00', false, 1],
+])('cache refresh at %s with current feed %s', async (date, current, calls) => {
+  const start = new Date(date).getTime();
+  let now = start;
+  const fetchFeed = vi.fn(async () => current ? newerXml : xml);
+  const client = await setup(() => new Date(now), fetchFeed);
+  const call = () => client.callTool({ name: 'invoice_get_winning_numbers', arguments: {} });
+  await call();
+  now = start + 11 * 60 * 1000;
+  await call();
+  expect(fetchFeed).toHaveBeenCalledTimes(calls);
+  if (date.startsWith('2026-11-20')) {
+    now = start + (6 * 60 + 1) * 60 * 1000;
+    await call();
+    expect(fetchFeed).toHaveBeenCalledTimes(2);
+  }
+});
+it.each(['11510', undefined])('shows claim start for a newly announced period (%s)', async period => {
+  const client = await setup('2026-11-26T00:00:00+08:00', async () => newerXml);
+  const result = output(await client.callTool({ name: 'invoice_check', arguments: { number: '54348835', period } }));
+  expect(result).toContain('領獎期間 115年12月06日 起，還不能領');
+});
+it('does not show the early claim notice after claim start', async () => {
+  const client = await setup();
+  const result = output(await client.callTool({ name: 'invoice_check', arguments: { number: '54348835', period: '11508' } }));
+  expect(result).not.toContain('還不能領');
 });

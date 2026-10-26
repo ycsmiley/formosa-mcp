@@ -1,14 +1,18 @@
 import { z } from 'zod';
 import { TtlCache } from '../../lib/cache.js';
-import type { Clock } from '../../lib/clock.js';
+import { taipeiParts, type Clock } from '../../lib/clock.js';
 import type { Toolset } from '../index.js';
 import { fetchInvoiceFeed } from './source.js';
-import { comparePeriods, expectedDrawDate, isClaimable, normalizePeriod, parseInvoiceFeed, periodLabel, previousPeriod, type Draw, type Period } from './parse.js';
+import { comparePeriods, expectedDrawDate, isClaimable, latestExpectedDrawnPeriod, normalizePeriod, parseInvoiceFeed, periodLabel, previousPeriod, type Draw, type Period } from './parse.js';
 import { checkNumber } from './match.js';
 import { formatCheckResult, formatWinningNumbers } from './format.js';
 const text = (value: string, isError = false) => ({ content: [{ type: 'text' as const, text: value }], ...(isError ? { isError: true } : {}) });
 export function createInvoiceToolset({ fetchFeed = fetchInvoiceFeed, clock = () => new Date() }: { fetchFeed?: () => Promise<string>; clock?: Clock } = {}): Toolset {
-  const cache = new TtlCache<Draw[]>();
+  const cache = new TtlCache<Draw[]>(draws => {
+    const { month, day } = taipeiParts(clock());
+    return day === 25 && month % 2 === 1 && comparePeriods(draws[0].period, latestExpectedDrawnPeriod(clock)) < 0
+      ? 10 * 60 * 1000 : 6 * 60 * 60 * 1000;
+  }, () => clock().getTime());
   const load = () => cache.getOrLoad('invoice', async () => parseInvoiceFeed(await fetchFeed()));
   const missing = (p: Period, draws: Draw[]) => {
     if (comparePeriods(p, draws[0].period) > 0) {
@@ -50,12 +54,12 @@ export function createInvoiceToolset({ fetchFeed = fetchInvoiceFeed, clock = () 
           const draws = await load();
           if (p) {
             const draw = draws.find(d => comparePeriods(d.period, p) === 0);
-            return draw ? text(formatCheckResult(draw, checkNumber(number, draw))) : text(missing(p, draws));
+            return draw ? text(formatCheckResult(draw, checkNumber(number, draw), clock)) : text(missing(p, draws));
           }
           const selected = [draws[0]];
           const previous = draws.find(d => comparePeriods(d.period, previousPeriod(draws[0].period)) === 0);
           if (previous && isClaimable(previous.period, clock)) selected.push(previous);
-          return text(selected.map(d => formatCheckResult(d, checkNumber(number, d))).join('\n\n'));
+          return text(selected.map(d => formatCheckResult(d, checkNumber(number, d), clock)).join('\n\n'));
         });
       });
     },
