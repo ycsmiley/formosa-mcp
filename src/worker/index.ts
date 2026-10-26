@@ -7,7 +7,7 @@ import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { fetchJson } from '../core/stock/source.js';
 export interface Env { SNAPSHOTS: KVNamespace; RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> } }
-export const keys = { invoice: 'invoice:v1', quotes: 'stock:quotes:v1', dividends: 'stock:dividends:v1' };
+export const keys = { invoice: 'invoice:v1', quotes: 'stock:quotes:v2', dividends: 'stock:dividends:v1' };
 async function read<T>(env: Env, key: string): Promise<T | null> { const raw = await env.SNAPSHOTS.get(key); return raw === null ? null : decodeSnapshot<T>(raw); }
 const plain = (text: string, status = 200, headers = {}) => new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', ...headers } });
 export default {

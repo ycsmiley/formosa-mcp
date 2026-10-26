@@ -18,7 +18,8 @@ it('roundtrips slim snapshots and rejects unknown schema versions', async () => 
   expect(encodeSnapshot(invoice)).not.toMatch(/pubDate|sourceUrl|CDATA/);
   const stock = await buildStockSnapshot(stockFetch);
   const decoded = decodeSnapshot<typeof stock.quotes>(encodeSnapshot(stock.quotes));
-  expect(decoded.twse?.find(s => s.code === '2330')).toEqual(stock.quotes.twse?.find(s => s.code === '2330'));
+  expect(decoded).toEqual(stock.quotes);
+  expect(decodeSnapshot(encodeSnapshot(stock.dividends))).toEqual(stock.dividends);
   expect(encodeSnapshot(stock.quotes)).not.toMatch(/SecuritiesCompanyCode|ClosingPrice|TradingShares/);
   expect(() => decodeSnapshot('{"v":2,"d":{}}')).toThrow();
 });
@@ -42,5 +43,14 @@ it('snapshot services hide errors while preserving validation and null messages'
   const stock = createStockService({ snapshot: { quotes: fail, dividends: fail } });
   for (const result of [await stock.quote('2330'), await stock.dividends()]) {
     expect(result).toEqual({ text: '暫時無法取得資料，請稍後再試。', isError: true });
+  }
+});
+
+it('roundtrips quote date outliers, empty/unavailable markets and trailing nulls', async () => {
+  const { quotes } = await buildStockSnapshot(stockFetch);
+  const row = quotes.twse![0];
+  for (const twse of [[], null, [row, { ...row, date: { year: 2025, month: 1, day: 2 }, pe: null, yield: null, pb: null }]]) {
+    const snapshot = { ...quotes, twse };
+    expect(decodeSnapshot(encodeSnapshot(snapshot))).toEqual(snapshot);
   }
 });

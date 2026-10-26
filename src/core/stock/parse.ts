@@ -33,7 +33,7 @@ export function parseQuotes(data: unknown, ratios: unknown, market: Market): Sto
   const byCode = new Map(stockRows(ratios).map(r => [r[codeKey], r]));
   return stockRows(data).flatMap(r => {
     const code = r[codeKey]?.trim(), date = parseRocDate(r.Date ?? '');
-    if (!code || !date || (!tw && /^7\d{5}$/.test(code))) return [];
+    if (!code || !date) return [];
     const ratio = byCode.get(code) ?? {}, n = (key: string) => parseNumber(r[key]);
     const change = n('Change'), note = r.Change?.trim();
     return [{ market, code, name: r[tw ? 'Name' : 'CompanyName'], date,

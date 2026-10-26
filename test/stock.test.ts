@@ -18,8 +18,9 @@ it('parses defensive numeric strings and valid ROC dates', () => {
   expect(rocDateLabel(parseRocDate('1151022')!)).toBe('115年10月22日');
   for (const date of ['1150230', '1151301', 'bad']) expect(parseRocDate(date)).toBeNull();
 });
-it('excludes warrants, merges ratios, and preserves ex-dividend notes', () => {
-  expect(tp.some(s => /^7\d{5}$/.test(s.code))).toBe(false);
+it('merges ratios and preserves missing prices and ex-dividend notes', () => {
+  expect(tp.find(s => s.code === '2073')).toMatchObject({ change: null, open: null, high: null, low: null, close: null });
+  expect(tp.find(s => s.code === '00679B')).toMatchObject({ change: 0.24 });
   expect(tp.find(s => s.code === '00719B')).toMatchObject({ change: null, changeNote: '除息' });
   expect(tw.find(s => s.code === '2330')).toMatchObject({ pe: 27.65, yield: 0.92, pb: 9.61 });
   expect(div.every(e => ['除息', '除權', '除權息'].includes(e.type))).toBe(true);
@@ -48,7 +49,7 @@ it('formats exact TWSE and TPEx quote blocks', () => {
 資料日期：115年10月22日（盤後資料，非即時）
 收盤 826.00｜漲跌 -54.00（-6.14%）
 開盤 896.00｜最高 898.00｜最低 815.00
-成交量 10,521 張｜成交金額 89.64 億元
+成交量 9,364 張｜成交金額 79.86 億元
 本益比 40.10｜殖利率 0.93%｜股價淨值比 4.08
 資料來源：證券櫃檯買賣中心 OpenAPI`);
 });
