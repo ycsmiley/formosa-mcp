@@ -1,0 +1,38 @@
+{
+  "name": "formosa-mcp",
+  "version": "0.1.0",
+  "description": "讓 AI agent 懂台灣的 MCP server：發票對獎（之後：高鐵、台股、氣象）",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "formosa-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "taiwan",
+    "mcp",
+    "invoice",
+    "model-context-protocol",
+    "統一發票"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "live-check": "npm run build && tsx scripts/live-check.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
+  }
+}
