@@ -49,7 +49,7 @@ try {
   await call('invoice_check', { number: first[0].slice(-3) });
   // Expected to say 尚未開獎 before 2026-11-25; later runs show the live result.
   await call('invoice_get_winning_numbers', { period: '115年9-10月' });
-  for (const query of ['2330', '台積電', '6488', '不存在的股票zz']) await call('stock_quote', { query });
+  for (const query of ['2330', '台積電', '國泰', '6488', '不存在的股票zz']) await call('stock_quote', { query });
   await call('stock_dividends');
   await call('stock_dividends', { query: '2330' });
 } catch (error) {

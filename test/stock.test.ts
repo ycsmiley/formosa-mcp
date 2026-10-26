@@ -28,6 +28,7 @@ it('resolves code then exact name then partial names with normalized input', () 
   expect(findStocks('２３３０', tw)).toMatchObject({ kind: 'one', stock: { code: '2330' } });
   expect(findStocks('00400a', tw)).toMatchObject({ kind: 'one', stock: { code: '00400A' } });
   expect(findStocks('台積電', tw)).toMatchObject({ kind: 'one', stock: { code: '2330' } });
+  expect(findStocks('台積', tw)).toMatchObject({ kind: 'one', stock: { code: '2330' } });
   expect(findStocks('國泰', tw).kind).toBe('many');
   expect(findStocks('zzzz', tw).kind).toBe('none');
   expect(() => findStocks(' ', tw)).toThrow('請輸入');
@@ -150,9 +151,10 @@ it('uses global fetch with a timeout and rejects HTTP errors', async () => {
 it('formats dividend amounts, weekdays, subscriptions and unannounced cash', () => {
   const text = formatStockDividends(div, clock, undefined, 100);
   expect(text).toContain('115年10月27日（二）永豐優息存股（00907）上市｜除息｜現金股利 0.268 元');
-  expect(text).toContain('115年11月06日（五）精技（2414）上市｜除權｜現金增資認購率 0.12365842、認購價尚未公告');
+  expect(text).toContain('115年11月06日（五）精技（2414）上市｜除權｜每千股可認購 123.66 股、認購價尚未公告');
   expect(text).toContain('現金股利尚未公告');
-  expect(text).toContain('無償配股率 0.09999999');
+  expect(text).toContain('世鎧（2063）上櫃｜除權息｜現金股利 0.5 元、每千股配 100 股');
+  expect(text).toContain('碩禾（3691）上櫃｜除權｜每千股可認購 108.83 股、認購價 80 元');
   expect(text).not.toMatch(/undefined|null|NaN|\{|\[object/);
 });
 it('uses today in Taipei and includes events dated today', () => {
@@ -178,4 +180,29 @@ it('limits ambiguous selections to ten and formats friendly misses', () => {
   expect(text.split('\n').filter(l => l.startsWith('- '))).toHaveLength(10);
   expect(text).toContain('…另有 2 檔');
   expect(formatStockLookup('zz', { kind: 'none' })).toBe('找不到「zz」，請輸入股票代號（例如 2330）或名稱（例如 台積電）。');
+});
+
+it('ranks name tiers before trade value and puts missing values last', () => {
+  const result = findStocks('國泰', tw);
+  expect(result.kind).toBe('many');
+  if (result.kind !== 'many') throw new Error('Expected multiple');
+  expect(result.stocks.map(s => s.code)).toEqual([
+    '2882', '00655L', '00636', '00636K', '00400A', '00400A', '01002T', '01007T',
+  ]);
+  const stocks = [
+    { code: 'A', name: '國泰甲', market: '上市' as const },
+    { code: 'B', name: '國泰乙', market: '上市' as const, value: null },
+    { code: 'C', name: '國泰丙', market: '上市' as const, value: 0 },
+    { code: 'D', name: '國泰', market: '上市' as const },
+    { code: 'E', name: '國泰', market: '上市' as const, value: 1 },
+  ];
+  expect(findStocks('國泰', stocks)).toEqual({ kind: 'many', stocks: [stocks[4], stocks[3], stocks[2], stocks[0], stocks[1]] });
+  expect(findStocks('國泰', stocks.slice(0, 4))).toEqual({ kind: 'one', stock: stocks[3] });
+});
+it('rounds dividend cash and prints small amounts without exponent notation', () => {
+  const event = div.find(e => e.code === '2063')!;
+  for (const [cash, expected] of [[1.807197, '1.8072'], [0.00000001, '0'], [1e21, '1000000000000000000000']] as const) {
+    expect(formatStockDividends([{ ...event, cash }], clock)).toContain(`現金股利 ${expected} 元`);
+  }
+  expect(formatStockDividends([{ ...event, subscriptionRatio: '尚未公告' }], clock)).toContain('現金增資認購率尚未公告');
 });

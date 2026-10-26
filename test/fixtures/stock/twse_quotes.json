@@ -128,5 +128,44 @@
     "ClosingPrice": "26.79",
     "Change": "-1.1400",
     "Transaction": "555"
+  },
+  {
+    "Date": "1151022",
+    "Code": "2882",
+    "Name": "國泰金",
+    "TradeVolume": "17343296",
+    "TradeValue": "1971684665",
+    "OpeningPrice": "114.00",
+    "HighestPrice": "115.00",
+    "LowestPrice": "113.00",
+    "ClosingPrice": "113.50",
+    "Change": "-0.5000",
+    "Transaction": "6984"
+  },
+  {
+    "Date": "1151022",
+    "Code": "01002T",
+    "Name": "土銀國泰R1",
+    "TradeVolume": "139000",
+    "TradeValue": "1734950",
+    "OpeningPrice": "12.49",
+    "HighestPrice": "12.49",
+    "LowestPrice": "12.45",
+    "ClosingPrice": "12.45",
+    "Change": "-0.0400",
+    "Transaction": "14"
+  },
+  {
+    "Date": "1151022",
+    "Code": "01007T",
+    "Name": "兆豐國泰R2",
+    "TradeVolume": "64000",
+    "TradeValue": "713890",
+    "OpeningPrice": "11.21",
+    "HighestPrice": "11.21",
+    "LowestPrice": "11.12",
+    "ClosingPrice": "11.18",
+    "Change": "-0.0400",
+    "Transaction": "28"
   }
 ]
