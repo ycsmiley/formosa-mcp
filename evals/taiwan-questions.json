@@ -1,0 +1,12 @@
+[
+  {"id":"invoice-001","question":"這期發票特別獎號碼是多少？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{},"expected_key_facts":["特別獎獎金 1,000 萬元"],"notes":"最新一期依即時資料回答，不固定號碼。"},
+  {"id":"invoice-002","question":"幫我查115年7-8月的發票中獎號碼。","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年07-08月"},"expected_key_facts":["特別獎 89996565","特獎 91098182","頭獎 54348835、44991397、06595111"],"notes":"期別格式可正規化；固定開獎資料。"},
+  {"id":"invoice-003","question":"我的115年7-8月發票54348835有沒有中？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"54348835","period":"115年07-08月"},"expected_key_facts":["頭獎","20 萬元"],"notes":"完整8碼中頭獎；三獎以上扣20%所得稅。"},
+  {"id":"invoice-004","question":"115年7-8月這張04348835中了多少？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"04348835","period":"115年07-08月"},"expected_key_facts":["二獎","4 萬元"],"notes":"完整8碼末7碼符合頭獎54348835。"},
+  {"id":"invoice-005","question":"115年7-8月的00000000有中嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"00000000","period":"115年07-08月"},"expected_key_facts":["沒中"],"notes":"固定期別的未中獎號碼。"},
+  {"id":"invoice-006","question":"115年7-8月末三碼835有中嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"835","period":"115年07-08月"},"expected_key_facts":["至少中六獎 200 元","只能判斷六獎","大獎要對完整 8 碼"],"notes":"不能由末三碼推斷頭獎。"},
+  {"id":"invoice-007","question":"發票12a45678這樣能對嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"12a45678"},"expected_key_facts":["請輸入 3～8 碼發票數字"],"notes":"預期isError；12345是有效的部分號碼，不應當成無效輸入。"},
+  {"id":"invoice-008","question":"現在還沒11月25號，115年9-10月發票號碼出來了嗎？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年9-10月"},"expected_key_facts":["尚未開獎","115年11月25日"],"notes":"評估日期固定為2026-10-26，且財政部尚未發布該期；開獎後需更新。"},
+  {"id":"invoice-009","question":"115年7-8月的發票什麼時候可以領獎？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年07-08月"},"expected_key_facts":["領獎期間 115年10月06日～116年01月05日"],"notes":"日期範圍固定；是否目前可領須依評估日期判斷。"},
+  {"id":"invoice-010","question":"115年7-8月發票號碼AB-54348835中了沒？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"AB-54348835","period":"115年07-08月"},"expected_key_facts":["頭獎","20 萬元"],"notes":"接受兩碼英文字母前綴與連字號。"}
+]
