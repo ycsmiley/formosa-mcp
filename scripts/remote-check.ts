@@ -8,7 +8,10 @@ try {
   for (const [name, args] of [ ['stock_quote', { query: '2330' }], ['stock_quote', { query: '6488' }], ['stock_dividends', {}], ['invoice_get_winning_numbers', {}], ['invoice_check', { number: '54348835' }] ] as const) {
     console.log(`\n=== ${name} ${JSON.stringify(args)} ===`);
     const result = await client.callTool({ name, arguments: args });
-    for (const content of result.content as { type: string; text?: string }[]) if (content.type === 'text') console.log(content.text);
+    const text = (result.content as { type: string; text?: string }[]).filter(c => c.type === 'text').map(c => c.text ?? '').join('\n');
+    console.log(text);
+    if (result.isError || /undefined|null|NaN|\[object/.test(text)) throw new Error(`${name} failed`);
+    if (name === 'stock_quote' && !text.includes(`（${args.query}）`)) throw new Error(`Missing stock ${args.query}`);
   }
 } finally { await client.close(); }
 if (process.argv.includes('--burst')) {
@@ -20,3 +23,4 @@ if (process.argv.includes('--burst')) {
   }
 }
 const missing = await fetch(new URL('/nope', url)); console.log(missing.status, await missing.text());
+if (missing.status !== 404) throw new Error('Expected 404');

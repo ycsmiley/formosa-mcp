@@ -30,6 +30,8 @@
 
 目前僅供本機測試，沒有公開 URL，也不需要 Cloudflare 登入。
 
+`@modelcontextprotocol/sdk` 固定為精確版本 `1.32.1`，因為 `agents` 的 `createMcpHandler` 對此版本有精確的 peer 相依要求，請勿單獨升級。
+
 ```sh
 npm run dev:worker
 # 另一個終端：排程抓上游並填入本機 KV
@@ -39,7 +41,8 @@ npm run remote-check
 npm run remote-check -- --burst
 ```
 
-請求只讀 KV；尚未填入時回覆「資料更新中」。排程保留失敗市場的前次資料，資料未變不寫入 KV。
+請求只讀 KV；尚未填入時回覆「資料更新中」。行情與除權息各按市場儲存於 `stock:quotes:{twse,tpex}:v1`、`stock:dividends:{twse,tpex}:v1`，讀取時合併；排程保留失敗項目的前次資料，資料未變不寫入 KV，metadata 的 `updatedAt` 表示最後資料變更時間。
+UTC 週一至五整點／半點更新上市、15／45 分更新上櫃；UTC 週末每 6 小時的整點更新上市、半點更新上櫃。發票維持每 3 小時更新，單數月 25 日台北 13:00–23:50 加密為每 10 分鐘；共 5 個 cron。
 `wrangler.jsonc` 的 namespace ID 是佔位值，任何未來部署前都必須替換；目前不部署。
 執行 `npm run typecheck:worker`、`npm run test:worker` 驗證 Worker；stdio 建置不包含 Worker。
 

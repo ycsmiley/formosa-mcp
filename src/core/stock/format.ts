@@ -18,7 +18,7 @@ export function formatStockQuote(s: StockQuote): string {
       `收盤 ${number(s.close)}｜漲跌 ${s.changeNote ? `${s.changeNote}（不計漲跌）` : s.change === null ? '—' : signed(s.change) + pct}`,
       `開盤 ${number(s.open)}｜最高 ${number(s.high)}｜最低 ${number(s.low)}`,
     ]),
-    `成交量 ${number(s.volumeShares === null ? null : Math.round(s.volumeShares / 1000), 0)} 張｜成交金額 ${amount}`,
+    `成交量 ${number(s.volumeShares === null ? null : Math.round(s.volumeShares / 1000), 0)} 張（${s.market === '上市' ? '含零股' : '不含零股'}）｜成交金額 ${amount}`,
     `本益比 ${number(s.pe)}｜殖利率 ${number(s.yield)}${s.yield === null ? '' : '%'}｜股價淨值比 ${number(s.pb)}`,
     `資料來源：${s.market === '上市' ? '臺灣證券交易所' : '證券櫃檯買賣中心'} OpenAPI`,
   ].join('\n');

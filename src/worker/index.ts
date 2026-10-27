@@ -1,14 +1,30 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
 import { registerToolsets, toolsets } from '../mcp/toolsets.js';
-import { buildInvoiceSnapshot, buildStockSnapshot, encodeSnapshot, decodeSnapshot, type InvoiceSnapshot, type StockSnapshot } from '../core/snapshot.js';
-import type { StockMarketSnapshot } from '../core/stock/service.js';
+import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
 import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { fetchJson } from '../core/stock/source.js';
 export interface Env { SNAPSHOTS: KVNamespace; RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> } }
-export const keys = { invoice: 'invoice:v1', quotes: 'stock:quotes:v2', dividends: 'stock:dividends:v1' };
-async function read<T>(env: Env, key: string): Promise<T | null> { const raw = await env.SNAPSHOTS.get(key); return raw === null ? null : decodeSnapshot<T>(raw); }
+export const keys = { invoice: 'invoice:v1', twseQuotes: 'stock:quotes:twse:v1', tpexQuotes: 'stock:quotes:tpex:v1', twseDividends: 'stock:dividends:twse:v1', tpexDividends: 'stock:dividends:tpex:v1' };
+export const cronJobs = {
+  '0,30 * * * MON-FRI': 'twse',
+  '15,45 * * * MON-FRI': 'tpex',
+  '0,30 */6 * * SAT,SUN': 'weekend',
+  '0 */3 * * *': 'invoice',
+  '*/10 5-15 25 1,3,5,7,9,11 *': 'invoice',
+} as const;
+const isQuotes = (key: string) => key === keys.twseQuotes || key === keys.tpexQuotes;
+async function read<T>(env: Env, key: string): Promise<T | null> {
+  const { value, metadata } = await env.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(key);
+  if (value === null) return null;
+  const data = isQuotes(key) ? decodeQuotesSnapshot(value) : decodeSnapshot<{ updatedAt: string }>(value);
+  return { ...data, updatedAt: metadata?.updatedAt ?? data.updatedAt } as T;
+}
+async function readMarkets<T>(env: Env, twseKey: string, tpexKey: string) {
+  const [twse, tpex] = await Promise.all([read<MarketSnapshot<T>>(env, twseKey), read<MarketSnapshot<T>>(env, tpexKey)]);
+  return mergeStockSnapshots(twse, tpex);
+}
 const plain = (text: string, status = 200, headers = {}) => new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', ...headers } });
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -29,7 +45,7 @@ export default {
         const server = new McpServer({ name: 'formosa-mcp', version: '0.1.0' });
         registerToolsets(server, toolsets, {}, {
           loadDraws: async () => (await read<InvoiceSnapshot>(env, keys.invoice))?.draws ?? null,
-          snapshot: { quotes: () => read<StockMarketSnapshot<StockQuote>>(env, keys.quotes), dividends: () => read<StockMarketSnapshot<DividendEvent>>(env, keys.dividends) },
+          snapshot: { quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },
         });
         return server;
       }, { route: '/mcp' });
@@ -37,22 +53,29 @@ export default {
     } catch { return plain('伺服器暫時出錯，請稍後再試。', 500); }
   },
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
-    async function write(key: string, snapshot: object) {
-      const encoded = encodeSnapshot(snapshot); const old = await env.SNAPSHOTS.get(key);
-      // Timestamps describe the last data change; unchanged data consumes no KV write.
-      if (old && encodeSnapshot({ ...decodeSnapshot<object>(old), updatedAt: '' }) === encodeSnapshot({ ...snapshot, updatedAt: '' })) return;
-      await env.SNAPSHOTS.put(key, encoded); console.log(`${key} ${new TextEncoder().encode(encoded).length} bytes ok`);
+    async function write(key: string, snapshot: { updatedAt: string }) {
+      // Stable payloads compare directly, without decoding the old value. Metadata
+      // holds the last data-change time and is preserved when the payload is unchanged.
+      const stable = { ...snapshot, updatedAt: '' };
+      const encoded = isQuotes(key) ? encodeQuotesSnapshot(stable as MarketSnapshot<StockQuote>) : encodeSnapshot(stable);
+      if (await env.SNAPSHOTS.get(key) === encoded) return;
+      await env.SNAPSHOTS.put(key, encoded, { metadata: { updatedAt: snapshot.updatedAt } });
+      console.log(`${key} ${new TextEncoder().encode(encoded).length} bytes ok`);
     }
-    const invoiceCron = ['0 */3 * * *', '*/10 5-15 25 1,3,5,7,9,11 *'];
-    const stockCron = ['*/30 * * * 1-5', '0 */6 * * *'];
-    const unknown = ![...invoiceCron, ...stockCron].includes(controller.cron);
-    await Promise.all([
-      (async () => { if (unknown || invoiceCron.includes(controller.cron)) { try { await write(keys.invoice, await buildInvoiceSnapshot(fetchInvoiceFeed)); } catch { console.log(`${keys.invoice} fail`); } } })(),
-      (async () => { if (unknown || stockCron.includes(controller.cron)) { try {
-        const previous: Partial<StockSnapshot> = { quotes: await read(env, keys.quotes) ?? undefined, dividends: await read(env, keys.dividends) ?? undefined };
-        const data = await buildStockSnapshot(fetchJson, previous);
-        for (const kind of ['quotes', 'dividends'] as const) { if (data[kind].twse || data[kind].tpex) await write(keys[kind], data[kind]); else console.log(`${keys[kind]} fail`); }
-      } catch { console.log('stock fail'); } } })(),
-    ]);
+    const configured = Object.hasOwn(cronJobs, controller.cron) ? cronJobs[controller.cron as keyof typeof cronJobs] : undefined;
+    const job = configured === 'weekend' ? (new Date(controller.scheduledTime).getUTCMinutes() < 30 ? 'twse' : 'tpex') : configured;
+    // Production only sends configured crons. Unknown cron is local bootstrap.
+    const jobs = job ? [job] : ['invoice', 'twse', 'tpex'] as const;
+    await Promise.all(jobs.map(async job => {
+      if (job === 'invoice') {
+        try { await write(keys.invoice, await buildInvoiceSnapshot(fetchInvoiceFeed)); } catch { console.log(`${keys.invoice} fail`); }
+        return;
+      }
+      const data = await buildStockSnapshot(job, fetchJson);
+      await Promise.all((['quotes', 'dividends'] as const).map(async kind => {
+        const key = keys[`${job}${kind === 'quotes' ? 'Quotes' : 'Dividends'}`];
+        try { if (data[kind]) await write(key, data[kind]); else console.log(`${key} fail`); } catch { console.log(`${key} fail`); }
+      }));
+    }));
   },
 };
