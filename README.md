@@ -36,11 +36,11 @@ Claude Code：`claude plugin marketplace add ycsmiley/formosa-mcp`，再執行 `
 
 至 [TDX 註冊](https://tdx.transportdata.tw/register) 成為會員（審核後），在會員中心 → API金鑰取得 Client Id／Secret，設定環境變數 `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET` 並重新啟動。以 `node dist/stdio.js --toolsets rail` 或 `--toolsets invoice,stock,rail` 啟用；缺金鑰時仍列出工具，呼叫會顯示設定指引。全部啟用共 7 個工具。Worker 與 plugin 預設設定仍僅提供 invoice、stock。
 
-站名／英文名／站號皆可，支援台／臺、北車，高鐵「高雄」會解析為左營並提示。日期可用 YYYY-MM-DD、YYYY/MM/DD、今天／明天／後天或民國 115-10-28；未指定日期／當日時間使用 Asia/Taipei 現在時間，其他日期從 00:00 起。最多顯示 10 班，另有班次時提示第一筆未顯示班次的查詢時間；`time` 可用 00:00～29:59，24:00–29:59 表示營運日隔日凌晨。到達時刻小於出發時刻即跨午夜；有跨夜訊號時，未由回捲解釋的中午前時刻推定為隔日，出發移日則到達一併移日，晚間同日區間不會多加一天。僅中午規則造成的移日標示「跨夜日序依時刻推定」，隔日出發排在當晚班次後，詳見 [fixture README](test/fixtures/tdx/README.md)。每個資料請求明送 `$top=1000`，站表、班表或即時列數達上限時提示資料可能未完整，不做分頁。站表快取 24 小時；token 於有效期前更新並共用併發請求，API 401 僅重試一次。
+每個成功回覆標示：資料介接「交通部TDX平臺」。
 
-每個成功回覆標示：資料介接「交通部TDX平臺」。本次以本機文件範例及合成 fixtures 驗證，尚未使用真實 TDX 金鑰驗證。
+詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
 
-`npm run rail-demo` 全程離線：先啟動真正的 stdio server（`--toolsets rail`，強制清空兩項 TDX 金鑰）展示缺金鑰訊息，再以 in-process MCP client、固定時鐘及 mocked fetch 展示三個工具，包含兩種即時查詢。Fixture 注入只透過 `createServer({ railHttp })` 的程式相依注入；開發用 loader 位於 scripts，src 不引用它，沒有 CLI／工具參數／環境變數能切換 fixture。這避免正式 stdio 增加測試專用入口。**合成資料不是即時班表**：8121 次於臺中 14:00 晚 5 分、101 次於臺北 06:00 準點；車站看板另為 05:55 快照，含準點、晚 5 分及取消，表訂時刻與合成班表一致。不需要金鑰，也不會呼叫 TDX。
+尚未使用真實 TDX 金鑰驗證。
 
 ### 本機跑遠端版（Cloudflare Workers）
 
@@ -149,9 +149,15 @@ Requires Node.js 20 or later. The MCP-independent core in src/core supports stdi
 
 ### Rail (opt-in; your own TDX credentials)
 
-Enable `--toolsets rail` or `--toolsets invoice,stock,rail` after setting `TDX_CLIENT_ID` and `TDX_CLIENT_SECRET` from TDX Member Center → API keys (membership approval required). Tools: `thsr_timetable {origin,destination,date?,time?}`, `tra_timetable {origin,destination,date?,time?}`, and `tra_live {train_no?,station?}` (exactly one). Defaults remain invoice/stock; Workers exclude rail. Successful rail replies end with 資料介接「交通部TDX平臺」.
+- `thsr_timetable {origin, destination, date?, time?}`
+- `tra_timetable {origin, destination, date?, time?}`
+- `tra_live {train_no?, station?}` (exactly one argument)
 
-`npm run rail-demo` runs offline: actual stdio without keys, then an in-process MCP client with injected fixture HTTP and clock. No production fixture flag or environment variable exists. Synthetic timetables are not live data: live snapshots show 8121 at Taichung at 14:00 (5 minutes late) and 101 at Taipei at 06:00 (on time); the separate 05:55 station board matches timetable times and includes on-time, delayed and cancelled trains. Arrival before departure establishes midnight rollover. With an overnight signal, otherwise unexplained times before noon are inferred as next-day; shifting departure also shifts arrival. Evening segments stay on the same day, and only noon-rule shifts carry the inference note. Real overnight semantics still need verification. `time` accepts 00:00–29:59; 24:00–29:59 means the operating day’s next morning. Results show up to 10 trains and suggest the first hidden departure as the next query time. Every data request sends `$top=1000`; reaching that row count adds an incompleteness warning, without paging. See the [fixture sources and TODOs](test/fixtures/tdx/README.md).
+[Register with TDX](https://tdx.transportdata.tw/register), obtain an API key from the member center, and set `TDX_CLIENT_ID` and `TDX_CLIENT_SECRET`. Enable with `--toolsets rail` or `--toolsets invoice,stock,rail`. Defaults remain invoice and stock; Worker and plugin exclude rail.
+
+Successful rail replies end with 資料介接「交通部TDX平臺」. See the [TDX rail fixtures](test/fixtures/tdx/README.md).
+
+Not yet verified with a real TDX key.
 
 ### Local Cloudflare Workers remote
 

@@ -51,6 +51,55 @@ it.each([{}, { TDX_CLIENT_ID: env.TDX_CLIENT_ID }, { TDX_CLIENT_SECRET: env.TDX_
   }
   expect(http).not.toHaveBeenCalled(); expect(log).not.toHaveBeenCalled();
 });
+it('enforces the station input length through MCP', async () => {
+  const client = await setup();
+  const rejected = await call(client, 'thsr_timetable', { ...args, origin: 'x'.repeat(51) });
+  expect(rejected.isError).toBe(true);
+  const accepted = await call(client, 'thsr_timetable', { ...args, origin: 'x'.repeat(50) });
+  expect(accepted.isError).toBe(true); expect(accepted.text).toContain('找不到車站');
+});
+it.each(['THSR', 'TRA'] as const)('skips malformed %s timetable rows before filtering', async railway => {
+  const http: RailHttp = async (url, init) => {
+    if (!url.includes('/OD/')) return fixtureHttp(url, init);
+    const data = railFixture(railway === 'THSR' ? 'thsr-od' : 'tra-od');
+    const valid = railway === 'THSR' ? data[0] : data.TrainTimetables[0];
+    const missing = structuredClone(valid), badNo = structuredClone(valid), badTime = structuredClone(valid), mismatch = structuredClone(valid);
+    if (railway === 'THSR') {
+      delete missing.OriginStopTime; badNo.DailyTrainInfo.TrainNo = 'abc'; badTime.OriginStopTime.DepartureTime = 'bad'; mismatch.DestinationStopTime.StationID = 'wrong';
+    } else {
+      delete missing.StopTimes; badNo.TrainInfo.TrainNo = 'abc'; badTime.StopTimes[0].DepartureTime = 'bad'; mismatch.StopTimes[1].StationID = 'wrong';
+    }
+    const rows = [valid, missing, badNo, badTime, mismatch];
+    return response(railway === 'THSR' ? rows : { ...data, TrainTimetables: rows });
+  };
+  const client = await setup({ railHttp: http });
+  const tool = railway === 'THSR' ? 'thsr_timetable' : 'tra_timetable';
+  const result = await call(client, tool, args);
+  expect(result.isError).not.toBe(true); expect(result.text).toMatch(/\d+ 次/);
+  expect(result.text.split('部分班次資料不完整')).toHaveLength(2);
+  const filtered = await call(client, tool, { ...args, time: '29:59' });
+  expect(filtered.text).toContain('當天此時段後沒有班次'); expect(filtered.text).toContain('部分班次資料不完整');
+  const allBad: RailHttp = async (url, init) => {
+    if (!url.includes('/OD/')) return fixtureHttp(url, init);
+    return response(railway === 'THSR' ? [{}] : { TrainTimetables: [{}] });
+  };
+  const empty = await call(await setup({ railHttp: allBad }), tool, args);
+  expect(empty.isError).not.toBe(true); expect(empty.text).toContain('當天此時段後沒有班次'); expect(empty.text).toContain('部分班次資料不完整');
+});
+it.each(['train', 'station'] as const)('skips malformed live %s rows, including when all are invalid', async mode => {
+  for (const allBad of [false, true]) {
+    const http: RailHttp = async (url, init) => {
+      if (!url.includes(mode === 'train' ? 'TrainLiveBoard' : 'StationLiveBoard')) return fixtureHttp(url, init);
+      const data = railFixture(mode === 'train' ? 'tra-train-live' : 'tra-station-live');
+      const key = mode === 'train' ? 'TrainLiveBoards' : 'StationLiveBoards';
+      data[key] = [...(allBad ? [] : data[key]), { TrainNo: 'abc' }];
+      return response(data);
+    };
+    const result = await call(await setup({ railHttp: http }), 'tra_live', mode === 'train' ? { train_no: '8121' } : { station: '臺北' });
+    expect(result.isError).not.toBe(true); expect(result.text.split('部分班次資料不完整')).toHaveLength(2);
+    expect(result.text).toContain(allBad ? (mode === 'train' ? '查無此車次即時資料' : '查無車站即時資料') : '次｜');
+  }
+});
 it('formats THSR OD, sorts departures and numeric train-number ties, appends attribution', async () => {
   const r = await call(await setup(), 'thsr_timetable', args);
   expect(r.isError).not.toBe(true);
@@ -301,7 +350,8 @@ it.each(['thsr-stations', 'thsr-od', 'tra-stations', 'tra-od', 'tra-train-live',
   const client = await setup({ railHttp: http });
   const r = file.includes('live') || file === 'token' ? await call(client, 'tra_live', file === 'tra-station-live' ? { station: '臺北' } : { train_no: '123' }) : await call(client, file.startsWith('thsr') ? 'thsr_timetable' : 'tra_timetable', args);
   if (file === 'token') expect(r.isError).not.toBe(true);
-  else { expect(r.isError).toBe(true); expect(r.text).toMatch(/找不到車站|TDX 服務暫時無法使用/); }
+  else if (file.endsWith('stations')) { expect(r.isError).toBe(true); expect(r.text).toContain('找不到車站'); }
+  else { expect(r.isError).not.toBe(true); expect(r.text).toContain('部分班次資料不完整'); }
 });
 it('keeps synthetic fields and types faithful to the doc example shapes', () => {
   function shape(actual: any, example: any) {
