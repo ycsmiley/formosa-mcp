@@ -1,0 +1,13 @@
+{
+  "name": "formosa-mcp",
+  "owner": {
+    "name": "ycsmiley"
+  },
+  "plugins": [
+    {
+      "name": "formosa",
+      "source": "./plugin",
+      "description": "Taiwan invoice lottery and stock tools"
+    }
+  ]
+}

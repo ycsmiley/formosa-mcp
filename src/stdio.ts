@@ -4,6 +4,7 @@ import { createServer } from './mcp/server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { parseToolsetsArg } from './mcp/cli.js';
 import { toolsets } from './mcp/toolsets.js';
+declare const __FORMOSA_VERSION__: string | undefined;
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`formosa-mcp — 讓 AI agent 懂台灣 / Taiwan MCP server
@@ -17,7 +18,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
 } else {
   try {
     const selected = parseToolsetsArg(argv, toolsets.map(t => t.name));
-    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+    const version = typeof __FORMOSA_VERSION__ !== 'undefined' ? __FORMOSA_VERSION__ : (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
     const server = createServer({ toolsets: selected, env: process.env, version });
     await server.connect(new StdioServerTransport());
   } catch (error) {

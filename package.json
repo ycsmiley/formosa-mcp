@@ -27,7 +27,9 @@
     "dev:worker": "wrangler dev --test-scheduled",
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "typecheck:worker": "tsc -p tsconfig.worker.json",
-    "remote-check": "tsx scripts/remote-check.ts"
+    "remote-check": "tsx scripts/remote-check.ts",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "plugin-check": "tsx scripts/plugin-check.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
@@ -43,7 +45,8 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12",
-    "wrangler": "4.153.0"
+    "wrangler": "4.153.0",
+    "esbuild": "0.28.2"
   },
   "main": "dist/core/index.js",
   "exports": {

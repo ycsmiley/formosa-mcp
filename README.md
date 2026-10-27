@@ -26,6 +26,8 @@
 
 需要 Node.js 20 以上。提供 stdio；src/core 核心函式庫獨立於 MCP。Worker 開發工具需要 Node.js 22 以上。
 
+Claude Code：`claude plugin marketplace add ycsmiley/formosa-mcp`，再執行 `claude plugin install formosa@formosa-mcp`；修改 server 後以 `npm run build:plugin` 更新 bundle。（格式參考 [Agent Skills](https://agentskills.io/specification) 與 [Claude Code plugins](https://code.claude.com/docs/en/plugins-reference)。）
+
 ### 本機跑遠端版（Cloudflare Workers）
 
 目前僅供本機測試，沒有公開 URL，也不需要 Cloudflare 登入。
