@@ -55,7 +55,7 @@ export function createRailService(options: RailServiceOptions) {
       const lines = [`${railway === 'THSR' ? '高鐵' : '臺鐵'}時刻｜${origin.name} → ${destination.name}｜營運日 ${date}｜${operatingHHmm(after)} 起（臺北時間）`,
         ...new Set([origin.note, destination.note].filter(Boolean)),
         ...rows.slice(0, 10).map(row => `${row.no} 次｜${row.type}｜${showTime(row.departure)} → ${showTime(row.arrival)}｜${duration(row.arrival - row.departure)}${row.markers.length ? `｜${row.markers.join('、')}` : ''}`)];
-      if (!rows.length) lines.push('當天此時段後沒有班次');
+      if (!rows.length) lines.push(skipped ? '此時段後沒有可顯示的完整班次資料' : '當天此時段後沒有班次');
       if (rows.length > 10) lines.push(`另有 ${rows.length - 10} 班，請指定 time=${operatingHHmm(rows[10].departure)} 查詢`);
       if (origin.truncated || destination.truncated || source.length === railRowLimit) lines.push(truncatedNote);
       if (skipped) lines.push(incompleteNote);
@@ -70,7 +70,7 @@ export function createRailService(options: RailServiceOptions) {
         const source = list(data.TrainLiveBoards);
         const rows = source.map(object).filter(row => /^\d+$/.test(string(row.TrainNo)));
         const skipped = rows.length !== source.length;
-        if (!rows.length) return ['查無此車次即時資料（可能尚未發車或已抵達）', ...(source.length === railRowLimit ? [truncatedNote] : []), ...(skipped ? [incompleteNote] : [])].join('\n');
+        if (!rows.length) return [skipped ? '查無可顯示的完整即時資料' : '查無此車次即時資料（可能尚未發車或已抵達）', ...(source.length === railRowLimit ? [truncatedNote] : []), ...(skipped ? [incompleteNote] : [])].join('\n');
         const lines = rows.map(row => `${trainNo(row.TrainNo)} 次｜${name(row.TrainTypeName, '車種未提供')}｜${delay(row.DelayTime, undefined)}\n目前位置：${name(row.StationName)}（${row.TrainStationStatus === 0 ? '進站中' : row.TrainStationStatus === 1 ? '在站上' : row.TrainStationStatus === 2 ? '已離站' : '狀態未提供'}）\n資料更新：${updated(row.UpdateTime ?? data.UpdateTime)}`);
         if (source.length === railRowLimit) lines.push(truncatedNote);
         if (skipped) lines.push(incompleteNote);
@@ -81,7 +81,7 @@ export function createRailService(options: RailServiceOptions) {
       const source = list(data.StationLiveBoards);
       const rows = source.map(object).filter(row => /^\d+$/.test(string(row.TrainNo)));
       const skipped = rows.length !== source.length;
-      if (!rows.length) return [`${station.name}｜查無車站即時資料`, ...(station.truncated || source.length === railRowLimit ? [truncatedNote] : []), ...(skipped ? [incompleteNote] : [])].join('\n');
+      if (!rows.length) return [`${station.name}｜${skipped ? '查無可顯示的完整即時資料' : '查無車站即時資料'}`, ...(station.truncated || source.length === railRowLimit ? [truncatedNote] : []), ...(skipped ? [incompleteNote] : [])].join('\n');
       return [`臺鐵即時看板｜${station.name}`, ...rows.map(row => {
         const dep = minutes(row.ScheduleDepartureTime), arr = minutes(row.ScheduleArrivalTime);
         const platform = string(row.Platform);

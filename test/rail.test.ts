@@ -78,13 +78,13 @@ it.each(['THSR', 'TRA'] as const)('skips malformed %s timetable rows before filt
   expect(result.isError).not.toBe(true); expect(result.text).toMatch(/\d+ 次/);
   expect(result.text.split('部分班次資料不完整')).toHaveLength(2);
   const filtered = await call(client, tool, { ...args, time: '29:59' });
-  expect(filtered.text).toContain('當天此時段後沒有班次'); expect(filtered.text).toContain('部分班次資料不完整');
+  expect(filtered.text).toContain('此時段後沒有可顯示的完整班次資料'); expect(filtered.text).not.toContain('當天此時段後沒有班次'); expect(filtered.text).toContain('部分班次資料不完整');
   const allBad: RailHttp = async (url, init) => {
     if (!url.includes('/OD/')) return fixtureHttp(url, init);
     return response(railway === 'THSR' ? [{}] : { TrainTimetables: [{}] });
   };
   const empty = await call(await setup({ railHttp: allBad }), tool, args);
-  expect(empty.isError).not.toBe(true); expect(empty.text).toContain('當天此時段後沒有班次'); expect(empty.text).toContain('部分班次資料不完整');
+  expect(empty.isError).not.toBe(true); expect(empty.text).toContain('此時段後沒有可顯示的完整班次資料'); expect(empty.text).not.toContain('當天此時段後沒有班次'); expect(empty.text).toContain('部分班次資料不完整');
 });
 it.each(['train', 'station'] as const)('skips malformed live %s rows, including when all are invalid', async mode => {
   for (const allBad of [false, true]) {
@@ -97,7 +97,10 @@ it.each(['train', 'station'] as const)('skips malformed live %s rows, including 
     };
     const result = await call(await setup({ railHttp: http }), 'tra_live', mode === 'train' ? { train_no: '8121' } : { station: '臺北' });
     expect(result.isError).not.toBe(true); expect(result.text.split('部分班次資料不完整')).toHaveLength(2);
-    expect(result.text).toContain(allBad ? (mode === 'train' ? '查無此車次即時資料' : '查無車站即時資料') : '次｜');
+    if (allBad) {
+      expect(result.text).toContain(mode === 'train' ? '查無可顯示的完整即時資料' : '臺北｜查無可顯示的完整即時資料');
+      expect(result.text).not.toContain(mode === 'train' ? '查無此車次即時資料' : '查無車站即時資料');
+    } else expect(result.text).toContain('次｜');
   }
 });
 it('formats THSR OD, sorts departures and numeric train-number ties, appends attribution', async () => {
@@ -161,7 +164,7 @@ it('uses Taipei now only for today, reports empty time windows', async () => {
   const r = await call(client, 'thsr_timetable', { origin: '臺北', destination: '左營' });
   expect(r.text).not.toContain('0601 次'); expect(r.text).toContain('0801 次');
   const empty = await call(await setup({ railHttp: async (url, init) => url.includes('/OD/') ? response([]) : fixtureHttp(url, init) }), 'thsr_timetable', args);
-  expect(empty.text).toContain('當天此時段後沒有班次'); expect(empty.text.endsWith(attribution)).toBe(true);
+  expect(empty.text).toContain('當天此時段後沒有班次'); expect(empty.text).not.toContain('部分班次資料不完整'); expect(empty.text.endsWith(attribution)).toBe(true);
 });
 it('limits to ten departures and reports the remainder', async () => {
   const http: RailHttp = async (url, init) => {
@@ -335,9 +338,9 @@ it('formats station board delays, cancellation, scheduled times and platforms', 
 });
 it('handles empty live train and station results with attribution', async () => {
   const r = await call(await setup(), 'tra_live', { train_no: '99999' });
-  expect(r.isError).not.toBe(true); expect(r.text).toContain('查無此車次即時資料（可能尚未發車或已抵達）'); expect(r.text.endsWith(attribution)).toBe(true);
+  expect(r.isError).not.toBe(true); expect(r.text).toContain('查無此車次即時資料（可能尚未發車或已抵達）'); expect(r.text).not.toContain('部分班次資料不完整'); expect(r.text.endsWith(attribution)).toBe(true);
   const empty = await service((url, init) => url.includes('StationLiveBoard') ? Promise.resolve(response({ StationLiveBoards: [] })) : fixtureHttp(url, init)).live({ station: '臺北' });
-  expect(empty.text).toContain('查無車站即時資料'); expect(empty.text.endsWith(attribution)).toBe(true);
+  expect(empty.text).toContain('查無車站即時資料'); expect(empty.text).not.toContain('部分班次資料不完整'); expect(empty.text.endsWith(attribution)).toBe(true);
 });
 it.each([{}, { train_no: '123', station: '臺北' }, { train_no: '123/../../' }, { station: '' }])('rejects invalid live arguments %j', async input => {
   const r = await call(await setup(), 'tra_live', input); expect(r.isError).toBe(true);
