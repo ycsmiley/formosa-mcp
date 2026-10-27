@@ -10,7 +10,7 @@ import { fixtureHttp } from './rail-fixtures.js';
 const calls = [
   ['thsr_timetable', { origin: '北車', destination: '高雄', date: '2026-10-28', time: '22:00' }],
   ['tra_timetable', { origin: '臺北', destination: '高雄', date: '2026-10-28', time: '00:00' }],
-  ['tra_live', { train_no: '123' }],
+  ['tra_live', { train_no: '8121' }],
   ['tra_live', { station: '臺北' }],
 ] as const;
 async function show(client: Client, missing: boolean) {
@@ -20,6 +20,11 @@ async function show(client: Client, missing: boolean) {
     assert.equal(result.isError === true, missing);
     const text = (result.content as { text: string }[]).map(c => c.text).join('\n');
     assert.ok(missing ? text.includes('需要 TDX 會員 API 金鑰') : text.endsWith('資料介接「交通部TDX平臺」'));
+    if (!missing && name === 'tra_live') {
+      assert.ok(text.includes('晚 5 分'));
+      if ('train_no' in args) assert.ok(text.includes('8121 次') && text.includes('目前位置：臺中（已離站）') && text.includes('14:00（臺北時間）'));
+      else for (const part of ['101 次', '表訂到站 06:00／離站 06:00', '8121 次', '表訂到站 12:00／離站 12:00', '115 次', '取消']) assert.ok(text.includes(part));
+    }
     console.log(`\n${name}\n${text}`);
   }
 }

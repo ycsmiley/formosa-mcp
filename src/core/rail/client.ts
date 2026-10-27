@@ -5,6 +5,8 @@ export type RailHttp = (url: string, init: { method?: string; headers?: Record<s
 export interface RailCredentials { clientId: string; clientSecret: string }
 export const unavailable = 'TDX 服務暫時無法使用，請稍後再試';
 export const rejected = 'TDX 金鑰驗證失敗，請確認 TDX_CLIENT_ID／TDX_CLIENT_SECRET';
+export const railRowLimit = 1000;
+export const truncatedNote = '資料可能未完整（已達單次上限）';
 export class RailError extends Error {}
 export const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 export const string = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
@@ -46,7 +48,7 @@ export function createTdxClient(credentials: RailCredentials, http: RailHttp, cl
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           const access = await token();
-          const response = await request(`https://tdx.transportdata.tw/api/basic${path}?$format=JSON`, { headers: { authorization: `Bearer ${access}` } });
+          const response = await request(`https://tdx.transportdata.tw/api/basic${path}?$format=JSON&$top=${railRowLimit}`, { headers: { authorization: `Bearer ${access}` } });
           if (response.status === 401 && attempt === 0) {
             // A concurrent 401 for an older token must not invalidate its replacement.
             if (cached?.token === access) cached = undefined;

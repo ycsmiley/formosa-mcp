@@ -5,7 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer, type ServerOptions } from '../src/mcp/server.js';
 import { createRailService } from '../src/core/rail/service.js';
 import { operatingTimes } from '../src/core/rail/time.js';
-import { createTdxClient, rejected, unavailable, type RailHttp } from '../src/core/rail/client.js';
+import { createTdxClient, railRowLimit, rejected, truncatedNote, unavailable, type RailHttp } from '../src/core/rail/client.js';
 import { fixtureHttp, railFixture } from '../scripts/rail-fixtures.js';
 
 const env = { TDX_CLIENT_ID: 'private-id-marker', TDX_CLIENT_SECRET: 'private-secret-marker' };
@@ -90,15 +90,17 @@ it.each([
   expect(r.isError).not.toBe(true); expect(r.text).toContain(`營運日 ${expected}`);
   expect(r.text).toContain(expected === '2026-10-28' ? '00:30 起' : '00:00 起');
   expect(http.mock.calls.some(([url]) => url.includes(`/to/4400/${expected}?$format=JSON`))).toBe(true);
-  expect(http.mock.calls.every(([url]) => !url.includes('$top'))).toBe(true);
+  expect(http.mock.calls.filter(([url]) => !url.endsWith('/token')).every(([url]) => url.includes(`$top=${railRowLimit}`))).toBe(true);
 });
 it.each(['2026-02-29', '2026/13/01', '115/02/30', 'tomorrow', '', '2026-1-01', '民國 2026-10-28'])('rejects invalid date %s before fetching', async date => {
   const http = vi.fn(fixtureHttp);
   const r = await call(await setup({ railHttp: http }), 'tra_timetable', { ...args, date });
   expect(r.isError).toBe(true); expect(r.text).toContain('日期格式不正確'); expect(http).not.toHaveBeenCalled();
 });
-it.each(['24:00', '9:00', '09:60', '12:00:00', ''])('rejects invalid time %s', async time => {
-  const r = await call(await setup(), 'tra_timetable', { ...args, time }); expect(r.isError).toBe(true); expect(r.text).toContain('時間格式不正確');
+it.each(['30:00', '99:00', '9:00', '09:60', '24:60', '12:00:00', ''])('rejects invalid time %s', async time => {
+  const http = vi.fn(fixtureHttp);
+  const r = await call(await setup({ railHttp: http }), 'tra_timetable', { ...args, time });
+  expect(r.isError).toBe(true); expect(r.text).toContain('時間格式不正確'); expect(r.text).toContain('00:00～29:59'); expect(http).not.toHaveBeenCalled();
 });
 it('filters at-or-after inclusively and retains next-day departures after evening trains', async () => {
   const client = await setup();
@@ -119,6 +121,82 @@ it('limits to ten departures and reports the remainder', async () => {
   };
   const r = await call(await setup({ railHttp: http }), 'thsr_timetable', args);
   expect([...r.text.matchAll(/^\d+ 次/gm)]).toHaveLength(10); expect(r.text).toContain('另有 3 班');
+});
+it.each(['24:00', '24:40', '29:59'])('accepts operating-day next-morning time %s', async time => {
+  const r = await call(await setup(), 'thsr_timetable', { ...args, time });
+  expect(r.isError).not.toBe(true); expect(r.text).toContain(`${time} 起`);
+  if (time === '29:59') expect(r.text).toContain('當天此時段後沒有班次');
+  else expect([...r.text.matchAll(/^(\d+) 次/gm)].map(m => m[1])).toEqual(['0998']);
+});
+it('suggests a usable 24+ time to reach the remaining next-day departures', async () => {
+  const http: RailHttp = async (url, init) => {
+    if (!url.includes('/OD/')) return fixtureHttp(url, init);
+    return response(Array.from({ length: 13 }, (_, i) => {
+      const row = railFixture('thsr-od')[0];
+      row.DailyTrainInfo.TrainNo = String(600 + i);
+      row.DailyTrainInfo.Overnight = true;
+      row.OriginStopTime.DepartureTime = `00:${String(i * 4).padStart(2, '0')}:00`;
+      row.DestinationStopTime.ArrivalTime = `02:${String(i * 4).padStart(2, '0')}:00`;
+      return row;
+    }).reverse());
+  };
+  const client = await setup({ railHttp: http });
+  const first = await call(client, 'thsr_timetable', { ...args, time: '24:00' });
+  expect([...first.text.matchAll(/^(\d+) 次/gm)].map(m => m[1])).toEqual(Array.from({ length: 10 }, (_, i) => String(600 + i)));
+  expect(first.text).toContain('另有 3 班');
+  const suggested = /另有 3 班，請指定 time=(\d{2}:\d{2}) 查詢/.exec(first.text)?.[1];
+  expect(suggested).toBe('24:40');
+  const next = await call(client, 'thsr_timetable', { ...args, time: suggested! });
+  expect([...next.text.matchAll(/^(\d+) 次/gm)].map(m => m[1])).toEqual(['610', '611', '612']);
+  expect(next.text).not.toContain('另有');
+});
+it('sends an explicit row cap on all six data endpoints', async () => {
+  const http = vi.fn(fixtureHttp), s = service(http);
+  await s.timetable('THSR', args); await s.timetable('TRA', args);
+  await s.live({ train_no: '8121' }); await s.live({ station: '臺北' });
+  const urls = http.mock.calls.map(([url]) => url).filter(url => !url.endsWith('/token'));
+  expect(urls).toHaveLength(6);
+  for (const url of urls) {
+    expect(url).toContain(`$top=${railRowLimit}`);
+    expect(new URL(url).searchParams.get('$top')).toBe(String(railRowLimit));
+    expect(new URL(url).searchParams.has('$skip')).toBe(false);
+  }
+});
+it.each([
+  ['thsr-stations', '/THSR/Station?', undefined], ['tra-stations', '/TRA/Station?', 'Stations'],
+  ['thsr-od', '/THSR/DailyTimetable/OD/', undefined], ['tra-od', '/TRA/DailyTrainTimetable/OD/', 'TrainTimetables'],
+  ['tra-train-live', '/TRA/TrainLiveBoard/', 'TrainLiveBoards'], ['tra-station-live', '/TRA/StationLiveBoard/', 'StationLiveBoards'],
+] as const)('warns when %s reaches the cap, including cached stations and filtered timetables', async (file, path, field) => {
+  const http: RailHttp = async (url, init) => {
+    if (!url.includes(path)) return fixtureHttp(url, init);
+    const data = railFixture(file), source = field ? data[field] : data;
+    const rows = Array.from({ length: railRowLimit }, (_, i) => source[i % source.length]);
+    return response(field ? { ...data, [field]: rows } : rows);
+  };
+  const client = await setup({ railHttp: http });
+  for (let i = 0; i < 2; i++) {
+    const r = file.endsWith('live')
+      ? await call(client, 'tra_live', file === 'tra-train-live' ? { train_no: '8121' } : { station: '臺北' })
+      : await call(client, file.startsWith('thsr') ? 'thsr_timetable' : 'tra_timetable', { ...args, time: '29:59' });
+    expect(r.isError).not.toBe(true);
+    expect(r.text.split(truncatedNote)).toHaveLength(2);
+    expect(r.text.endsWith(attribution)).toBe(true);
+  }
+});
+it('warns about a capped station list on missing stations and an empty station board', async () => {
+  const http: RailHttp = async (url, init) => {
+    if (url.includes('/TRA/Station?')) {
+      const data = railFixture('tra-stations');
+      data.Stations = Array.from({ length: railRowLimit }, (_, i) => data.Stations[i % data.Stations.length]);
+      return response(data);
+    }
+    return url.includes('StationLiveBoard') ? response({ StationLiveBoards: [] }) : fixtureHttp(url, init);
+  };
+  const client = await setup({ railHttp: http });
+  const missing = await call(client, 'tra_live', { station: '不存在' });
+  expect(missing.isError).toBe(true); expect(missing.text).toContain(truncatedNote);
+  const empty = await call(client, 'tra_live', { station: '臺北' });
+  expect(empty.isError).not.toBe(true); expect(empty.text).toContain('查無車站即時資料'); expect(empty.text).toContain(truncatedNote);
 });
 it('caches station lists for 24h and deduplicates concurrent station and token requests', async () => {
   let now = clock().getTime();
@@ -190,20 +268,20 @@ it.each(['token-reject', 'token-503', 'api-503', 'throw', 'json', 'malformed-tok
   for (const secret of privateText.split(' ')) expect(r.text).not.toContain(secret);
   expect(log).not.toHaveBeenCalled(); for (const spy of spies) expect(spy).not.toHaveBeenCalled();
 });
-it.each([['123', '晚 5 分', '已離站', '臺中'], ['101', '準點', '在站上', '臺北']])('formats live train %s', async (train_no, delay, status, station) => {
+it.each([['8121', '晚 5 分', '已離站', '臺中', '14:00'], ['101', '準點', '在站上', '臺北', '06:00']])('formats live train %s', async (train_no, delay, status, station, time) => {
   const r = await call(await setup(), 'tra_live', { train_no });
   expect(r.text).toContain(delay); expect(r.text).toContain(`目前位置：${station}（${status}）`);
-  expect(r.text).toContain('2026-10-28 09:00（臺北時間）'); expect(r.text.endsWith(attribution)).toBe(true);
+  expect(r.text).toContain(`2026-10-28 ${time}（臺北時間）`); expect(r.text.endsWith(attribution)).toBe(true);
 });
 it('formats train approaching station and handles unknown update timestamp safely', async () => {
   const http: RailHttp = async () => { const data = railFixture('tra-train-live'); data.TrainLiveBoards[0].TrainStationStatus = 0; data.TrainLiveBoards[0].UpdateTime = 'string'; return response(data); };
   // Use a real token fixture then the modified API response.
-  const r = await service((url, init) => url.endsWith('/token') ? fixtureHttp(url, init) : http(url, init)).live({ train_no: '123' });
+  const r = await service((url, init) => url.endsWith('/token') ? fixtureHttp(url, init) : http(url, init)).live({ train_no: '8121' });
   expect(r.text).toContain('進站中'); expect(r.text).toContain('更新時間未提供');
 });
 it('formats station board delays, cancellation, scheduled times and platforms', async () => {
   const r = await call(await setup(), 'tra_live', { station: '台北車站' });
-  for (const part of ['準點', '晚 5 分', '取消', '月台 1', '表訂到站 09:10／離站 09:12', '往 高雄']) expect(r.text).toContain(part);
+  for (const part of ['準點', '晚 5 分', '取消', '月台 1', '101 次', '表訂到站 06:00／離站 06:00', '8121 次', '表訂到站 12:00／離站 12:00', '115 次', '表訂到站 10:00／離站 10:00', '往 高雄']) expect(r.text).toContain(part);
   expect(r.text.endsWith(attribution)).toBe(true);
 });
 it('handles empty live train and station results with attribution', async () => {
@@ -236,9 +314,35 @@ it('keeps synthetic fields and types faithful to the doc example shapes', () => 
   for (const file of ['thsr-stations', 'thsr-od', 'tra-stations', 'tra-od', 'tra-train-live', 'tra-station-live', 'token']) shape(railFixture(file), railFixture(file, 'doc-examples'));
 });
 it('handles cross-day markers even without clock wrap and exposes inference', () => {
-  expect(operatingTimes(23 * 60, 23 * 60 + 30, true, undefined)).toEqual({ departure: 1380, arrival: 2850, inferred: true });
+  expect(operatingTimes(23 * 60, 23 * 60 + 30, true, undefined)).toEqual({ departure: 1380, arrival: 1410, inferred: false });
   expect(operatingTimes(23 * 60, 60, false, undefined)).toEqual({ departure: 1380, arrival: 1500, inferred: false });
-  expect(operatingTimes(30, 60, true, 'destination')).toEqual({ departure: 30, arrival: 1500, inferred: false });
+  expect(operatingTimes(30, 60, true, 'destination')).toEqual({ departure: 1470, arrival: 1500, inferred: true });
+  expect(operatingTimes(1435, 1439, true, 'origin')).toEqual({ departure: 1435, arrival: 1439, inferred: false });
+  expect(operatingTimes(1435, 30, true, 'destination')).toEqual({ departure: 1435, arrival: 1470, inferred: false });
+  expect(operatingTimes(45, 315, true, 'origin')).toEqual({ departure: 1485, arrival: 1755, inferred: true });
+  expect(operatingTimes(719, 720, true, undefined)).toEqual({ departure: 2159, arrival: 2160, inferred: true });
+  expect(operatingTimes(720, 780, true, undefined)).toEqual({ departure: 720, arrival: 780, inferred: false });
+  expect(operatingTimes(60, 30, true, undefined)).toEqual({ departure: 1500, arrival: 2910, inferred: true });
+});
+it.each(['THSR', 'TRA'] as const)('keeps an evening %s segment on the operating day despite overnight signals', async railway => {
+  const http: RailHttp = async (url, init) => {
+    if (!url.includes('/OD/')) return fixtureHttp(url, init);
+    if (railway === 'THSR') {
+      const row = railFixture('thsr-od')[0];
+      row.DailyTrainInfo.Overnight = true;
+      row.OriginStopTime.DepartureTime = '21:00:00'; row.DestinationStopTime.ArrivalTime = '22:00:00';
+      return response([row]);
+    }
+    const data = railFixture('tra-od'), row = data.TrainTimetables[0];
+    row.TrainInfo.OverNightStationID = '1000';
+    row.StopTimes[0].DepartureTime = '23:55:00'; row.StopTimes[1].ArrivalTime = '23:59:00';
+    data.TrainTimetables = [row];
+    return response(data);
+  };
+  const r = await call(await setup({ railHttp: http }), railway === 'THSR' ? 'thsr_timetable' : 'tra_timetable', args);
+  expect(r.isError).not.toBe(true);
+  expect(r.text).toContain(railway === 'THSR' ? '21:00 → 22:00｜1 小時 0 分' : '23:55 → 23:59｜4 分');
+  expect(r.text).not.toContain('隔日'); expect(r.text).not.toContain('跨夜日序依時刻推定');
 });
 
 const railQuestions = JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8')).filter((q: { toolset: string }) => q.toolset === 'rail');

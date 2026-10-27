@@ -32,10 +32,11 @@ export function minutes(value: unknown): number | undefined {
 }
 export function parseTime(value: string | undefined, date: string, now: Date) {
   if (value === undefined) { const local = taipeiNow(now); return date === local.date ? local.minutes : 0; }
-  const parsed = /^\d{2}:\d{2}$/.test(value) ? minutes(value) : undefined;
-  if (parsed === undefined) throw new RailError('時間格式不正確，請輸入 HH:mm（00:00～23:59）');
-  return parsed;
+  const match = /^([0-2]\d):([0-5]\d)$/.exec(value);
+  if (!match) throw new RailError('時間格式不正確，請輸入 HH:mm（00:00～29:59；24:00–29:59 表示營運日隔日凌晨）');
+  return +match[1] * 60 + +match[2];
 }
+export function operatingHHmm(value: number) { return `${pad(Math.floor(value / 60))}:${pad(value % 60)}`; }
 export function hhmm(value: number) { const m = value % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; }
 export function updated(value: unknown): string {
   if (typeof value !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return '更新時間未提供';
@@ -48,16 +49,14 @@ export function updated(value: unknown): string {
 /** Operating-day offsets. OD responses lack the full route; mark clock-based inference. */
 export function operatingTimes(departure: number, arrival: number, overnight: boolean, crossing: 'origin' | 'destination' | undefined) {
   let dep = departure, arr = arrival, inferred = false;
-  if (crossing === 'origin') { dep += 1440; arr += 1440; }
-  else if (crossing === 'destination') arr += 1440;
-  else if (arrival < departure) arr += 1440;
-  else if (overnight) {
-    // Early-morning stops of an overnight service follow that operating day's evening.
-    // Noon is an explicit fallback, not an assertion about undocumented TDX semantics.
-    if (departure < 720) { dep += 1440; arr += 1440; }
-    else arr += 1440;
+  const rollover = arrival < departure;
+  if (rollover) arr += 1440;
+  // A crossing station is an overnight signal, not proof of either OD stop's date.
+  // Only early times use the noon fallback; shifting departure also shifts arrival.
+  if ((overnight || crossing !== undefined) && departure < 720) {
+    dep += 1440;
+    arr += 1440;
     inferred = true;
   }
-  if (arr < dep) arr += 1440;
   return { departure: dep, arrival: arr, inferred };
 }

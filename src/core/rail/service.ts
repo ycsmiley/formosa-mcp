@@ -1,7 +1,7 @@
 import type { Clock } from '../clock.js';
-import { createTdxClient, list, object, RailError, string, unavailable, type RailCredentials, type RailHttp } from './client.js';
+import { createTdxClient, list, object, RailError, railRowLimit, string, truncatedNote, unavailable, type RailCredentials, type RailHttp } from './client.js';
 import { createStations, type Railway } from './stations.js';
-import { hhmm, minutes, operatingTimes, parseDate, parseTime, updated } from './time.js';
+import { hhmm, minutes, operatingHHmm, operatingTimes, parseDate, parseTime, updated } from './time.js';
 
 export const attribution = '資料介接「交通部TDX平臺」';
 export interface RailResult { text: string; isError?: boolean }
@@ -32,7 +32,8 @@ export function createRailService(options: RailServiceOptions) {
       if (origin.id === destination.id) throw new RailError('起站與迄站不可相同');
       const route = railway === 'THSR' ? '/v2/Rail/THSR/DailyTimetable' : '/v3/Rail/TRA/DailyTrainTimetable';
       const body = await client.get(`${route}/OD/${encodeURIComponent(origin.id)}/to/${encodeURIComponent(destination.id)}/${date}`);
-      const rows = list(railway === 'THSR' ? body : object(body).TrainTimetables).map(value => {
+      const source = list(railway === 'THSR' ? body : object(body).TrainTimetables);
+      const rows = source.map(value => {
         const row = object(value), info = object(railway === 'THSR' ? row.DailyTrainInfo : row.TrainInfo);
         const stops = railway === 'THSR' ? [] : list(row.StopTimes).map(object);
         const from = railway === 'THSR' ? object(row.OriginStopTime) : stops.find(s => s.StationID === origin.id);
@@ -47,11 +48,12 @@ export function createRailService(options: RailServiceOptions) {
         return { ...times, no: trainNo(info.TrainNo), type: railway === 'TRA' ? name(info.TrainTypeName, '車種未提供') : '高鐵',
           markers: [suspended, info.ExtraTrainFlag === 1 ? '加班車' : '', times.inferred ? '跨夜日序依時刻推定' : ''].filter(Boolean) };
       }).filter(row => row.departure >= after).sort((a, b) => a.departure - b.departure || a.no.localeCompare(b.no, 'en', { numeric: true }));
-      const lines = [`${railway === 'THSR' ? '高鐵' : '臺鐵'}時刻｜${origin.name} → ${destination.name}｜營運日 ${date}｜${hhmm(after)} 起（臺北時間）`,
+      const lines = [`${railway === 'THSR' ? '高鐵' : '臺鐵'}時刻｜${origin.name} → ${destination.name}｜營運日 ${date}｜${operatingHHmm(after)} 起（臺北時間）`,
         ...new Set([origin.note, destination.note].filter(Boolean)),
         ...rows.slice(0, 10).map(row => `${row.no} 次｜${row.type}｜${showTime(row.departure)} → ${showTime(row.arrival)}｜${duration(row.arrival - row.departure)}${row.markers.length ? `｜${row.markers.join('、')}` : ''}`)];
       if (!rows.length) lines.push('當天此時段後沒有班次');
-      if (rows.length > 10) lines.push(`另有 ${rows.length - 10} 班，請指定較晚時間查詢`);
+      if (rows.length > 10) lines.push(`另有 ${rows.length - 10} 班，請指定 time=${operatingHHmm(rows[10].departure)} 查詢`);
+      if (origin.truncated || destination.truncated || source.length === railRowLimit) lines.push(truncatedNote);
       return lines.join('\n');
     }); },
     live(args: LiveArgs) { return run(async () => {
@@ -62,17 +64,19 @@ export function createRailService(options: RailServiceOptions) {
         const data = object(await client.get(`/v3/Rail/TRA/TrainLiveBoard/TrainNo/${encodeURIComponent(no)}`));
         const rows = list(data.TrainLiveBoards).map(object);
         if (!rows.length) return '查無此車次即時資料（可能尚未發車或已抵達）';
-        return rows.map(row => `${trainNo(row.TrainNo)} 次｜${name(row.TrainTypeName, '車種未提供')}｜${delay(row.DelayTime, undefined)}\n目前位置：${name(row.StationName)}（${row.TrainStationStatus === 0 ? '進站中' : row.TrainStationStatus === 1 ? '在站上' : row.TrainStationStatus === 2 ? '已離站' : '狀態未提供'}）\n資料更新：${updated(row.UpdateTime ?? data.UpdateTime)}`).join('\n');
+        const lines = rows.map(row => `${trainNo(row.TrainNo)} 次｜${name(row.TrainTypeName, '車種未提供')}｜${delay(row.DelayTime, undefined)}\n目前位置：${name(row.StationName)}（${row.TrainStationStatus === 0 ? '進站中' : row.TrainStationStatus === 1 ? '在站上' : row.TrainStationStatus === 2 ? '已離站' : '狀態未提供'}）\n資料更新：${updated(row.UpdateTime ?? data.UpdateTime)}`);
+        if (rows.length === railRowLimit) lines.push(truncatedNote);
+        return lines.join('\n');
       }
       const station = await resolve('TRA', args.station!);
       const data = object(await client.get(`/v3/Rail/TRA/StationLiveBoard/Station/${encodeURIComponent(station.id)}`));
       const rows = list(data.StationLiveBoards).map(object);
-      if (!rows.length) return `${station.name}｜查無車站即時資料`;
+      if (!rows.length) return `${station.name}｜查無車站即時資料${station.truncated ? `\n${truncatedNote}` : ''}`;
       return [`臺鐵即時看板｜${station.name}`, ...rows.map(row => {
         const dep = minutes(row.ScheduleDepartureTime), arr = minutes(row.ScheduleArrivalTime);
         const platform = string(row.Platform);
         return `${trainNo(row.TrainNo)} 次｜${name(row.TrainTypeName, '車種未提供')}｜往 ${name(row.EndingStationName)}｜表訂到站 ${arr === undefined ? '未提供' : hhmm(arr)}／離站 ${dep === undefined ? '未提供' : hhmm(dep)}｜${delay(row.DelayTime, row.RunningStatus)}${platform && platform !== '00' ? `｜月台 ${platform}` : ''}\n資料更新：${updated(row.UpdateTime ?? data.UpdateTime)}`;
-      })].join('\n');
+      }), ...(station.truncated || rows.length === railRowLimit ? [truncatedNote] : [])].join('\n');
     }); },
   };
 }

@@ -1,13 +1,13 @@
 // Development/test only. This module is never imported by src or the plugin bundle.
 import { readFileSync } from 'node:fs';
-import type { RailHttp } from '../src/core/rail/client.js';
+import { railRowLimit, type RailHttp } from '../src/core/rail/client.js';
 export function railFixture(file: string, kind = 'synthetic'): any {
   return JSON.parse(readFileSync(new URL(`../test/fixtures/tdx/${kind}/${file}.json`, import.meta.url), 'utf8'));
 }
 export const fixtureHttp: RailHttp = async (input, init) => {
   const url = new URL(input);
   if (url.pathname.endsWith('/token')) return { status: 200, json: async () => railFixture('token') };
-  if (url.searchParams.get('$format') !== 'JSON' || url.searchParams.has('$top')) throw new Error('Unexpected fixture request');
+  if (url.searchParams.get('$format') !== 'JSON' || url.searchParams.get('$top') !== String(railRowLimit)) throw new Error('Unexpected fixture request');
   let file: string;
   if (url.pathname.includes('THSR/Station')) file = 'thsr-stations';
   else if (url.pathname.includes('THSR/DailyTimetable/OD/')) file = 'thsr-od';

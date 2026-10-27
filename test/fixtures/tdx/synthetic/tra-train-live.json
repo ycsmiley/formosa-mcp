@@ -1,12 +1,12 @@
 {
-  "UpdateTime": "2026-10-28T09:00:00+08:00",
+  "UpdateTime": "2026-10-28T14:00:00+08:00",
   "UpdateInterval": 60,
-  "SrcUpdateTime": "2026-10-28T09:00:00+08:00",
+  "SrcUpdateTime": "2026-10-28T14:00:00+08:00",
   "SrcUpdateInterval": 60,
   "AuthorityCode": "TRA",
   "TrainLiveBoards": [
     {
-      "TrainNo": "123",
+      "TrainNo": "8121",
       "TrainTypeName": {
         "Zh_tw": "自強",
         "En": "Tze-Chiang"
@@ -18,7 +18,7 @@
       },
       "TrainStationStatus": 2,
       "DelayTime": 5,
-      "UpdateTime": "2026-10-28T01:00:00Z"
+      "UpdateTime": "2026-10-28T06:00:00Z"
     },
     {
       "TrainNo": "101",
@@ -33,7 +33,7 @@
       },
       "TrainStationStatus": 1,
       "DelayTime": 0,
-      "UpdateTime": "2026-10-28T09:00:00+08:00"
+      "UpdateTime": "2026-10-28T06:00:00+08:00"
     }
   ],
   "Count": 2

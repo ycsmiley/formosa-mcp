@@ -8,10 +8,10 @@ export const rail: Toolset = {
   register(server, ctx) {
     const id = ctx.env?.TDX_CLIENT_ID, secret = ctx.env?.TDX_CLIENT_SECRET;
     const service = id && secret ? createRailService({ credentials: { clientId: id, clientSecret: secret }, http: ctx.railHttp ?? ((url, init) => fetch(url, init)), clock: ctx.clock }) : undefined;
-    const schema = { origin: z.string(), destination: z.string(), date: z.string().optional(), time: z.string().optional() };
+    const schema = { origin: z.string(), destination: z.string(), date: z.string().optional(), time: z.string().optional().describe('時間 HH:mm；24:00–29:59 表示營運日隔日凌晨') };
     for (const [tool, railway, description] of [
-      ['thsr_timetable', 'THSR', '查高鐵某日起迄站時刻；站名或代碼，日期預設臺北今天，時間 HH:mm。THSR OD timetable; optional date and departure time.'],
-      ['tra_timetable', 'TRA', '查臺鐵某日起迄站時刻與車種；站名或代碼，日期預設臺北今天，時間 HH:mm。TRA OD timetable with train types.'],
+      ['thsr_timetable', 'THSR', '查高鐵某日起迄站時刻；站名或代碼，日期預設臺北今天，時間 HH:mm；24:00–29:59 表示營運日隔日凌晨。THSR OD timetable; optional date and departure time.'],
+      ['tra_timetable', 'TRA', '查臺鐵某日起迄站時刻與車種；站名或代碼，日期預設臺北今天，時間 HH:mm；24:00–29:59 表示營運日隔日凌晨。TRA OD timetable with train types.'],
     ] as const) server.registerTool(tool, { description, inputSchema: schema }, async args => result(service ? await service.timetable(railway, args) : { text: missingKey, isError: true }));
     server.registerTool('tra_live', {
       description: '查臺鐵車次目前位置與誤點，或車站即時看板；train_no、station 恰填一項。TRA live train position/delay or station board; provide exactly one argument.',
