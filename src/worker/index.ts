@@ -4,9 +4,12 @@ import { registerToolsets, toolsets } from '../mcp/toolsets.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
 import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
-import { fetchJson } from '../core/stock/source.js';
+import { stockUrls } from '../core/stock/source.js';
+import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
 export interface Env { SNAPSHOTS: KVNamespace; RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> } }
 export const keys = { invoice: 'invoice:v1', twseQuotes: 'stock:quotes:twse:v1', tpexQuotes: 'stock:quotes:tpex:v1', twseDividends: 'stock:dividends:twse:v1', tpexDividends: 'stock:dividends:tpex:v1' };
+export const metaKeys = { twse: 'stock:meta:twse:v1', tpex: 'stock:meta:tpex:v1' };
+const minimumRows = { twse: 100, tpex: 50, invoice: 1 };
 export const cronJobs = {
   '0,30 * * * MON-FRI': 'twse',
   '15,45 * * * MON-FRI': 'tpex',
@@ -68,14 +71,64 @@ export default {
     const jobs = job ? [job] : ['invoice', 'twse', 'tpex'] as const;
     await Promise.all(jobs.map(async job => {
       if (job === 'invoice') {
-        try { await write(keys.invoice, await buildInvoiceSnapshot(fetchInvoiceFeed)); } catch { console.log(`${keys.invoice} fail`); }
+        try {
+          const snapshot = await buildInvoiceSnapshot(fetchInvoiceFeed);
+          if (snapshot.draws.length < minimumRows.invoice) console.warn(`${keys.invoice} guard ${snapshot.draws.length} rows`);
+          else await write(keys.invoice, snapshot);
+        } catch { console.warn(`${keys.invoice} fail`); }
         return;
       }
-      const data = await buildStockSnapshot(job, fetchJson);
-      await Promise.all((['quotes', 'dividends'] as const).map(async kind => {
-        const key = keys[`${job}${kind === 'quotes' ? 'Quotes' : 'Dividends'}`];
-        try { if (data[kind]) await write(key, data[kind]); else console.log(`${key} fail`); } catch { console.log(`${key} fail`); }
-      }));
+      try {
+        const snapshotKeys = [keys[`${job}Quotes`], keys[`${job}Dividends`]];
+        async function exists(key: string) {
+          const stream = await env.SNAPSHOTS.get(key, 'stream');
+          if (!stream) return false;
+          await stream.cancel();
+          return true;
+        }
+        const [previous, ...present] = await Promise.all([env.SNAPSHOTS.get(metaKeys[job]), ...snapshotKeys.map(exists)]);
+        const meta = present.every(Boolean) ? decodeStockMeta(previous) : {};
+        const feeds = Object.entries(stockUrls).filter(([key]) => key.startsWith(job));
+        let results = await Promise.allSettled(feeds.map(([key, url]) => fetchStockFeed(url, meta[key])));
+        if (results.every(result => result.status === 'fulfilled' && result.value.status === 304)) {
+          console.log(`stock:${job} 304 skip`);
+          return;
+        }
+        // Any changed feed needs a complete market view; retain independent snapshot
+        // updates on errors, but never advance validators after a partial failure.
+        results = await Promise.allSettled(results.map((result, i) => {
+          if (result.status === 'rejected') return Promise.reject(result.reason);
+          return result.value.status === 304 ? fetchStockFeed(feeds[i][1]) : result.value;
+        }));
+        const data = await buildStockSnapshot(job, async url => {
+          const result = results[feeds.findIndex(([, feedUrl]) => feedUrl === url)];
+          if (result.status !== 'fulfilled' || result.value.status !== 200) throw new Error('股票資料來源暫時無法使用');
+          return result.value.body;
+        });
+        const succeeded = await Promise.all((['quotes', 'dividends'] as const).map(async (kind, i) => {
+          const key = snapshotKeys[i], snapshot = data[kind];
+          try {
+            if (!snapshot) { console.log(`${key} fail`); return false; }
+            if (kind === 'quotes' && snapshot.rows.length < minimumRows[job]) {
+              console.warn(`${key} guard ${snapshot.rows.length} rows`);
+              return false;
+            }
+            await write(key, snapshot);
+            return true;
+          } catch { console.log(`${key} fail`); return false; }
+        }));
+        if (!succeeded.every(Boolean)) return;
+        const next: StockMeta = {};
+        for (const [i, result] of results.entries()) {
+          if (result.status !== 'fulfilled' || result.value.status !== 200) return;
+          if (Object.keys(result.value.validators).length) next[feeds[i][0]] = result.value.validators;
+        }
+        const encoded = JSON.stringify(next);
+        if (encoded !== JSON.stringify(decodeStockMeta(previous))) {
+          if (Object.keys(next).length) await env.SNAPSHOTS.put(metaKeys[job], encoded);
+          else await env.SNAPSHOTS.delete(metaKeys[job]);
+        }
+      } catch { console.log(`stock:${job} fail`); }
     }));
   },
 };

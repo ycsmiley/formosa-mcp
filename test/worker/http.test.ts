@@ -1,6 +1,6 @@
 import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
-import { expect, it, vi } from 'vitest';
-import worker, { keys, cronJobs, type Env } from '../../src/worker/index.js';
+import { afterEach, expect, it, vi } from 'vitest';
+import worker, { keys, metaKeys, cronJobs, type Env } from '../../src/worker/index.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot } from '../../src/core/snapshot.js';
 import { stockUrls } from '../../src/core/stock/source.js';
 import xml from '../fixtures/invoice.xml?raw';
@@ -12,7 +12,9 @@ import pq from '../fixtures/stock/tpex_quotes.json';
 import pr from '../fixtures/stock/tpex_ratios.json';
 import pd from '../fixtures/stock/tpex_div.json';
 const bindings = env as unknown as Env;
-const fixtures = [tq, tr, td, pq, pr, pd];
+// Small checked-in samples expanded to exercise the production non-empty guard.
+const expand = <T extends object>(rows: T[], count: number, codeKey: string) => Array.from({ length: count }, (_, i) => i < rows.length ? rows[i] : { ...rows[0], [codeKey]: `test-${i}` });
+const fixtures = [expand(tq, 100, 'Code'), tr, td, expand(pq, 50, 'SecuritiesCompanyCode'), pr, pd];
 const fixtureFetch = async (url: string) => fixtures[Object.values(stockUrls).indexOf(url)];
 const allKeys = Object.values(keys);
 const marketKeys = (market: 'twse' | 'tpex') => [keys[`${market}Quotes`], keys[`${market}Dividends`]];
@@ -149,7 +151,7 @@ it.each(['fetch', 'parse'])('writes nothing on market %s failure and updates met
     expect(await Promise.all(allKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
     spy.mockImplementation(async input => {
       const data = await fixtureFetch(String(input));
-      return Response.json(String(input) === stockUrls['twse-quotes'] ? tq.map(row => ({ ...row, ClosingPrice: '2500' })) : data);
+      return Response.json(String(input) === stockUrls['twse-quotes'] ? (fixtures[0] as typeof tq).map(row => ({ ...row, ClosingPrice: '2500' })) : data);
     });
     await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
     expect(put).toHaveBeenCalledTimes(1);
@@ -157,4 +159,142 @@ it.each(['fetch', 'parse'])('writes nothing on market %s failure and updates met
     expect(next.metadata!.updatedAt > '2026-10-26T00:00:00.000Z').toBe(true);
     expect(next.value).not.toBe(before[allKeys.indexOf(keys.twseQuotes)].value);
   } finally { spy.mockRestore(); put.mockRestore(); }
+});
+
+const modified = 'Tue, 27 Oct 2026 01:00:00 GMT';
+const validators = (key: string, version = 1) => ({ etag: `"${key}-${version}"`, lastModified: modified });
+const marketFeeds = (market: 'twse' | 'tpex') => Object.entries(stockUrls).filter(([key]) => key.startsWith(market));
+const refresh = (market: 'twse' | 'tpex' | 'invoice') => worker.scheduled(createScheduledController({ cron: Object.entries(cronJobs).find(([, job]) => job === market)![0] }), bindings, createExecutionContext());
+const reset = async () => { for (const key of [...allKeys, ...Object.values(metaKeys)]) await bindings.SNAPSHOTS.delete(key); };
+const withValidators = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+  const [key] = Object.entries(stockUrls).find(([, url]) => url === String(input))!;
+  return Response.json(await fixtureFetch(String(input)), { headers: { ETag: validators(key).etag, 'Last-Modified': modified } });
+});
+afterEach(() => vi.restoreAllMocks());
+
+it.each(['twse', 'tpex'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and performs no parsing or writes', async market => {
+  await reset();
+  const fetch = withValidators(), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  await refresh(market);
+  expect(put.mock.calls.map(([key]) => key).sort()).toEqual([...marketKeys(market), metaKeys[market]].sort());
+  const stored = Object.fromEntries(marketFeeds(market).map(([key]) => [key, validators(key)]));
+  expect(JSON.parse((await bindings.SNAPSHOTS.get(metaKeys[market]))!)).toEqual(stored);
+  put.mockClear(); fetch.mockClear();
+  const log = vi.spyOn(console, 'log');
+  fetch.mockImplementation(async (_input, init) => {
+    const key = marketFeeds(market).find(([, url]) => url === String(_input))![0];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('If-None-Match')).toBe(stored[key].etag);
+    expect(headers.get('If-Modified-Since')).toBe(modified);
+    const response = new Response(null, { status: 304 });
+    vi.spyOn(response, 'json').mockImplementation(() => { throw new Error('304 must not parse'); });
+    return response;
+  });
+  await refresh(market);
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(put).not.toHaveBeenCalled();
+  expect(log).toHaveBeenCalledExactlyOnceWith(`stock:${market} 304 skip`);
+});
+
+it('mixed 200/304 re-fetches unchanged feeds unconditionally and builds the complete updated snapshot', async () => {
+  await reset();
+  const fetch = withValidators();
+  await refresh('twse');
+  fetch.mockClear();
+  fetch.mockImplementation(async (input, init) => {
+    const url = String(input), [key] = marketFeeds('twse').find(([, url]) => url === String(input))!;
+    if (key !== 'twse-quotes' && new Headers(init?.headers).has('If-None-Match')) return new Response(null, { status: 304 });
+    const data = key === 'twse-quotes' ? (fixtures[0] as typeof tq).map(row => ({ ...row, ClosingPrice: '2500' })) : await fixtureFetch(url);
+    return Response.json(data, { headers: { ETag: validators(key, key === 'twse-quotes' ? 2 : 1).etag, 'Last-Modified': modified } });
+  });
+  await refresh('twse');
+  expect(fetch).toHaveBeenCalledTimes(5);
+  for (const [, init] of fetch.mock.calls.slice(3)) expect([...new Headers(init?.headers)]).toEqual([]);
+  const next = decodeQuotesSnapshot((await bindings.SNAPSHOTS.get(keys.twseQuotes))!);
+  expect(next.rows).toHaveLength(100);
+  expect(next.rows.every(row => row.close === 2500)).toBe(true);
+  expect(next.rows.find(row => row.code === '2330')!.pe).not.toBeNull();
+  expect(JSON.parse((await bindings.SNAPSHOTS.get(metaKeys.twse))!)['twse-quotes']).toEqual(validators('twse-quotes', 2));
+});
+
+it('feeds without validators stay unconditional and never store meta', async () => {
+  await reset();
+  const fetch = mockUpstream(), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  await refresh('twse'); await refresh('twse');
+  expect(fetch).toHaveBeenCalledTimes(6);
+  for (const [, init] of fetch.mock.calls) expect([...new Headers(init?.headers)]).toEqual([]);
+  expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
+  expect(put).toHaveBeenCalledTimes(2);
+});
+
+it.each(['quotes', 'dividends'] as const)('ignores stored meta when the %s snapshot is missing', async kind => {
+  await reset();
+  const fetch = withValidators();
+  await refresh('twse');
+  await bindings.SNAPSHOTS.delete(kind === 'quotes' ? keys.twseQuotes : keys.twseDividends);
+  fetch.mockClear();
+  await refresh('twse');
+  expect(fetch).toHaveBeenCalledTimes(3);
+  for (const [, init] of fetch.mock.calls) expect([...new Headers(init?.headers)]).toEqual([]);
+  for (const key of marketKeys('twse')) expect(await bindings.SNAPSHOTS.get(key)).not.toBeNull();
+});
+
+it.each(['twse', 'tpex'] as const)('guards tiny %s quotes and retains previous snapshots/meta', async market => {
+  await reset();
+  const fetch = withValidators();
+  await refresh(market);
+  const before = await Promise.all([...marketKeys(market), metaKeys[market]].map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), warning = vi.spyOn(console, 'warn');
+  fetch.mockImplementation(async input => Response.json(String(input) === stockUrls[`${market}-quotes`] ? (market === 'twse' ? tq : pq) : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
+  await refresh(market);
+  expect(put).not.toHaveBeenCalled();
+  expect(warning).toHaveBeenCalledWith(`${keys[`${market}Quotes`]} guard ${market === 'twse' ? tq.length : pq.length} rows`);
+  expect(await Promise.all([...marketKeys(market), metaKeys[market]].map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
+});
+
+it('guards empty invoice draws and keeps the old value', async () => {
+  await reset(); await seed();
+  const before = await bindings.SNAPSHOTS.getWithMetadata(keys.invoice);
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<rss><channel></channel></rss>'));
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), warning = vi.spyOn(console, 'warn');
+  await refresh('invoice');
+  expect(put).not.toHaveBeenCalled();
+  // The existing parser rejects feeds with no draws before a snapshot is built.
+  expect(warning).toHaveBeenCalledWith(`${keys.invoice} fail`);
+  expect(await bindings.SNAPSHOTS.getWithMetadata(keys.invoice)).toEqual(before);
+});
+
+it.each(['fetch', 'parse', 'write'] as const)('does not advance validators after a %s failure', async failure => {
+  await reset();
+  const fetch = withValidators();
+  await refresh('twse');
+  const before = await bindings.SNAPSHOTS.get(metaKeys.twse);
+  fetch.mockImplementation(async input => {
+    if (String(input) === stockUrls['twse-quotes']) {
+      if (failure === 'fetch') throw new Error('private details');
+      if (failure === 'parse') return Response.json({ private: 'bad shape' }, { headers: { ETag: '"changed"' } });
+      return Response.json((fixtures[0] as typeof tq).map(row => ({ ...row, ClosingPrice: '2500' })), { headers: { ETag: '"changed"' } });
+    }
+    return Response.json(await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } });
+  });
+  if (failure === 'write') vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new Error('private details'));
+  await refresh('twse');
+  expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBe(before);
+});
+
+it('advances changed validators on unchanged snapshots, skips unchanged meta, and permits empty dividends', async () => {
+  await reset();
+  const fetch = withValidators();
+  await refresh('twse');
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  await refresh('twse');
+  expect(put).not.toHaveBeenCalled();
+  fetch.mockImplementation(async input => Response.json(String(input) === stockUrls['twse-div'] ? [] : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
+  await refresh('twse');
+  expect(put.mock.calls.map(([key]) => key).sort()).toEqual([keys.twseDividends, metaKeys.twse].sort());
+  expect(decodeSnapshot<{ rows: unknown[] }>((await bindings.SNAPSHOTS.get(keys.twseDividends))!).rows).toEqual([]);
+  put.mockClear();
+  fetch.mockImplementation(async input => Response.json(String(input) === stockUrls['twse-div'] ? [] : await fixtureFetch(String(input)), { headers: { ETag: '"new"' } }));
+  await refresh('twse');
+  expect(put.mock.calls.map(([key]) => key)).toEqual([metaKeys.twse]);
 });
