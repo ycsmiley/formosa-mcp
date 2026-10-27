@@ -95,7 +95,7 @@ export default {
           return;
         }
         // Any changed feed needs a complete market view; retain independent snapshot
-        // updates on errors, but never advance validators after a partial failure.
+        // updates on errors, but clear stale validators after a partial failure.
         results = await Promise.allSettled(results.map((result, i) => {
           if (result.status === 'rejected') return Promise.reject(result.reason);
           return result.value.status === 304 ? fetchStockFeed(feeds[i][1]) : result.value;
@@ -117,10 +117,16 @@ export default {
             return true;
           } catch { console.log(`${key} fail`); return false; }
         }));
-        if (!succeeded.every(Boolean)) return;
+        if (!succeeded.every(Boolean)) {
+          if (previous !== null) await env.SNAPSHOTS.delete(metaKeys[job]);
+          return;
+        }
         const next: StockMeta = {};
         for (const [i, result] of results.entries()) {
-          if (result.status !== 'fulfilled' || result.value.status !== 200) return;
+          if (result.status !== 'fulfilled' || result.value.status !== 200) {
+            if (previous !== null) await env.SNAPSHOTS.delete(metaKeys[job]);
+            return;
+          }
           if (Object.keys(result.value.validators).length) next[feeds[i][0]] = result.value.validators;
         }
         const encoded = JSON.stringify(next);

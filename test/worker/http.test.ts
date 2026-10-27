@@ -143,11 +143,12 @@ it.each(['fetch', 'parse'])('writes nothing on market %s failure and updates met
   const before = await Promise.all(allKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('private details'));
   if (failure === 'parse') spy.mockImplementation(async () => Response.json({ private: 'invalid upstream shape' }));
-  const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
   try {
     const cron = Object.entries(cronJobs).find(([, job]) => job === 'twse')![0];
     await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
     expect(put).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
     expect(await Promise.all(allKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
     spy.mockImplementation(async input => {
       const data = await fixtureFetch(String(input));
@@ -174,7 +175,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it.each(['twse', 'tpex'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and performs no parsing or writes', async market => {
   await reset();
-  const fetch = withValidators(), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  const fetch = withValidators(), put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
   await refresh(market);
   expect(put.mock.calls.map(([key]) => key).sort()).toEqual([...marketKeys(market), metaKeys[market]].sort());
   const stored = Object.fromEntries(marketFeeds(market).map(([key]) => [key, validators(key)]));
@@ -193,6 +194,7 @@ it.each(['twse', 'tpex'] as const)('%s first fetch writes snapshots/meta; all-30
   await refresh(market);
   expect(fetch).toHaveBeenCalledTimes(3);
   expect(put).not.toHaveBeenCalled();
+  expect(del).not.toHaveBeenCalled();
   expect(log).toHaveBeenCalledExactlyOnceWith(`stock:${market} 304 skip`);
 });
 
@@ -239,17 +241,18 @@ it.each(['quotes', 'dividends'] as const)('ignores stored meta when the %s snaps
   for (const key of marketKeys('twse')) expect(await bindings.SNAPSHOTS.get(key)).not.toBeNull();
 });
 
-it.each(['twse', 'tpex'] as const)('guards tiny %s quotes and retains previous snapshots/meta', async market => {
+it.each(['twse', 'tpex'] as const)('guards tiny %s quotes, retains previous snapshots and deletes stale meta', async market => {
   await reset();
   const fetch = withValidators();
   await refresh(market);
-  const before = await Promise.all([...marketKeys(market), metaKeys[market]].map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
+  const before = await Promise.all(marketKeys(market).map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
   const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), warning = vi.spyOn(console, 'warn');
   fetch.mockImplementation(async input => Response.json(String(input) === stockUrls[`${market}-quotes`] ? (market === 'twse' ? tq : pq) : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
   await refresh(market);
   expect(put).not.toHaveBeenCalled();
   expect(warning).toHaveBeenCalledWith(`${keys[`${market}Quotes`]} guard ${market === 'twse' ? tq.length : pq.length} rows`);
-  expect(await Promise.all([...marketKeys(market), metaKeys[market]].map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
+  expect(await Promise.all(marketKeys(market).map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
+  expect(await bindings.SNAPSHOTS.get(metaKeys[market])).toBeNull();
 });
 
 it('guards empty invoice draws and keeps the old value', async () => {
@@ -264,11 +267,11 @@ it('guards empty invoice draws and keeps the old value', async () => {
   expect(await bindings.SNAPSHOTS.getWithMetadata(keys.invoice)).toEqual(before);
 });
 
-it.each(['fetch', 'parse', 'write'] as const)('does not advance validators after a %s failure', async failure => {
+it.each(['fetch', 'parse', 'write'] as const)('deletes stale validators after a %s failure', async failure => {
   await reset();
   const fetch = withValidators();
   await refresh('twse');
-  const before = await bindings.SNAPSHOTS.get(metaKeys.twse);
+  expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).not.toBeNull();
   fetch.mockImplementation(async input => {
     if (String(input) === stockUrls['twse-quotes']) {
       if (failure === 'fetch') throw new Error('private details');
@@ -279,7 +282,33 @@ it.each(['fetch', 'parse', 'write'] as const)('does not advance validators after
   });
   if (failure === 'write') vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new Error('private details'));
   await refresh('twse');
-  expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBe(before);
+  expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
+});
+
+it.each(['twse', 'tpex'] as const)('deletes %s meta after a partial update so the next run fetches unconditionally', async market => {
+  await reset();
+  const fetch = withValidators();
+  await refresh(market);
+  expect(await bindings.SNAPSHOTS.get(metaKeys[market])).not.toBeNull();
+  const before = await bindings.SNAPSHOTS.getWithMetadata(keys[`${market}Dividends`]);
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
+  fetch.mockImplementation(async input => {
+    const url = String(input);
+    if (url === stockUrls[`${market}-div`]) return new Response('unavailable', { status: 503 });
+    const data = await fixtureFetch(url);
+    return Response.json(url === stockUrls[`${market}-quotes`] ? data.map((row: object) => ({ ...row, [market === 'twse' ? 'ClosingPrice' : 'Close']: '2500' })) : data, { headers: { ETag: '"changed"' } });
+  });
+  await refresh(market);
+  expect(put.mock.calls.map(([key]) => key)).toEqual([keys[`${market}Quotes`]]);
+  expect(del).toHaveBeenCalledExactlyOnceWith(metaKeys[market]);
+  expect(await bindings.SNAPSHOTS.get(metaKeys[market])).toBeNull();
+  expect(await bindings.SNAPSHOTS.getWithMetadata(keys[`${market}Dividends`])).toEqual(before);
+  fetch.mockClear();
+  fetch.mockImplementation(async input => Response.json(await fixtureFetch(String(input))));
+  await refresh(market);
+  expect(fetch).toHaveBeenCalledTimes(3);
+  for (const [, init] of fetch.mock.calls) expect([...new Headers(init?.headers)]).toEqual([]);
+  expect(del).toHaveBeenCalledTimes(1);
 });
 
 it('advances changed validators on unchanged snapshots, skips unchanged meta, and permits empty dividends', async () => {
