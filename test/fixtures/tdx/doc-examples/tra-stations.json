@@ -1,0 +1,29 @@
+{
+  "UpdateTime": "string",
+  "UpdateInterval": 0,
+  "SrcUpdateTime": "string",
+  "SrcUpdateInterval": 0,
+  "AuthorityCode": "string",
+  "Stations": [
+    {
+      "StationUID": "string",
+      "StationID": "string",
+      "ReservationCode": "string",
+      "StationName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Kr": "string"
+      },
+      "StationPosition": {
+        "PositionLon": 0,
+        "PositionLat": 0
+      },
+      "StationAddress": "string",
+      "StationPhone": "string",
+      "StationClass": "string",
+      "StationURL": "string"
+    }
+  ],
+  "Count": 0
+}

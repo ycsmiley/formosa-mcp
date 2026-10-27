@@ -1,0 +1,158 @@
+[
+  {
+    "StationUID": "THSR0990",
+    "StationID": "0990",
+    "StationCode": "0990",
+    "StationName": {
+      "Zh_tw": "南港",
+      "En": "Nangang"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1000",
+    "StationID": "1000",
+    "StationCode": "1000",
+    "StationName": {
+      "Zh_tw": "臺北",
+      "En": "Taipei"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1010",
+    "StationID": "1010",
+    "StationCode": "1010",
+    "StationName": {
+      "Zh_tw": "板橋",
+      "En": "Banqiao"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1020",
+    "StationID": "1020",
+    "StationCode": "1020",
+    "StationName": {
+      "Zh_tw": "桃園",
+      "En": "Taoyuan"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1030",
+    "StationID": "1030",
+    "StationCode": "1030",
+    "StationName": {
+      "Zh_tw": "新竹",
+      "En": "Hsinchu"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1035",
+    "StationID": "1035",
+    "StationCode": "1035",
+    "StationName": {
+      "Zh_tw": "苗栗",
+      "En": "Miaoli"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1040",
+    "StationID": "1040",
+    "StationCode": "1040",
+    "StationName": {
+      "Zh_tw": "臺中",
+      "En": "Taichung"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1043",
+    "StationID": "1043",
+    "StationCode": "1043",
+    "StationName": {
+      "Zh_tw": "彰化",
+      "En": "Changhua"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1047",
+    "StationID": "1047",
+    "StationCode": "1047",
+    "StationName": {
+      "Zh_tw": "雲林",
+      "En": "Yunlin"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1050",
+    "StationID": "1050",
+    "StationCode": "1050",
+    "StationName": {
+      "Zh_tw": "嘉義",
+      "En": "Chiayi"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1060",
+    "StationID": "1060",
+    "StationCode": "1060",
+    "StationName": {
+      "Zh_tw": "臺南",
+      "En": "Tainan"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "StationUID": "THSR1070",
+    "StationID": "1070",
+    "StationCode": "1070",
+    "StationName": {
+      "Zh_tw": "左營",
+      "En": "Zuoying"
+    },
+    "StationAddress": "測試地址（非實際地址）",
+    "OperatorID": "THSR",
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  }
+]

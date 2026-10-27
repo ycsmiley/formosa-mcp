@@ -13,5 +13,5 @@ export function parseToolsetsArg(argv: string[], available: readonly string[]): 
     }
     selected = [...new Set([...(selected ?? []), ...names])];
   }
-  return selected ?? [...available];
+  return selected ?? available.filter(name => name !== 'rail');
 }

@@ -1,0 +1,56 @@
+[
+  {
+    "TrainDate": "string",
+    "DailyTrainInfo": {
+      "TrainNo": "string",
+      "Direction": 0,
+      "StartingStationID": "string",
+      "StartingStationName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Ko": "string"
+      },
+      "EndingStationID": "string",
+      "EndingStationName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Ko": "string"
+      },
+      "Note": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Ko": "string"
+      },
+      "Overnight": true
+    },
+    "OriginStopTime": {
+      "StopSequence": 0,
+      "StationID": "string",
+      "StationName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Ko": "string"
+      },
+      "ArrivalTime": "string",
+      "DepartureTime": "string"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 0,
+      "StationID": "string",
+      "StationName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Ko": "string"
+      },
+      "ArrivalTime": "string",
+      "DepartureTime": "string"
+    },
+    "UpdateTime": "string",
+    "VersionID": 0
+  }
+]

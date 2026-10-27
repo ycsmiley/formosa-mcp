@@ -1,0 +1,81 @@
+{
+  "UpdateTime": "string",
+  "UpdateInterval": 0,
+  "SrcUpdateTime": "string",
+  "SrcUpdateInterval": 0,
+  "AuthorityCode": "string",
+  "TrainDate": "string",
+  "TrainTimetables": [
+    {
+      "TrainInfo": {
+        "TrainNo": "string",
+        "RouteID": "string",
+        "Direction": 0,
+        "TrainTypeID": "string",
+        "TrainTypeCode": "string",
+        "TrainTypeName": {
+          "Zh_tw": "string",
+          "En": "string",
+          "Ja": "string",
+          "Kr": "string"
+        },
+        "TripHeadSign": "string",
+        "StartingStationID": "string",
+        "StartingStationName": {
+          "Zh_tw": "string",
+          "En": "string",
+          "Ja": "string",
+          "Kr": "string"
+        },
+        "EndingStationID": "string",
+        "EndingStationName": {
+          "Zh_tw": "string",
+          "En": "string",
+          "Ja": "string",
+          "Kr": "string"
+        },
+        "OverNightStationID": "string",
+        "TripLine": 0,
+        "WheelChairFlag": 0,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "DiningFlagSections": [
+          {
+            "StartSection": {
+              "StartStationID": "string",
+              "EndStationID": "string"
+            },
+            "EndSection": {
+              "StartStationID": "string",
+              "EndStationID": "string"
+            }
+          }
+        ],
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "CarFlag": 0,
+        "DailyFlag": 0,
+        "ExtraTrainFlag": 0,
+        "SuspendedFlag": 0,
+        "ServiceType": 0,
+        "Note": "string"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 0,
+          "StationID": "string",
+          "StationName": {
+            "Zh_tw": "string",
+            "En": "string",
+            "Ja": "string",
+            "Kr": "string"
+          },
+          "ArrivalTime": "string",
+          "DepartureTime": "string",
+          "SuspendedFlag": 0
+        }
+      ]
+    }
+  ],
+  "Count": 0
+}

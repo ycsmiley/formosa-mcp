@@ -11,3 +11,5 @@ export * from './stock/lookup.js';
 export * from './stock/format.js';
 export * from './stock/service.js';
 export * from './snapshot.js';
+export * from './rail/service.js';
+export type { RailHttp, RailHttpResponse, RailCredentials } from './rail/client.js';

@@ -1,0 +1,31 @@
+{
+  "UpdateTime": "string",
+  "UpdateInterval": 0,
+  "SrcUpdateTime": "string",
+  "SrcUpdateInterval": 0,
+  "AuthorityCode": "string",
+  "TrainLiveBoards": [
+    {
+      "TrainNo": "string",
+      "TrainTypeID": "string",
+      "TrainTypeCode": "string",
+      "TrainTypeName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Kr": "string"
+      },
+      "StationID": "string",
+      "StationName": {
+        "Zh_tw": "string",
+        "En": "string",
+        "Ja": "string",
+        "Kr": "string"
+      },
+      "TrainStationStatus": 0,
+      "DelayTime": 0,
+      "UpdateTime": "string"
+    }
+  ],
+  "Count": 0
+}

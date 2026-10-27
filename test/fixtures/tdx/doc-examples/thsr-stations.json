@@ -1,0 +1,27 @@
+[
+  {
+    "StationPosition": {
+      "PositionLon": 0,
+      "PositionLat": 0,
+      "GeoHash": "string"
+    },
+    "LocationCity": "string",
+    "LocationCityCode": "string",
+    "LocationTown": "string",
+    "LocationTownCode": "string",
+    "StationUID": "string",
+    "StationID": "string",
+    "StationCode": "string",
+    "StationName": {
+      "Zh_tw": "string",
+      "En": "string",
+      "Ja": "string",
+      "Ko": "string"
+    },
+    "StationAddress": "string",
+    "StationPhone": "string",
+    "OperatorID": "string",
+    "UpdateTime": "string",
+    "VersionID": 0
+  }
+]

@@ -1,0 +1,349 @@
+{
+  "UpdateTime": "2026-10-28T09:00:00+08:00",
+  "UpdateInterval": 60,
+  "SrcUpdateTime": "2026-10-28T09:00:00+08:00",
+  "SrcUpdateInterval": 60,
+  "AuthorityCode": "TRA",
+  "TrainTimetables": [
+    {
+      "TrainInfo": {
+        "TrainNo": "123",
+        "RouteID": "TEST-WEST",
+        "Direction": 0,
+        "TrainTypeCode": "3",
+        "TrainTypeName": {
+          "Zh_tw": "自強",
+          "En": "Tze-Chiang"
+        },
+        "StartingStationID": "0920",
+        "StartingStationName": {
+          "Zh_tw": "七堵",
+          "En": "Qidu"
+        },
+        "EndingStationID": "4400",
+        "EndingStationName": {
+          "Zh_tw": "高雄",
+          "En": "Kaohsiung"
+        },
+        "TripLine": 1,
+        "WheelChairFlag": 1,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "DailyFlag": 1,
+        "ExtraTrainFlag": 0,
+        "SuspendedFlag": 0,
+        "Note": "合成測試班次",
+        "OverNightStationID": "4080"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 2,
+          "StationID": "1000",
+          "StationName": {
+            "Zh_tw": "臺北",
+            "En": "Taipei"
+          },
+          "ArrivalTime": "21:30:00",
+          "DepartureTime": "21:30:00",
+          "SuspendedFlag": 0
+        },
+        {
+          "StopSequence": 15,
+          "StationID": "4400",
+          "StationName": {
+            "Zh_tw": "高雄",
+            "En": "Kaohsiung"
+          },
+          "ArrivalTime": "02:15:00",
+          "DepartureTime": "02:15:00",
+          "SuspendedFlag": 0
+        }
+      ]
+    },
+    {
+      "TrainInfo": {
+        "TrainNo": "115",
+        "RouteID": "TEST-WEST",
+        "Direction": 0,
+        "TrainTypeCode": "3",
+        "TrainTypeName": {
+          "Zh_tw": "自強",
+          "En": "Tze-Chiang"
+        },
+        "StartingStationID": "0920",
+        "StartingStationName": {
+          "Zh_tw": "七堵",
+          "En": "Qidu"
+        },
+        "EndingStationID": "4400",
+        "EndingStationName": {
+          "Zh_tw": "高雄",
+          "En": "Kaohsiung"
+        },
+        "TripLine": 1,
+        "WheelChairFlag": 1,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "DailyFlag": 1,
+        "ExtraTrainFlag": 0,
+        "SuspendedFlag": 1,
+        "Note": "合成測試班次"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 2,
+          "StationID": "1000",
+          "StationName": {
+            "Zh_tw": "臺北",
+            "En": "Taipei"
+          },
+          "ArrivalTime": "10:00:00",
+          "DepartureTime": "10:00:00",
+          "SuspendedFlag": 0
+        },
+        {
+          "StopSequence": 15,
+          "StationID": "4400",
+          "StationName": {
+            "Zh_tw": "高雄",
+            "En": "Kaohsiung"
+          },
+          "ArrivalTime": "14:30:00",
+          "DepartureTime": "14:30:00",
+          "SuspendedFlag": 0
+        }
+      ]
+    },
+    {
+      "TrainInfo": {
+        "TrainNo": "117",
+        "RouteID": "TEST-WEST",
+        "Direction": 0,
+        "TrainTypeCode": "3",
+        "TrainTypeName": {
+          "Zh_tw": "自強",
+          "En": "Tze-Chiang"
+        },
+        "StartingStationID": "0920",
+        "StartingStationName": {
+          "Zh_tw": "七堵",
+          "En": "Qidu"
+        },
+        "EndingStationID": "4400",
+        "EndingStationName": {
+          "Zh_tw": "高雄",
+          "En": "Kaohsiung"
+        },
+        "TripLine": 1,
+        "WheelChairFlag": 1,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "DailyFlag": 1,
+        "ExtraTrainFlag": 0,
+        "SuspendedFlag": 2,
+        "Note": "合成測試班次"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 2,
+          "StationID": "1000",
+          "StationName": {
+            "Zh_tw": "臺北",
+            "En": "Taipei"
+          },
+          "ArrivalTime": "11:00:00",
+          "DepartureTime": "11:00:00",
+          "SuspendedFlag": 1
+        },
+        {
+          "StopSequence": 15,
+          "StationID": "4400",
+          "StationName": {
+            "Zh_tw": "高雄",
+            "En": "Kaohsiung"
+          },
+          "ArrivalTime": "15:30:00",
+          "DepartureTime": "15:30:00",
+          "SuspendedFlag": 0
+        }
+      ]
+    },
+    {
+      "TrainInfo": {
+        "TrainNo": "101",
+        "RouteID": "TEST-WEST",
+        "Direction": 0,
+        "TrainTypeCode": "3",
+        "TrainTypeName": {
+          "Zh_tw": "自強",
+          "En": "Tze-Chiang"
+        },
+        "StartingStationID": "0920",
+        "StartingStationName": {
+          "Zh_tw": "七堵",
+          "En": "Qidu"
+        },
+        "EndingStationID": "4400",
+        "EndingStationName": {
+          "Zh_tw": "高雄",
+          "En": "Kaohsiung"
+        },
+        "TripLine": 1,
+        "WheelChairFlag": 1,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "DailyFlag": 1,
+        "ExtraTrainFlag": 0,
+        "SuspendedFlag": 0,
+        "Note": "合成測試班次"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 2,
+          "StationID": "1000",
+          "StationName": {
+            "Zh_tw": "臺北",
+            "En": "Taipei"
+          },
+          "ArrivalTime": "06:00:00",
+          "DepartureTime": "06:00:00",
+          "SuspendedFlag": 0
+        },
+        {
+          "StopSequence": 15,
+          "StationID": "4400",
+          "StationName": {
+            "Zh_tw": "高雄",
+            "En": "Kaohsiung"
+          },
+          "ArrivalTime": "10:30:00",
+          "DepartureTime": "10:30:00",
+          "SuspendedFlag": 0
+        }
+      ]
+    },
+    {
+      "TrainInfo": {
+        "TrainNo": "8121",
+        "RouteID": "TEST-WEST",
+        "Direction": 0,
+        "TrainTypeCode": "3",
+        "TrainTypeName": {
+          "Zh_tw": "自強",
+          "En": "Tze-Chiang"
+        },
+        "StartingStationID": "0920",
+        "StartingStationName": {
+          "Zh_tw": "七堵",
+          "En": "Qidu"
+        },
+        "EndingStationID": "4400",
+        "EndingStationName": {
+          "Zh_tw": "高雄",
+          "En": "Kaohsiung"
+        },
+        "TripLine": 1,
+        "WheelChairFlag": 1,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "DailyFlag": 1,
+        "ExtraTrainFlag": 1,
+        "SuspendedFlag": 0,
+        "Note": "合成測試班次"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 2,
+          "StationID": "1000",
+          "StationName": {
+            "Zh_tw": "臺北",
+            "En": "Taipei"
+          },
+          "ArrivalTime": "12:00:00",
+          "DepartureTime": "12:00:00",
+          "SuspendedFlag": 0
+        },
+        {
+          "StopSequence": 15,
+          "StationID": "4400",
+          "StationName": {
+            "Zh_tw": "高雄",
+            "En": "Kaohsiung"
+          },
+          "ArrivalTime": "16:15:00",
+          "DepartureTime": "16:15:00",
+          "SuspendedFlag": 0
+        }
+      ]
+    },
+    {
+      "TrainInfo": {
+        "TrainNo": "125",
+        "RouteID": "TEST-WEST",
+        "Direction": 0,
+        "TrainTypeCode": "3",
+        "TrainTypeName": {
+          "Zh_tw": "自強",
+          "En": "Tze-Chiang"
+        },
+        "StartingStationID": "0920",
+        "StartingStationName": {
+          "Zh_tw": "七堵",
+          "En": "Qidu"
+        },
+        "EndingStationID": "4400",
+        "EndingStationName": {
+          "Zh_tw": "高雄",
+          "En": "Kaohsiung"
+        },
+        "TripLine": 1,
+        "WheelChairFlag": 1,
+        "PackageServiceFlag": 0,
+        "DiningFlag": 0,
+        "BreastFeedFlag": 0,
+        "BikeFlag": 0,
+        "DailyFlag": 1,
+        "ExtraTrainFlag": 0,
+        "SuspendedFlag": 0,
+        "Note": "合成測試班次",
+        "OverNightStationID": "1000"
+      },
+      "StopTimes": [
+        {
+          "StopSequence": 2,
+          "StationID": "1000",
+          "StationName": {
+            "Zh_tw": "臺北",
+            "En": "Taipei"
+          },
+          "ArrivalTime": "00:45:00",
+          "DepartureTime": "00:45:00",
+          "SuspendedFlag": 0
+        },
+        {
+          "StopSequence": 15,
+          "StationID": "4400",
+          "StationName": {
+            "Zh_tw": "高雄",
+            "En": "Kaohsiung"
+          },
+          "ArrivalTime": "05:15:00",
+          "DepartureTime": "05:15:00",
+          "SuspendedFlag": 0
+        }
+      ]
+    }
+  ],
+  "Count": 6,
+  "TrainDate": "2026-10-28"
+}

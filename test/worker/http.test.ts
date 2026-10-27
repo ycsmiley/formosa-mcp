@@ -49,7 +49,7 @@ it('routes, bounds actual bytes and declared lengths, and uses native rate limit
   for (let i = 0; i < 40; i++) { response = await run('/mcp', { headers: { 'CF-Connecting-IP': 'burst' } }); if (response.status === 429) break; }
   expect(response!.status).toBe(429); expect(response!.headers.get('Retry-After')).toBe('60');
 });
-it('lists exactly four tools and serves seeded snapshots without upstream fetch', async () => {
+it('lists exactly four tools (rail excluded) and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
   try {

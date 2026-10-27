@@ -1,0 +1,266 @@
+[
+  {
+    "TrainDate": "2026-10-28",
+    "DailyTrainInfo": {
+      "TrainNo": "0999",
+      "Direction": 0,
+      "StartingStationID": "1000",
+      "StartingStationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "EndingStationID": "1070",
+      "EndingStationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "Overnight": true,
+      "Note": {
+        "Zh_tw": "合成測試班次",
+        "En": "Synthetic"
+      }
+    },
+    "OriginStopTime": {
+      "StopSequence": 1,
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "ArrivalTime": "23:10:00",
+      "DepartureTime": "23:10:00"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 12,
+      "StationID": "1070",
+      "StationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "ArrivalTime": "01:10:00",
+      "DepartureTime": "01:10:00"
+    },
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "TrainDate": "2026-10-28",
+    "DailyTrainInfo": {
+      "TrainNo": "0803",
+      "Direction": 0,
+      "StartingStationID": "1000",
+      "StartingStationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "EndingStationID": "1070",
+      "EndingStationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "Overnight": false,
+      "Note": {
+        "Zh_tw": "合成測試班次",
+        "En": "Synthetic"
+      }
+    },
+    "OriginStopTime": {
+      "StopSequence": 1,
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "ArrivalTime": "09:00:00",
+      "DepartureTime": "09:00:00"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 12,
+      "StationID": "1070",
+      "StationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "ArrivalTime": "10:45:00",
+      "DepartureTime": "10:45:00"
+    },
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "TrainDate": "2026-10-28",
+    "DailyTrainInfo": {
+      "TrainNo": "0601",
+      "Direction": 0,
+      "StartingStationID": "1000",
+      "StartingStationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "EndingStationID": "1070",
+      "EndingStationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "Overnight": false,
+      "Note": {
+        "Zh_tw": "合成測試班次",
+        "En": "Synthetic"
+      }
+    },
+    "OriginStopTime": {
+      "StopSequence": 1,
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "ArrivalTime": "06:30:00",
+      "DepartureTime": "06:30:00"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 12,
+      "StationID": "1070",
+      "StationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "ArrivalTime": "08:10:00",
+      "DepartureTime": "08:10:00"
+    },
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "TrainDate": "2026-10-28",
+    "DailyTrainInfo": {
+      "TrainNo": "0801",
+      "Direction": 0,
+      "StartingStationID": "1000",
+      "StartingStationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "EndingStationID": "1070",
+      "EndingStationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "Overnight": false,
+      "Note": {
+        "Zh_tw": "合成測試班次",
+        "En": "Synthetic"
+      }
+    },
+    "OriginStopTime": {
+      "StopSequence": 1,
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "ArrivalTime": "09:00:00",
+      "DepartureTime": "09:00:00"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 12,
+      "StationID": "1070",
+      "StationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "ArrivalTime": "10:50:00",
+      "DepartureTime": "10:50:00"
+    },
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "TrainDate": "2026-10-28",
+    "DailyTrainInfo": {
+      "TrainNo": "0997",
+      "Direction": 0,
+      "StartingStationID": "1000",
+      "StartingStationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "EndingStationID": "1070",
+      "EndingStationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "Overnight": false,
+      "Note": {
+        "Zh_tw": "合成測試班次",
+        "En": "Synthetic"
+      }
+    },
+    "OriginStopTime": {
+      "StopSequence": 1,
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "ArrivalTime": "22:00:00",
+      "DepartureTime": "22:00:00"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 12,
+      "StationID": "1070",
+      "StationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "ArrivalTime": "23:50:00",
+      "DepartureTime": "23:50:00"
+    },
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  },
+  {
+    "TrainDate": "2026-10-28",
+    "DailyTrainInfo": {
+      "TrainNo": "0998",
+      "Direction": 0,
+      "StartingStationID": "1000",
+      "StartingStationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "EndingStationID": "1070",
+      "EndingStationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "Overnight": true,
+      "Note": {
+        "Zh_tw": "合成測試班次",
+        "En": "Synthetic"
+      }
+    },
+    "OriginStopTime": {
+      "StopSequence": 1,
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "ArrivalTime": "00:40:00",
+      "DepartureTime": "00:40:00"
+    },
+    "DestinationStopTime": {
+      "StopSequence": 12,
+      "StationID": "1070",
+      "StationName": {
+        "Zh_tw": "左營",
+        "En": "Zuoying"
+      },
+      "ArrivalTime": "02:30:00",
+      "DepartureTime": "02:30:00"
+    },
+    "UpdateTime": "2026-10-28T09:00:00+08:00",
+    "VersionID": 1
+  }
+]

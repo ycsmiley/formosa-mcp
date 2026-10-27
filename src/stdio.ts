@@ -8,12 +8,14 @@ declare const __FORMOSA_VERSION__: string | undefined;
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`formosa-mcp — 讓 AI agent 懂台灣 / Taiwan MCP server
-用法 / Usage: formosa-mcp [--toolsets invoice,stock]
-預設啟用所有已實作工具集 / Default: all implemented toolsets
-工具集 / Toolsets: invoice, stock
+用法 / Usage: formosa-mcp [--toolsets invoice,stock,rail]
+預設 / Default: invoice,stock
+工具集 / Toolsets: invoice, stock, rail
+rail 需 TDX 會員 API 金鑰 / Requires TDX_CLIENT_ID and TDX_CLIENT_SECRET
 範例 / Examples:
   formosa-mcp --toolsets=invoice,stock
   formosa-mcp --toolsets invoice,stock
+  formosa-mcp --toolsets rail
   formosa-mcp --help`);
 } else {
   try {

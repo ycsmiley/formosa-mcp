@@ -46,7 +46,7 @@ export default {
       }
       const handler = createMcpHandler(() => {
         const server = new McpServer({ name: 'formosa-mcp', version: '0.1.0' });
-        registerToolsets(server, toolsets, {}, {
+        registerToolsets(server, toolsets.filter(t => t.name === 'invoice' || t.name === 'stock'), {}, {
           loadDraws: async () => (await read<InvoiceSnapshot>(env, keys.invoice))?.draws ?? null,
           snapshot: { quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },
         });

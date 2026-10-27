@@ -1,0 +1,178 @@
+{
+  "UpdateTime": "2026-10-28T09:00:00+08:00",
+  "UpdateInterval": 60,
+  "SrcUpdateTime": "2026-10-28T09:00:00+08:00",
+  "SrcUpdateInterval": 60,
+  "AuthorityCode": "TRA",
+  "Stations": [
+    {
+      "StationUID": "TRA1000",
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA1020",
+      "StationID": "1020",
+      "StationName": {
+        "Zh_tw": "板橋",
+        "En": "Banqiao"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA1100",
+      "StationID": "1100",
+      "StationName": {
+        "Zh_tw": "桃園",
+        "En": "Taoyuan"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA1210",
+      "StationID": "1210",
+      "StationName": {
+        "Zh_tw": "新竹",
+        "En": "Hsinchu"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA3300",
+      "StationID": "3300",
+      "StationName": {
+        "Zh_tw": "臺中",
+        "En": "Taichung"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA3360",
+      "StationID": "3360",
+      "StationName": {
+        "Zh_tw": "彰化",
+        "En": "Changhua"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA4080",
+      "StationID": "4080",
+      "StationName": {
+        "Zh_tw": "嘉義",
+        "En": "Chiayi"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA4220",
+      "StationID": "4220",
+      "StationName": {
+        "Zh_tw": "臺南",
+        "En": "Tainan"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA4400",
+      "StationID": "4400",
+      "StationName": {
+        "Zh_tw": "高雄",
+        "En": "Kaohsiung"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA7000",
+      "StationID": "7000",
+      "StationName": {
+        "Zh_tw": "花蓮",
+        "En": "Hualien"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA6000",
+      "StationID": "6000",
+      "StationName": {
+        "Zh_tw": "臺東",
+        "En": "Taitung"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA7190",
+      "StationID": "7190",
+      "StationName": {
+        "Zh_tw": "宜蘭",
+        "En": "Yilan"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA0920",
+      "StationID": "0920",
+      "StationName": {
+        "Zh_tw": "七堵",
+        "En": "Qidu"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    },
+    {
+      "StationUID": "TRA0900",
+      "StationID": "0900",
+      "StationName": {
+        "Zh_tw": "基隆",
+        "En": "Keelung"
+      },
+      "StationPosition": {
+        "PositionLon": 121,
+        "PositionLat": 24
+      }
+    }
+  ],
+  "Count": 14
+}

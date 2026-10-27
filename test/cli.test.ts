@@ -17,3 +17,9 @@ it('skips toolsets with missing environment variables', () => {
     expect(register).toHaveBeenCalledTimes(1);
   } finally { stderr.mockRestore(); }
 });
+
+it('rail requires explicit CLI opt-in while invoice and stock stay default', () => {
+  expect(parseToolsetsArg([], ['invoice', 'stock', 'rail'])).toEqual(['invoice', 'stock']);
+  expect(parseToolsetsArg(['--toolsets', 'rail'], ['invoice', 'stock', 'rail'])).toEqual(['rail']);
+  expect(parseToolsetsArg(['--toolsets=invoice,stock,rail'], ['invoice', 'stock', 'rail'])).toEqual(['invoice', 'stock', 'rail']);
+});

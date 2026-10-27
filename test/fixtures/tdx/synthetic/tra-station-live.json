@@ -1,0 +1,79 @@
+{
+  "UpdateTime": "2026-10-28T09:00:00+08:00",
+  "UpdateInterval": 60,
+  "SrcUpdateTime": "2026-10-28T09:00:00+08:00",
+  "SrcUpdateInterval": 60,
+  "AuthorityCode": "TRA",
+  "StationLiveBoards": [
+    {
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "TrainNo": "101",
+      "Direction": 0,
+      "TrainTypeName": {
+        "Zh_tw": "自強",
+        "En": "Tze-Chiang"
+      },
+      "EndingStationName": {
+        "Zh_tw": "高雄",
+        "En": "Kaohsiung"
+      },
+      "ScheduleArrivalTime": "09:10:00",
+      "ScheduleDepartureTime": "09:12:00",
+      "DelayTime": 0,
+      "RunningStatus": 0,
+      "Platform": "1",
+      "UpdateTime": "2026-10-28T09:00:00+08:00"
+    },
+    {
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "TrainNo": "123",
+      "Direction": 0,
+      "TrainTypeName": {
+        "Zh_tw": "自強",
+        "En": "Tze-Chiang"
+      },
+      "EndingStationName": {
+        "Zh_tw": "高雄",
+        "En": "Kaohsiung"
+      },
+      "ScheduleArrivalTime": "09:20:00",
+      "ScheduleDepartureTime": "09:22:00",
+      "DelayTime": 5,
+      "RunningStatus": 1,
+      "Platform": "2",
+      "UpdateTime": "2026-10-28T09:00:00+08:00"
+    },
+    {
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei"
+      },
+      "TrainNo": "115",
+      "Direction": 0,
+      "TrainTypeName": {
+        "Zh_tw": "自強",
+        "En": "Tze-Chiang"
+      },
+      "EndingStationName": {
+        "Zh_tw": "高雄",
+        "En": "Kaohsiung"
+      },
+      "ScheduleArrivalTime": "09:30:00",
+      "ScheduleDepartureTime": "09:32:00",
+      "DelayTime": 0,
+      "RunningStatus": 2,
+      "Platform": "3",
+      "UpdateTime": "2026-10-28T09:00:00+08:00"
+    }
+  ],
+  "Count": 3
+}
