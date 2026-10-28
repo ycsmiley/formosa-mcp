@@ -1,6 +1,9 @@
 {
   "name": "formosa-mcp",
   "main": "src/worker/index.ts",
+  // Previews were deliberately disabled in the dashboard; a deploy without this would re-enable them.
+  "preview_urls": false,
+  "workers_dev": true,
   // Newest date supported by the pinned worker test pool (workerd 2026-08-15).
   "compatibility_date": "2026-08-15",
   // KV namespace "SNAPSHOTS" (production). Not a secret; local dev/tests use local storage.

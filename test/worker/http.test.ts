@@ -1,6 +1,7 @@
 import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import worker, { keys, metaKeys, cronJobs, type Env } from '../../src/worker/index.js';
+import * as stockSource from '../../src/worker/stock-source.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot } from '../../src/core/snapshot.js';
 import { stockUrls } from '../../src/core/stock/source.js';
 import xml from '../fixtures/invoice.xml?raw';
@@ -12,6 +13,11 @@ import pq from '../fixtures/stock/tpex_quotes.json';
 import pr from '../fixtures/stock/tpex_ratios.json';
 import pd from '../fixtures/stock/tpex_div.json';
 const bindings = env as unknown as Env;
+const fetchStockFeed = stockSource.fetchStockFeed;
+beforeEach(() => {
+  vi.spyOn(stockSource, 'fetchStockFeed').mockImplementation((feed, url, validators) => fetchStockFeed(feed, url, validators, { retryDelayMs: 0 }));
+});
+const feedHeaders = { accept: 'application/json', 'user-agent': 'formosa-mcp (+https://github.com/ycsmiley/formosa-mcp)' };
 // Small checked-in samples expanded to exercise the production non-empty guard.
 const expand = <T extends object>(rows: T[], count: number, codeKey: string) => Array.from({ length: count }, (_, i) => i < rows.length ? rows[i] : { ...rows[0], [codeKey]: `test-${i}` });
 const fixtures = [expand(tq, 100, 'Code'), tr, td, expand(pq, 50, 'SecuritiesCompanyCode'), pr, pd];
@@ -187,6 +193,8 @@ it.each(['twse', 'tpex'] as const)('%s first fetch writes snapshots/meta; all-30
     const headers = new Headers(init?.headers);
     expect(headers.get('If-None-Match')).toBe(stored[key].etag);
     expect(headers.get('If-Modified-Since')).toBe(modified);
+    expect(headers.get('User-Agent')).toBe(feedHeaders['user-agent']);
+    expect(headers.get('Accept')).toBe(feedHeaders.accept);
     const response = new Response(null, { status: 304 });
     vi.spyOn(response, 'json').mockImplementation(() => { throw new Error('304 must not parse'); });
     return response;
@@ -211,7 +219,7 @@ it('mixed 200/304 re-fetches unchanged feeds unconditionally and builds the comp
   });
   await refresh('twse');
   expect(fetch).toHaveBeenCalledTimes(5);
-  for (const [, init] of fetch.mock.calls.slice(3)) expect([...new Headers(init?.headers)]).toEqual([]);
+  for (const [, init] of fetch.mock.calls.slice(3)) expect(Object.fromEntries(new Headers(init?.headers))).toEqual(feedHeaders);
   const next = decodeQuotesSnapshot((await bindings.SNAPSHOTS.get(keys.twseQuotes))!);
   expect(next.rows).toHaveLength(100);
   expect(next.rows.every(row => row.close === 2500)).toBe(true);
@@ -224,7 +232,7 @@ it('feeds without validators stay unconditional and never store meta', async () 
   const fetch = mockUpstream(), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   await refresh('twse'); await refresh('twse');
   expect(fetch).toHaveBeenCalledTimes(6);
-  for (const [, init] of fetch.mock.calls) expect([...new Headers(init?.headers)]).toEqual([]);
+  for (const [, init] of fetch.mock.calls) expect(Object.fromEntries(new Headers(init?.headers))).toEqual(feedHeaders);
   expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
   expect(put).toHaveBeenCalledTimes(2);
 });
@@ -237,7 +245,7 @@ it.each(['quotes', 'dividends'] as const)('ignores stored meta when the %s snaps
   fetch.mockClear();
   await refresh('twse');
   expect(fetch).toHaveBeenCalledTimes(3);
-  for (const [, init] of fetch.mock.calls) expect([...new Headers(init?.headers)]).toEqual([]);
+  for (const [, init] of fetch.mock.calls) expect(Object.fromEntries(new Headers(init?.headers))).toEqual(feedHeaders);
   for (const key of marketKeys('twse')) expect(await bindings.SNAPSHOTS.get(key)).not.toBeNull();
 });
 
@@ -263,7 +271,7 @@ it('guards empty invoice draws and keeps the old value', async () => {
   await refresh('invoice');
   expect(put).not.toHaveBeenCalled();
   // The existing parser rejects feeds with no draws before a snapshot is built.
-  expect(warning).toHaveBeenCalledWith(`${keys.invoice} fail`);
+  expect(warning).toHaveBeenCalledExactlyOnceWith(`${keys.invoice} fail Error: 財政部資料中沒有可解析的開獎期別`);
   expect(await bindings.SNAPSHOTS.getWithMetadata(keys.invoice)).toEqual(before);
 });
 
@@ -307,7 +315,7 @@ it.each(['twse', 'tpex'] as const)('deletes %s meta after a partial update so th
   fetch.mockImplementation(async input => Response.json(await fixtureFetch(String(input))));
   await refresh(market);
   expect(fetch).toHaveBeenCalledTimes(3);
-  for (const [, init] of fetch.mock.calls) expect([...new Headers(init?.headers)]).toEqual([]);
+  for (const [, init] of fetch.mock.calls) expect(Object.fromEntries(new Headers(init?.headers))).toEqual(feedHeaders);
   expect(del).toHaveBeenCalledTimes(1);
 });
 

@@ -75,7 +75,7 @@ export default {
           const snapshot = await buildInvoiceSnapshot(fetchInvoiceFeed);
           if (snapshot.draws.length < minimumRows.invoice) console.warn(`${keys.invoice} guard ${snapshot.draws.length} rows`);
           else await write(keys.invoice, snapshot);
-        } catch { console.warn(`${keys.invoice} fail`); }
+        } catch (error) { console.warn(`${keys.invoice} fail ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`); }
         return;
       }
       try {
@@ -89,7 +89,7 @@ export default {
         const [previous, ...present] = await Promise.all([env.SNAPSHOTS.get(metaKeys[job]), ...snapshotKeys.map(exists)]);
         const meta = present.every(Boolean) ? decodeStockMeta(previous) : {};
         const feeds = Object.entries(stockUrls).filter(([key]) => key.startsWith(job));
-        let results = await Promise.allSettled(feeds.map(([key, url]) => fetchStockFeed(url, meta[key])));
+        let results = await Promise.allSettled(feeds.map(([key, url]) => fetchStockFeed(key, url, meta[key])));
         if (results.every(result => result.status === 'fulfilled' && result.value.status === 304)) {
           console.log(`stock:${job} 304 skip`);
           return;
@@ -98,7 +98,7 @@ export default {
         // updates on errors, but clear stale validators after a partial failure.
         results = await Promise.allSettled(results.map((result, i) => {
           if (result.status === 'rejected') return Promise.reject(result.reason);
-          return result.value.status === 304 ? fetchStockFeed(feeds[i][1]) : result.value;
+          return result.value.status === 304 ? fetchStockFeed(feeds[i][0], feeds[i][1]) : result.value;
         }));
         const data = await buildStockSnapshot(job, async url => {
           const result = results[feeds.findIndex(([, feedUrl]) => feedUrl === url)];
