@@ -51,7 +51,7 @@ export async function fetchStockFeed(feed: string, url: string, validators?: Val
   for (let attempt = 0; ; attempt++) {
     let response: Response | undefined, bodyText: string | undefined, retryable = false;
     try {
-      try { response = await fetch(url, { signal, headers }); }
+      try { response = await fetch(url, { signal, headers, redirect: 'manual' }); }
       catch (error) { retryable = true; throw error; }
       if (response.status === 304) return { status: 304 };
       if (response.status !== 200) {
@@ -74,7 +74,16 @@ export async function fetchStockFeed(feed: string, url: string, validators?: Val
       let detail: string;
       if (response) {
         const body = clean(bodyText ?? await readBoundedBody(response)).slice(0, 200);
-        detail = `status=${response.status} body=${JSON.stringify(body)}`;
+        detail = `status=${response.status}`;
+        if (response.status >= 300 && response.status <= 399) {
+          let location = 'none';
+          try {
+            const header = response.headers.get('Location');
+            if (header) { const target = new URL(header, url); location = target.host + target.pathname; }
+          } catch { /* Keep malformed redirect targets out of diagnostics. */ }
+          detail += ` location=${location} set-cookie=${response.headers.has('Set-Cookie') ? 'yes' : 'no'}`;
+        }
+        detail += ` body=${JSON.stringify(body)}`;
         if (response.status === 200) detail += ` error=${clean(error instanceof Error ? `${error.name}: ${error.message}` : String(error))}`;
       } else detail = `error=${clean(error instanceof Error ? `${error.name}: ${error.message}` : String(error))}`;
       console.warn(`stock feed fail ${feed.split('-')[0]} ${feed} ${host}${pathname} ${detail} ms=${Date.now() - started}`);

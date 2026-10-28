@@ -28,6 +28,24 @@ it('keeps the HTTP error when reading the diagnostic body fails', async () => {
 });
 
 it.each([
+  { status: 302, location: 'https://www.tpex.org.tw/some/path?token=secret#x', cookie: 'session=private-cookie', target: 'www.tpex.org.tw/some/path' },
+  { status: 302, location: '/other?a=1', cookie: undefined, target: 'www.tpex.org.tw/other' },
+  { status: 301, location: undefined, cookie: undefined, target: 'none' },
+  { status: 302, location: 'http://[invalid', cookie: undefined, target: 'none' },
+])('logs a sanitized redirect without retrying: $status $target', async ({ status, location, cookie, target }) => {
+  const body = `Redirect\n  response ${'x'.repeat(300)}END`;
+  const headers = new Headers();
+  if (location !== undefined) headers.set('Location', location);
+  if (cookie !== undefined) headers.set('Set-Cookie', cookie);
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { status, headers }));
+  const warn = warning();
+  await expect(load()).rejects.toThrow(`HTTP ${status}`);
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(url, expect.objectContaining({ redirect: 'manual' }));
+  expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(`status=${status} location=${target} set-cookie=${cookie ? 'yes' : 'no'} body=${JSON.stringify(body.replace(/\s+/g, ' ').slice(0, 200))}`));
+  expect(warn.mock.calls[0][0]).not.toMatch(/secret|private-cookie|session=|private-query|token=|a=1|\?|#x|END|\n/);
+});
+
+it.each([
   { contentType: 'text/html', body: `<html>\n  Access denied ${'x'.repeat(300)}END</html>`, error: 'Unexpected content-type: text/html' },
   { contentType: 'application/json', body: '{"broken":\n invalid}', error: 'SyntaxError' },
   { contentType: null, body: '{"broken":\n invalid}', error: 'SyntaxError' },
@@ -144,5 +162,6 @@ it.each(['twse-quotes', 'tpex-quotes'] as const)('sends explicit and conditional
     'if-none-match': '"version"', 'if-modified-since': 'Tue, 27 Oct 2026 01:00:00 GMT',
   });
   expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0][1]?.redirect).toBe('manual');
   expect(warn).not.toHaveBeenCalled();
 });
