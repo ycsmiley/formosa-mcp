@@ -3,8 +3,8 @@
   "main": "src/worker/index.ts",
   // Newest date supported by the pinned worker test pool (workerd 2026-08-15).
   "compatibility_date": "2026-08-15",
-  // Placeholder: replace with a real namespace ID before any future deployment.
-  "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "00000000000000000000000000000000" }],
+  // KV namespace "SNAPSHOTS" (production). Not a secret; local dev/tests use local storage.
+  "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "e92149e1efec4434835310d434b69f7d" }],
   "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }],
   "triggers": { "crons": [
     // TWSE: UTC Mon–Fri :00/:30 = Taipei Mon 08:00–Sat 07:30, every 30m.
