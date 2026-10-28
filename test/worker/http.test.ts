@@ -150,12 +150,16 @@ it.each(['fetch', 'parse'])('writes nothing on market %s failure and updates met
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('private details'));
   if (failure === 'parse') spy.mockImplementation(async () => Response.json({ private: 'invalid upstream shape' }));
   const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     const cron = Object.entries(cronJobs).find(([, job]) => job === 'twse')![0];
     await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
     expect(put).not.toHaveBeenCalled();
     expect(del).not.toHaveBeenCalled();
     expect(await Promise.all(allKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
+    for (const kind of ['quotes', 'dividends'] as const) {
+      expect(warn).toHaveBeenCalledWith(`${keys[kind === 'quotes' ? 'twseQuotes' : 'twseDividends']} fail ${kind}: no snapshot`);
+    }
     spy.mockImplementation(async input => {
       const data = await fixtureFetch(String(input));
       return Response.json(String(input) === stockUrls['twse-quotes'] ? (fixtures[0] as typeof tq).map(row => ({ ...row, ClosingPrice: '2500' })) : data);
@@ -288,9 +292,20 @@ it.each(['fetch', 'parse', 'write'] as const)('deletes stale validators after a 
     }
     return Response.json(await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } });
   });
-  if (failure === 'write') vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new Error('private details'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  if (failure === 'write') vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new Error('kv boom'));
   await refresh('twse');
+  if (failure === 'write') expect(warn).toHaveBeenCalledExactlyOnceWith(`${keys.twseQuotes} fail Error: kv boom`);
   expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
+});
+
+it('logs the error name and message when the stock job fails before fetching', async () => {
+  const fetch = mockUpstream();
+  vi.spyOn(bindings.SNAPSHOTS, 'get').mockRejectedValue(new Error('kv read boom'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await refresh('twse');
+  expect(warn).toHaveBeenCalledExactlyOnceWith('stock:twse fail Error: kv read boom');
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it.each(['twse', 'tpex'] as const)('deletes %s meta after a partial update so the next run fetches unconditionally', async market => {

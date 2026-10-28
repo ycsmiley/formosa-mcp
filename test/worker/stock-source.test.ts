@@ -27,7 +27,32 @@ it('keeps the HTTP error when reading the diagnostic body fails', async () => {
   expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('status=403 body=""'));
 });
 
-it('promptly logs a 200-character prefix and cancels an endless HTTP error body', async () => {
+it.each([
+  { contentType: 'text/html', body: `<html>\n  Access denied ${'x'.repeat(300)}END</html>`, error: 'Unexpected content-type: text/html' },
+  { contentType: 'application/json', body: '{"broken":\n invalid}', error: 'SyntaxError' },
+  { contentType: null, body: '{"broken":\n invalid}', error: 'SyntaxError' },
+])('logs one bounded diagnostic and does not retry a 200 failure with content-type=$contentType', async ({ contentType, body, error }) => {
+  const response = new Response(body, { headers: contentType ? { 'Content-Type': contentType } : {} });
+  if (contentType === null) response.headers.delete('Content-Type');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+  const warn = warning();
+  await expect(load()).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/^stock feed fail tpex tpex-quotes www\.tpex\.org\.tw\/openapi\/v1\/tpex_mainboard_quotes status=200 body=".*" error=.* ms=\d+$/));
+  const line = warn.mock.calls[0][0] as string;
+  expect(line).toContain(`body=${JSON.stringify(body.replace(/\s+/g, ' ').slice(0, 200))}`);
+  expect(line).toContain(error);
+  expect(line).not.toMatch(/private-query|token=|\?|END|\n/);
+});
+
+it('parses a 200 response with no content-type header successfully', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new TextEncoder().encode('[{"ok":true}]')));
+  const warn = warning();
+  await expect(load()).resolves.toEqual({ status: 200, body: [{ ok: true }], validators: {} });
+  expect(warn).not.toHaveBeenCalled();
+});
+
+it.each([403, 200])('promptly logs a 200-character prefix and cancels an endless non-JSON body with status=%i', async status => {
   const text = `Access\n  denied ${'界'.repeat(1000)}`, bytes = new TextEncoder().encode(text);
   let offset = 0;
   const cancel = vi.fn(), body = new ReadableStream({
@@ -38,10 +63,10 @@ it('promptly logs a 200-character prefix and cancels an endless HTTP error body'
     },
     cancel,
   });
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { status: 403 }));
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { status, headers: { 'Content-Type': 'text/html' } }));
   const warn = warning();
-  await expect(load()).rejects.toThrow('HTTP 403');
-  expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(`status=403 body=${JSON.stringify(text.replace(/\s+/g, ' ').slice(0, 200))}`));
+  await expect(load()).rejects.toThrow(status === 403 ? 'HTTP 403' : 'Unexpected content-type: text/html');
+  expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(`status=${status} body=${JSON.stringify(text.replace(/\s+/g, ' ').slice(0, 200))}`));
   expect(cancel).toHaveBeenCalledTimes(1);
   expect(offset).toBeLessThanOrEqual(127 * 10);
 }, 1000);

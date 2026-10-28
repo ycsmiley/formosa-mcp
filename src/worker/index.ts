@@ -108,14 +108,14 @@ export default {
         const succeeded = await Promise.all((['quotes', 'dividends'] as const).map(async (kind, i) => {
           const key = snapshotKeys[i], snapshot = data[kind];
           try {
-            if (!snapshot) { console.log(`${key} fail`); return false; }
+            if (!snapshot) { console.warn(`${key} fail ${kind}: no snapshot`); return false; }
             if (kind === 'quotes' && snapshot.rows.length < minimumRows[job]) {
               console.warn(`${key} guard ${snapshot.rows.length} rows`);
               return false;
             }
             await write(key, snapshot);
             return true;
-          } catch { console.log(`${key} fail`); return false; }
+          } catch (error) { console.warn(`${key} fail ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`); return false; }
         }));
         if (!succeeded.every(Boolean)) {
           if (previous !== null) await env.SNAPSHOTS.delete(metaKeys[job]);
@@ -134,7 +134,7 @@ export default {
           if (Object.keys(next).length) await env.SNAPSHOTS.put(metaKeys[job], encoded);
           else await env.SNAPSHOTS.delete(metaKeys[job]);
         }
-      } catch { console.log(`stock:${job} fail`); }
+      } catch (error) { console.warn(`stock:${job} fail ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`); }
     }));
   },
 };
