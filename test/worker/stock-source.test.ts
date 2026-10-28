@@ -20,13 +20,31 @@ it('logs one bounded HTTP diagnostic with market, feed, host/path and no query',
 });
 
 it('keeps the HTTP error when reading the diagnostic body fails', async () => {
-  const response = new Response(null, { status: 403 });
-  vi.spyOn(response, 'text').mockRejectedValue(new Error('body read failed'));
+  const response = new Response(new ReadableStream({ start(controller) { controller.error(new Error('body read failed')); } }), { status: 403 });
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
   const warn = warning();
   await expect(load()).rejects.toThrow('HTTP 403');
   expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('status=403 body=""'));
 });
+
+it('promptly logs a 200-character prefix and cancels an endless HTTP error body', async () => {
+  const text = `Access\n  denied ${'界'.repeat(1000)}`, bytes = new TextEncoder().encode(text);
+  let offset = 0;
+  const cancel = vi.fn(), body = new ReadableStream({
+    async pull(controller) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      controller.enqueue(bytes.slice(offset, offset + 127));
+      offset = (offset + 127) % bytes.length;
+    },
+    cancel,
+  });
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { status: 403 }));
+  const warn = warning();
+  await expect(load()).rejects.toThrow('HTTP 403');
+  expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(`status=403 body=${JSON.stringify(text.replace(/\s+/g, ' ').slice(0, 200))}`));
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(offset).toBeLessThanOrEqual(127 * 10);
+}, 1000);
 
 it('logs a thrown fetch only after the final attempt, with the error name and message', async () => {
   const error = new TypeError(`network down\n ${url}`);

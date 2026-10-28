@@ -53,7 +53,20 @@ export async function fetchStockFeed(feed: string, url: string, validators?: Val
       let detail: string;
       if (response && response.status !== 200) {
         let body = '';
-        try { body = clean(await response.text()).slice(0, 200); } catch { /* Diagnostics must not hide the HTTP failure. */ }
+        try {
+          const reader = response.body?.getReader(), decoder = new TextDecoder();
+          if (reader) try {
+            for (let remaining = 1024; remaining > 0;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = value.subarray(0, remaining);
+              body += decoder.decode(chunk, { stream: true });
+              remaining -= chunk.byteLength;
+            }
+            body += decoder.decode();
+          } finally { await reader.cancel().catch(() => {}); }
+        } catch { /* Diagnostics must not hide the HTTP failure. */ }
+        body = clean(body).slice(0, 200);
         detail = `status=${response.status} body=${JSON.stringify(body)}`;
       } else detail = `error=${clean(error instanceof Error ? `${error.name}: ${error.message}` : String(error))}`;
       console.warn(`stock feed fail ${feed.split('-')[0]} ${feed} ${host}${pathname} ${detail} ms=${Date.now() - started}`);
