@@ -8,7 +8,7 @@ import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
 import { collectKeys, keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
-import { FixedWindowCounter, hitCounter } from './counter.js';
+import { FixedWindowCounter, hitCounter, ipShard } from './counter.js';
 export { FixedWindowCounter } from './counter.js';
 export { keys, metaKeys } from './snapshot-keys.js';
 export interface Env { SNAPSHOTS: KVNamespace; MCP_RATE_LIMIT: DurableObjectNamespace<FixedWindowCounter> }
@@ -48,7 +48,7 @@ export default {
       if (path !== '/mcp') return plain('找不到這個頁面。', 404);
       if (!['POST', 'GET', 'OPTIONS'].includes(request.method)) return plain('不支援這個請求方法。', 405, { Allow: 'GET, POST, OPTIONS' });
       const ip = request.headers.get('CF-Connecting-IP')?.trim() || 'unknown';
-      const { allowed, retryAfter } = await hitCounter(env.MCP_RATE_LIMIT, `mcp-ip:${ip}`, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
+      const { allowed, retryAfter } = await hitCounter(env.MCP_RATE_LIMIT, ipShard(ip), ip, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
       if (!allowed) return plain('請求太頻繁，請稍後再試。', 429, { 'Retry-After': String(retryAfter) });
       if (Number(request.headers.get('Content-Length')) > 65536) return plain('請求內容太大。', 413);
       if (request.body) {
