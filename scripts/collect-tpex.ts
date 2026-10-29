@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildStockSnapshot } from '../src/core/snapshot.js';
 import { parseRocDate, stockRows } from '../src/core/stock/parse.js';
@@ -21,18 +21,18 @@ type Feed = typeof feeds[number];
 const required: Record<Feed, string[]> = {
   'tpex-quotes': ['Date', 'SecuritiesCompanyCode', 'CompanyName', 'Close'],
   'tpex-ratios': ['Date', 'SecuritiesCompanyCode'],
-  'tpex-div': ['ExRrightsExDividendDate', 'SecuritiesCompanyCode', 'ExRrightsExDividend'],
+  'tpex-div': ['ExRrightsExDividendDate', 'SecuritiesCompanyCode', 'CompanyName', 'ExRrightsExDividend'],
 };
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim();
 
-async function atomicWrite(file: string, value: string) {
+async function atomicWrite(file: string, value: string | Uint8Array) {
   const tmp = `${file}.${randomUUID()}.tmp`;
   try { await writeFile(tmp, value, 'utf8'); await rename(tmp, file); }
   finally { await rm(tmp, { force: true }); }
 }
 
-export async function collectTpex({ outDir, previous, now = new Date(), retryDelayMs = 1500 }: {
-  outDir: string; previous?: TpexManifest; now?: Date; retryDelayMs?: number;
+export async function collectTpex({ outDir, previous, previousDir, now = new Date(), retryDelayMs = 1500 }: {
+  outDir: string; previous?: TpexManifest; previousDir?: string; now?: Date; retryDelayMs?: number;
 }): Promise<TpexManifest> {
   const generatedAt = now.toISOString();
   const manifest: TpexManifest = { v: 1, market: 'tpex', generatedAt, written: [], failures: [], keys: { ...previous?.keys } };
@@ -46,6 +46,9 @@ export async function collectTpex({ outDir, previous, now = new Date(), retryDel
     const result = await fetchStockFeed(feed, stockUrls[feed], undefined, { retryDelayMs });
     if (result.status !== 200) throw new Error(`HTTP ${result.status}; expected 200`);
     const rows = stockRows(result.body);
+    if (feed === 'tpex-ratios' && rows.length < minimumRows.tpex) {
+      throw new Error(`too few ratios rows: ${rows.length} < ${minimumRows.tpex}`);
+    }
     if (!rows.length) throw new Error('empty array');
     for (const row of rows) for (const field of required[feed]) {
       if (typeof row[field] !== 'string' || !row[field].trim()) throw new Error(`missing required field ${field}`);
@@ -94,6 +97,22 @@ export async function collectTpex({ outDir, previous, now = new Date(), retryDel
       console.log(`tpex collect ok ${key} ${entry.bytes} bytes dataDate=${entry.dataDate}`);
     } catch (error) { fail(key, feed, error); }
   }
+  for (const [key, entry] of Object.entries(manifest.keys)) {
+    if (manifest.written.includes(key)) continue;
+    try {
+      const file = join(outDir, entry.file);
+      let bytes: Buffer;
+      try { bytes = await readFile(file); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !previousDir) throw error;
+        await atomicWrite(file, await readFile(join(previousDir, entry.file)));
+        bytes = await readFile(file);
+      }
+      if (createHash('sha256').update(bytes).digest('hex') === entry.sha256) continue;
+    } catch { /* Unavailable carried files are omitted from the manifest. */ }
+    delete manifest.keys[key];
+    console.warn(`tpex collect drop ${key}: previous file missing or changed`);
+  }
   await atomicWrite(join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   return manifest;
 }
@@ -118,7 +137,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     } catch { console.warn('tpex collect previous manifest unavailable; treating as no previous'); }
   }
   try {
-    const manifest = await collectTpex({ outDir, previous });
+    const manifest = await collectTpex({ outDir, previous, previousDir: previousPath ? dirname(previousPath) : undefined });
     return manifest.written.length === 2 ? 0 : 1;
   } catch (error) {
     console.error(`tpex collect fail: ${reason(error)}`);

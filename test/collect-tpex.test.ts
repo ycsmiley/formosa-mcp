@@ -11,10 +11,10 @@ import { fixture } from './stock-fixtures.js';
 
 const now = new Date('2026-10-29T08:00:00.000Z');
 const quoteFile = 'stock_quotes_tpex_v1.json', divFile = 'stock_dividends_tpex_v1.json';
-// Expand the recorded quote sample to exercise the production minimum-row guard.
+// Expand the recorded quote and ratios samples to meet the production minimums.
 const feedRows = (feed: string): Record<string, string>[] => {
   const rows = fixture(feed) as Record<string, string>[];
-  return feed === 'tpex-quotes' ? Array.from({ length: minimumRows.tpex }, (_, i) =>
+  return feed === 'tpex-quotes' || feed === 'tpex-ratios' ? Array.from({ length: minimumRows.tpex }, (_, i) =>
     i < rows.length ? rows[i] : { ...rows[0], SecuritiesCompanyCode: `test-${i}` }) : rows;
 };
 const fixtureFetch = async (url: string) => feedRows(Object.entries(stockUrls).find(([, value]) => value === url)![0]);
@@ -100,11 +100,11 @@ it.each(['tpex-quotes', 'tpex-ratios'] as const)('rejects a stale %s date using 
   // Keep the other dated feed current so the failing dependency is unambiguous.
   const other = feed === 'tpex-quotes' ? 'tpex-ratios' : 'tpex-quotes';
   overrides[stockUrls[other]] = () => Response.json(feedRows(other).map(row => ({ ...row, Date: '1151023' })));
-  await writeFile(join(outDir, quoteFile), 'last-known-good');
+  const bytes = await readFile(join(outDir, quoteFile));
   const result = await collect(previous);
   expect(result.written).toEqual([keys.tpexDividends]);
   expect(result.failures).toEqual([{ key: keys.tpexQuotes, feed, reason: 'stale date 2026-10-22 < 2026-10-23' }]);
-  expect(await readFile(join(outDir, quoteFile), 'utf8')).toBe('last-known-good');
+  expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
   expect(result.keys[keys.tpexQuotes]).toEqual(previous.keys[keys.tpexQuotes]);
 });
 
@@ -114,12 +114,57 @@ it('carries the previous quotes entry across a ratios failure and checks it on t
   overrides[stockUrls['tpex-ratios']] = () => Response.json([]);
   const partial = await collect(previous);
   expect(partial.written).toEqual([keys.tpexDividends]);
-  expect(partial.failures).toEqual([{ key: keys.tpexQuotes, feed: 'tpex-ratios', reason: 'empty array' }]);
+  expect(partial.failures).toEqual([{ key: keys.tpexQuotes, feed: 'tpex-ratios', reason: 'too few ratios rows: 0 < 50' }]);
   expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
   expect(partial.keys[keys.tpexQuotes]).toEqual(previous.keys[keys.tpexQuotes]);
   delete overrides[stockUrls['tpex-ratios']];
   overrides[stockUrls['tpex-quotes']] = () => Response.json(feedRows('tpex-quotes').map(row => ({ ...row, Date: '1151021' })));
   expect((await collect(await readManifest())).failures[0].reason).toContain('stale date');
+});
+
+it('copies a carried file from the CLI previous manifest directory', async () => {
+  const previousDir = await mkdtemp(join(outDir, 'previous-'));
+  const previous = await collectTpex({ outDir: previousDir, now, retryDelayMs: 0 });
+  const bytes = await readFile(join(previousDir, quoteFile));
+  overrides[stockUrls['tpex-ratios']] = () => Response.json([]);
+  expect(await main(['--out', outDir, '--previous', join(previousDir, 'manifest.json')])).toBe(1);
+  const result = await readManifest();
+  expect(result.written).toEqual([keys.tpexDividends]);
+  expect(result.keys[keys.tpexQuotes]).toEqual(previous.keys[keys.tpexQuotes]);
+  expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
+});
+
+it.each(['missing', 'changed'] as const)('drops a carried entry whose file is %s', async mode => {
+  const previousDir = await mkdtemp(join(outDir, 'previous-'));
+  const previous = await collectTpex({ outDir: previousDir, now, retryDelayMs: 0 });
+  if (mode === 'missing') await rm(join(previousDir, quoteFile));
+  else await writeFile(join(outDir, quoteFile), 'changed');
+  overrides[stockUrls['tpex-ratios']] = () => Response.json([]);
+  const result = await collectTpex({ outDir, previous, previousDir, now, retryDelayMs: 0 });
+  expect(result.keys[keys.tpexQuotes]).toBeUndefined();
+  expect(await readManifest()).toEqual(result);
+  expect(vi.mocked(console.warn).mock.calls.filter(([line]) => String(line).startsWith('tpex collect drop ')))
+    .toEqual([[`tpex collect drop ${keys.tpexQuotes}: previous file missing or changed`]]);
+  if (mode === 'missing') await expect(readFile(join(outDir, quoteFile))).rejects.toMatchObject({ code: 'ENOENT' });
+  else expect(await readFile(join(outDir, quoteFile), 'utf8')).toBe('changed');
+});
+
+it.each([0, minimumRows.tpex - 1])('rejects %i ratios rows while writing dividends', async count => {
+  overrides[stockUrls['tpex-ratios']] = () => Response.json(feedRows('tpex-ratios').slice(0, count));
+  const result = await collect();
+  expect(result.written).toEqual([keys.tpexDividends]);
+  expect(result.failures).toEqual([{ key: keys.tpexQuotes, feed: 'tpex-ratios', reason: `too few ratios rows: ${count} < 50` }]);
+  await expect(readFile(join(outDir, quoteFile))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+it('rejects a dividends row without CompanyName while writing quotes', async () => {
+  const rows = feedRows('tpex-div');
+  delete rows[rows.length - 1].CompanyName;
+  overrides[stockUrls['tpex-div']] = () => Response.json(rows);
+  const result = await collect();
+  expect(result.written).toEqual([keys.tpexQuotes]);
+  expect(result.failures).toEqual([{ key: keys.tpexDividends, feed: 'tpex-div', reason: 'missing required field CompanyName' }]);
+  await expect(readFile(join(outDir, divFile))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 it('preserves updatedAt for unchanged hashes and advances it for changed data', async () => {
@@ -138,7 +183,7 @@ it('preserves updatedAt for unchanged hashes and advances it for changed data', 
 it.each(['empty', 'unparseable'] as const)('leaves dividends untouched for an %s schedule', async mode => {
   await writeFile(join(outDir, divFile), 'last-known-good');
   overrides[stockUrls['tpex-div']] = () => Response.json(mode === 'empty' ? [] : [{
-    ExRrightsExDividendDate: 'invalid', SecuritiesCompanyCode: '6488', ExRrightsExDividend: '除息',
+    ExRrightsExDividendDate: 'invalid', SecuritiesCompanyCode: '6488', CompanyName: '環球晶', ExRrightsExDividend: '除息',
   }]);
   const result = await collect();
   expect(result.written).toEqual([keys.tpexQuotes]);
