@@ -32,7 +32,13 @@ export function rateLimitKey(ip: string | null | undefined): string {
     if (groups.some(group => !group || group.length > 4 || /[^0-9a-f]/i.test(group))) return 'unknown';
     if (halves.length === 1 ? groups.length !== 8 : groups.length >= 8) return 'unknown';
     const expanded = [...left, ...Array(8 - groups.length).fill('0'), ...right].map(group => parseInt(group, 16).toString(16));
-    if (mapped) return expanded.slice(0, 5).every(group => group === '0') && expanded[5] === 'ffff' ? mapped : 'unknown';
+    if (expanded.slice(0, 5).every(group => group === '0') && expanded[5] === 'ffff') {
+      return mapped ?? expanded.slice(6).flatMap(group => {
+        const value = parseInt(group, 16);
+        return [value >>> 8, value & 255];
+      }).join('.');
+    }
+    if (mapped) return 'unknown';
     return `${expanded.slice(0, 4).join(':')}::/64`;
   } catch {
     return 'unknown';
