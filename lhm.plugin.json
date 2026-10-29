@@ -1,0 +1,89 @@
+{
+  "identifier": "ycsmiley-formosa-mcp",
+  "name": "formosa-mcp",
+  "version": "0.1.0",
+  "author": "ycsmiley",
+  "authorUrl": "https://github.com/ycsmiley",
+  "homepage": "https://github.com/ycsmiley/formosa-mcp",
+  "description": "Taiwan e-invoice lottery, TWSE/TPEx stock quotes and dividends, and rail timetables",
+  "category": "tools",
+  "tags": [
+    "taiwan",
+    "invoice",
+    "stock",
+    "twse",
+    "tpex",
+    "rail"
+  ],
+  "icon": "🇹🇼",
+  "localizations": [
+    {
+      "locale": "zh-TW",
+      "name": "formosa-mcp",
+      "description": "讓 AI agent 懂台灣：統一發票對獎、台股上市櫃盤後行情與除權息、台鐵高鐵時刻表"
+    }
+  ],
+  "tools": [
+    {
+      "name": "invoice_get_winning_numbers",
+      "description": "查詢統一發票中獎號碼與領獎期間。Get Taiwan invoice winning numbers; omit period for the latest draw.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "invoice_check",
+      "description": "統一發票對獎；未指定期別時檢查最新一期與仍可領獎的前一期。Check a Taiwan invoice number; 3–7 digits only check sixth prizes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "stock_quote",
+      "description": "以股票代號或名稱查詢上市／上櫃盤後行情、本益比與殖利率，非即時。Taiwan TWSE/TPEx end-of-day quote by code or name, not real-time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "stock_dividends",
+      "description": "查詢上市／上櫃近期除權息日程，可指定股票代號或名稱。Upcoming Taiwan TWSE/TPEx ex-dividend and ex-right dates; optional code or name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}

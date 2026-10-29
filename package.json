@@ -56,5 +56,6 @@
   "exports": {
     ".": "./dist/core/index.js",
     "./mcp": "./dist/mcp/server.js"
-  }
+  },
+  "mcpName": "io.github.ycsmiley/formosa-mcp"
 }

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ycsmiley/formosa-mcp",
+  "title": "formosa-mcp",
+  "description": "Taiwan e-invoice lottery, TWSE/TPEx stock quotes and dividends, and rail timetables",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/ycsmiley/formosa-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/ycsmiley/formosa-mcp",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "formosa-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TDX_CLIENT_ID",
+          "description": "Only needed for the rail toolset.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TDX_CLIENT_SECRET",
+          "description": "Only needed for the rail toolset.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--toolsets",
+          "description": "Comma-separated toolsets; select rail to enable rail tools.",
+          "default": "invoice,stock",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
