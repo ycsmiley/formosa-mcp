@@ -1,6 +1,6 @@
 import { env, runInDurableObject } from 'cloudflare:test';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { hitCounter, ipShard } from '../../src/worker/counter.js';
+import { hitCounter, ipShard, rateLimitKey } from '../../src/worker/counter.js';
 import type { Env } from '../../src/worker/index.js';
 
 const ns = (env as unknown as Env).MCP_RATE_LIMIT;
@@ -10,6 +10,45 @@ beforeEach(() => {
   vi.setSystemTime(1250);
 });
 afterEach(() => vi.useRealTimers());
+
+it.each([
+  ['::1', '0:0:0:0::/64'],
+  ['::', '0:0:0:0::/64'],
+  ['2001:db8::1', '2001:db8:0:0::/64'],
+  ['2001:0DB8:0:0:abcd::', '2001:db8:0:0::/64'],
+  ['2001:db8:1:2:3:4:5:6', '2001:db8:1:2::/64'],
+  ['fe80::1%eth0', 'fe80:0:0:0::/64'],
+  ['[2001:db8::1]', '2001:db8:0:0::/64'],
+  [' [fe80::1%eth0] ', 'fe80:0:0:0::/64'],
+  ['203.0.113.7', '203.0.113.7'],
+  [' 203.0.113.7 ', '203.0.113.7'],
+  ['001.2.3.4', '1.2.3.4'],
+  ['0.0.0.0', '0.0.0.0'],
+  ['255.255.255.255', '255.255.255.255'],
+  ['::ffff:1.2.3.4', '1.2.3.4'],
+  ['::FFFF:1.2.3.4', '1.2.3.4'],
+  ['0:0:0:0:0:ffff:1.2.3.4', '1.2.3.4'],
+  ['::ffff:001.2.3.4', '1.2.3.4'],
+])('normalizes rate-limit IP %s to %s', (ip, key) => {
+  expect(rateLimitKey(ip)).toBe(key);
+});
+
+it.each([
+  '', '   ', 'not-an-ip', '1.2.3', '1.2.3.256', '1::2::3', '2001:db8:::1',
+  '12345::', 'g::1', '1:2:3:4:5:6:7:8:9', '1:2:3:4:5:6:7', ':', ':::',
+  '::ffff:1.2.3.999', '1.2.3.4.5', '0001.2.3.4', '-1.2.3.4', '1.2.3.4x',
+  '::1.2.3.4', '::ffff:0:1.2.3.4', '1:0:0:0:0:ffff:1.2.3.4',
+  '1:2:3:4:5:6:7:8::', '[2001:db8::1', '2001:db8::1]', '::1\n%eth0',
+])('uses the unknown bucket for invalid IP %j', ip => {
+  expect(rateLimitKey(ip)).toBe('unknown');
+});
+
+it('never throws for missing, very long, or unexpected runtime input', () => {
+  for (const ip of [null, undefined, 'a'.repeat(100_000), ':'.repeat(100_000), 123, {}, { trim() { throw new Error('bad input'); } }]) {
+    expect(() => rateLimitKey(ip as string | null | undefined)).not.toThrow();
+    expect(rateLimitKey(ip as string | null | undefined)).toBe('unknown');
+  }
+});
 
 it('honors the limit and rejected hits do not consume counts', async () => {
   const stub = counter();

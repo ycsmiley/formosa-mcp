@@ -39,8 +39,12 @@ const mockUpstream = () => vi.spyOn(globalThis, 'fetch').mockImplementation(asyn
   const url = String(input); return url.includes('invoice.xml') ? new Response(xml) : Response.json(await fixtureFetch(url));
 });
 let sequence = 0;
+const nextIp = () => {
+  const n = sequence++;
+  return `10.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}`;
+};
 const run = (path: string, init: RequestInit = {}) => worker.fetch(new Request(`http://localhost${path}`, init), bindings, createExecutionContext());
-const rpc = async (method: string, params = {}, ip = `test-${sequence++}`) => {
+const rpc = async (method: string, params = {}, ip = nextIp()) => {
   const r = await run('/mcp', { method: 'POST', headers: { Host: 'localhost', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'CF-Connecting-IP': ip }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
   const text = await r.text();
   expect(r.status, text).toBe(200);
@@ -52,9 +56,9 @@ it('routes, bounds actual bytes and declared lengths, and strictly limits each I
   expect(await (await run('/')).text()).toContain('MCP 端點：/mcp');
   expect((await run('/nope')).status).toBe(404);
   expect((await run('/mcp', { method: 'DELETE' })).status).toBe(405);
-  expect((await run('/mcp', { method: 'POST', headers: { 'CF-Connecting-IP': 'bounds-bytes' }, body: 'x'.repeat(65537) })).status).toBe(413);
-  expect((await run('/mcp', { method: 'POST', headers: { 'CF-Connecting-IP': 'bounds-length', 'Content-Length': '65537' }, body: 'x' })).status).toBe(413);
-  const ip = `burst-${sequence++}`;
+  expect((await run('/mcp', { method: 'POST', headers: { 'CF-Connecting-IP': '198.51.100.1' }, body: 'x'.repeat(65537) })).status).toBe(413);
+  expect((await run('/mcp', { method: 'POST', headers: { 'CF-Connecting-IP': '198.51.100.2', 'Content-Length': '65537' }, body: 'x' })).status).toBe(413);
+  const ip = nextIp();
   for (let i = 1; i <= 30; i++) {
     expect((await run('/mcp', { headers: { 'CF-Connecting-IP': ip } })).status, `request ${i}`).not.toBe(429);
   }
@@ -67,16 +71,28 @@ it('routes, bounds actual bytes and declared lengths, and strictly limits each I
     expect(Number(retryAfter)).toBeGreaterThanOrEqual(1);
     expect(Number(retryAfter)).toBeLessThanOrEqual(60);
   }
-  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': `other-${sequence++}` } })).status).not.toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': nextIp() } })).status).not.toBe(429);
 });
-it('shares one unknown bucket for missing or empty IPs, independently of real IPs', async () => {
+it('shares the limit across rotating IPv6 addresses in one /64', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-29T08:00:15Z'));
+  const ips = ['2001:db8:aa:bb::1', '2001:db8:aa:bb:ffff::2'];
+  for (let i = 0; i < 30; i++) {
+    expect((await run('/mcp', { headers: { 'CF-Connecting-IP': ips[i % 2] } })).status, `request ${i + 1}`).not.toBe(429);
+  }
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': ips[0] } })).status).toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '2001:db8:aa:bc::1' } })).status).not.toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '203.0.113.7' } })).status).not.toBe(429);
+});
+it('shares one unknown bucket for missing, empty or invalid IPs, independently of real IPs', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-29T08:00:15Z'));
   for (let i = 1; i <= 30; i++) expect((await run('/mcp')).status, `request ${i}`).not.toBe(429);
   expect((await run('/mcp')).status).toBe(429);
   expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '' } })).status).toBe(429);
   expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '   ' } })).status).toBe(429);
-  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': `real-${sequence++}` } })).status).not.toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': 'not-an-ip' } })).status).toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': nextIp() } })).status).not.toBe(429);
 });
 it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failure => ({ method, failure }))))(
   'fails open for $method /mcp when the rate-limit $failure call throws', async ({ method, failure }) => {
@@ -88,7 +104,7 @@ it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failu
     } as unknown as Env['MCP_RATE_LIMIT'];
     const response = await worker.fetch(new Request('http://localhost/mcp', {
       method,
-      headers: { Host: 'localhost', 'CF-Connecting-IP': 'private-ip', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      headers: { Host: 'localhost', 'CF-Connecting-IP': nextIp(), 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
       ...(method === 'POST' ? { body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) } : {}),
     }), { ...bindings, MCP_RATE_LIMIT: namespace }, createExecutionContext());
     expect(response.status).not.toBe(500);

@@ -1,5 +1,44 @@
 import { DurableObject } from 'cloudflare:workers';
 
+/** IPv6 clients share a /64; IPv4 octets accept leading zeros and normalize as decimal. */
+export function rateLimitKey(ip: string | null | undefined): string {
+  try {
+    if (typeof ip !== 'string') return 'unknown';
+    ip = ip.trim();
+    if (!ip) return 'unknown';
+    const ipv4 = (value: string): string | undefined => {
+      const octets = value.split('.');
+      if (octets.length !== 4 || octets.some(octet => !octet || octet.length > 3 || /\D/.test(octet) || Number(octet) > 255)) return;
+      return octets.map(Number).join('.');
+    };
+    if (!ip.includes(':')) return ipv4(ip) ?? 'unknown';
+    if (ip.startsWith('[') && ip.endsWith(']')) ip = ip.slice(1, -1);
+    const zone = ip.indexOf('%');
+    if (zone !== -1) ip = ip.slice(0, zone);
+
+    let mapped: string | undefined;
+    if (ip.includes('.')) {
+      const lastColon = ip.lastIndexOf(':');
+      mapped = ipv4(ip.slice(lastColon + 1));
+      if (!mapped) return 'unknown';
+      // The dotted tail occupies two hextets; only IPv4-mapped prefixes are allowed.
+      ip = `${ip.slice(0, lastColon + 1)}0:0`;
+    }
+    const halves = ip.split('::');
+    if (halves.length > 2) return 'unknown';
+    const left = halves[0] ? halves[0].split(':') : [];
+    const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+    const groups = [...left, ...right];
+    if (groups.some(group => !group || group.length > 4 || /[^0-9a-f]/i.test(group))) return 'unknown';
+    if (halves.length === 1 ? groups.length !== 8 : groups.length >= 8) return 'unknown';
+    const expanded = [...left, ...Array(8 - groups.length).fill('0'), ...right].map(group => parseInt(group, 16).toString(16));
+    if (mapped) return expanded.slice(0, 5).every(group => group === '0') && expanded[5] === 'ffff' ? mapped : 'unknown';
+    return `${expanded.slice(0, 4).join(':')}::/64`;
+  } catch {
+    return 'unknown';
+  }
+}
+
 /**
  * Memory-only on purpose to avoid the Workers Free row-write quota. State is lost
  * only after idle eviction, when the limit is not being hit. Use one windowMs per
