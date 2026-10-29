@@ -1,7 +1,7 @@
 import type { Clock } from '../clock.js';
 import { createTdxClient, list, object, RailError, railRowLimit, string, truncatedNote, unavailable, type RailCredentials, type RailHttp } from './client.js';
 import { createStations, type Railway } from './stations.js';
-import { hhmm, minutes, operatingHHmm, operatingTimes, parseDate, parseTime, updated } from './time.js';
+import { hhmm, minutes, operatingHHmm, operatingTimes, parseDate, parseTime, taipeiNow, updated } from './time.js';
 
 export const attribution = '資料介接「交通部TDX平臺」';
 export interface RailResult { text: string; isError?: boolean }
@@ -79,7 +79,17 @@ export function createRailService(options: RailServiceOptions) {
       const station = await resolve('TRA', args.station!);
       const data = object(await client.get(`/v3/Rail/TRA/StationLiveBoard/Station/${encodeURIComponent(station.id)}`));
       const source = list(data.StationLiveBoards);
-      const rows = source.map(object).filter(row => /^\d+$/.test(string(row.TrainNo)));
+      const now = taipeiNow(clock()).minutes;
+      // Stable sort leaves rows without either scheduled time in their original order at the end.
+      const scheduled = (row: Record<string, unknown>) => {
+        const time = minutes(row.ScheduleDepartureTime) ?? minutes(row.ScheduleArrivalTime);
+        if (time === undefined) return Infinity;
+        // Keep a six-hour lookback across midnight; offsets affect sorting only.
+        if (time < now - 360) return time + 1440;
+        if (time > now + 1080) return time - 1440;
+        return time;
+      };
+      const rows = source.map(object).filter(row => /^\d+$/.test(string(row.TrainNo))).sort((a, b) => scheduled(a) - scheduled(b));
       const skipped = rows.length !== source.length;
       if (!rows.length) return [`${station.name}｜${skipped ? '查無可顯示的完整即時資料' : '查無車站即時資料'}`, ...(station.truncated || source.length === railRowLimit ? [truncatedNote] : []), ...(skipped ? [incompleteNote] : [])].join('\n');
       return [`臺鐵即時看板｜${station.name}`, ...rows.map(row => {

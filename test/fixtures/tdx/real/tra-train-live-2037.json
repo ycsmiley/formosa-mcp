@@ -1,0 +1,26 @@
+{
+  "UpdateTime": "2026-10-29T18:19:04+08:00",
+  "UpdateInterval": 30,
+  "SrcUpdateTime": "2026-10-29T18:19:00+08:00",
+  "SrcUpdateInterval": 60,
+  "AuthorityCode": "TRA",
+  "TrainLiveBoards": [
+    {
+      "TrainNo": "2037",
+      "TrainTypeID": "1132",
+      "TrainTypeCode": "10",
+      "TrainTypeName": {
+        "Zh_tw": "區間快",
+        "En": "Fast Local Train"
+      },
+      "StationID": "0990",
+      "StationName": {
+        "Zh_tw": "松山",
+        "En": "Songshan"
+      },
+      "TrainStationStatus": 2,
+      "DelayTime": 2,
+      "UpdateTime": "2026-10-29T18:18:34+08:00"
+    }
+  ]
+}

@@ -11,7 +11,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
 用法 / Usage: formosa-mcp [--toolsets invoice,stock,rail]
 預設 / Default: invoice,stock
 工具集 / Toolsets: invoice, stock, rail
-rail 需 TDX 會員 API 金鑰 / Requires TDX_CLIENT_ID and TDX_CLIENT_SECRET
+rail 查詢需自己的免費 TDX 金鑰；缺金鑰時顯示設定指引 / Queries require TDX_CLIENT_ID and TDX_CLIENT_SECRET; missing keys show setup guidance
 範例 / Examples:
   formosa-mcp --toolsets=invoice,stock
   formosa-mcp --toolsets invoice,stock

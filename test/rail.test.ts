@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer, type ServerOptions } from '../src/mcp/server.js';
 import { createRailService } from '../src/core/rail/service.js';
+import { railKeyGuide } from '../src/mcp/rail.js';
 import { operatingTimes } from '../src/core/rail/time.js';
 import { createTdxClient, railRowLimit, rejected, truncatedNote, unavailable, type RailHttp } from '../src/core/rail/client.js';
 import { fixtureHttp, railFixture } from '../scripts/rail-fixtures.js';
@@ -40,14 +41,19 @@ it('registers exactly three rail tools and all seven with explicit opt-in', asyn
   const defaults = await setup({ toolsets: undefined });
   expect((await defaults.listTools()).tools.map(t => t.name)).not.toContain('tra_live');
 });
-it.each([{}, { TDX_CLIENT_ID: env.TDX_CLIENT_ID }, { TDX_CLIENT_SECRET: env.TDX_CLIENT_SECRET }])('keeps tools registered and returns key instructions for missing env %j', async missing => {
+it.each([
+  {}, { TDX_CLIENT_ID: env.TDX_CLIENT_ID }, { TDX_CLIENT_SECRET: env.TDX_CLIENT_SECRET },
+  { ...env, TDX_CLIENT_ID: '' }, { ...env, TDX_CLIENT_SECRET: '' },
+  { ...env, TDX_CLIENT_ID: ' \t\n' }, { ...env, TDX_CLIENT_SECRET: ' \t\n' },
+])('keeps tools registered and returns key instructions for missing env %j', async missing => {
   const http = vi.fn(fixtureHttp), log = vi.fn();
   const client = await setup({ env: missing, railHttp: http, log });
   expect((await client.listTools()).tools).toHaveLength(3);
   for (const [name, input] of [['thsr_timetable', args], ['tra_timetable', args], ['tra_live', { train_no: '123' }]] as const) {
     const r = await call(client, name, input);
-    expect(r.isError).toBe(true);
-    for (const part of ['TDX 會員 API 金鑰', 'https://tdx.transportdata.tw/register', '審核後', '會員中心 → API金鑰', 'TDX_CLIENT_ID', 'TDX_CLIENT_SECRET', '重新啟動', '--toolsets rail']) expect(r.text).toContain(part);
+    expect(r.isError ?? false).toBe(false);
+    expect(r.text).toBe(railKeyGuide);
+    for (const part of ['https://tdx.transportdata.tw', '審核後', '會員中心「API 金鑰」', 'TDX_CLIENT_ID', 'TDX_CLIENT_SECRET', '重新啟動', '--toolsets=invoice,stock,rail', 'workers.dev/mcp', '發票與台股', '每月呼叫次數上限', '不要貼到對話裡']) expect(r.text).toContain(part);
   }
   expect(http).not.toHaveBeenCalled(); expect(log).not.toHaveBeenCalled();
 });
@@ -335,6 +341,38 @@ it('formats station board delays, cancellation, scheduled times and platforms', 
   const r = await call(await setup(), 'tra_live', { station: '台北車站' });
   for (const part of ['準點', '晚 5 分', '取消', '月台 1', '101 次', '表訂到站 06:00／離站 06:00', '8121 次', '表訂到站 12:00／離站 12:00', '115 次', '表訂到站 10:00／離站 10:00', '往 高雄']) expect(r.text).toContain(part);
   expect(r.text.endsWith(attribution)).toBe(true);
+});
+it('sorts station departures with arrival fallback, stable ties, and missing times last', async () => {
+  const http: RailHttp = async (url, init) => {
+    if (!url.includes('StationLiveBoard')) return fixtureHttp(url, init);
+    const row = railFixture('tra-station-live').StationLiveBoards[0];
+    const times = [
+      ['1', '', ''], ['2', '12:00:00', '09:00:00'], ['3', '', '10:00:00'],
+      ['4', '', ''], ['5', '10:00:00', '08:00:00'], ['6', '', '11:00:00'],
+    ];
+    return response({ StationLiveBoards: times.map(([TrainNo, ScheduleDepartureTime, ScheduleArrivalTime]) => ({ ...row, TrainNo, ScheduleDepartureTime, ScheduleArrivalTime })) });
+  };
+  const r = await service(http).live({ station: '臺北' });
+  expect(r.isError).not.toBe(true);
+  expect([...r.text.matchAll(/^(\d+) 次/gm)].map(m => m[1])).toEqual(['3', '5', '6', '2', '1', '4']);
+});
+it.each([
+  ['23:50', ['00:05', '23:55', '23:52'], ['23:52', '23:55', '00:05']],
+  ['00:10', ['00:20', '23:58'], ['23:58', '00:20']],
+  ['23:50', ['17:49', '17:50', '00:05'], ['17:50', '00:05', '17:49']],
+])('sorts station departures around Taipei %s with a six-hour lookback', async (now, times, expected) => {
+  const http: RailHttp = async (url, init) => {
+    if (!url.includes('StationLiveBoard')) return fixtureHttp(url, init);
+    const row = railFixture('tra-station-live').StationLiveBoards[0];
+    return response({ StationLiveBoards: times.map((time, i) => ({
+      ...row, TrainNo: String(i + 1), ScheduleDepartureTime: `${time}:00`, ScheduleArrivalTime: '',
+    })) });
+  };
+  const s = createRailService({ credentials, http, clock: () => new Date(`2026-10-29T${now}:00+08:00`) });
+  const r = await s.live({ station: '臺北' });
+  expect(r.isError).not.toBe(true);
+  expect([...r.text.matchAll(/離站 (\d{2}:\d{2})/g)].map(m => m[1])).toEqual(expected);
+  expect(r.text).not.toContain('（隔日）');
 });
 it('handles empty live train and station results with attribution', async () => {
   const r = await call(await setup(), 'tra_live', { train_no: '99999' });

@@ -6,6 +6,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp/server.js';
 import { fixtureHttp } from './rail-fixtures.js';
+import { railKeyGuide } from '../src/mcp/rail.js';
 
 const calls = [
   ['thsr_timetable', { origin: '北車', destination: '高雄', date: '2026-10-28', time: '22:00' }],
@@ -17,9 +18,9 @@ async function show(client: Client, missing: boolean) {
   assert.deepEqual((await client.listTools()).tools.map(t => t.name), ['thsr_timetable', 'tra_timetable', 'tra_live']);
   for (const [name, args] of calls) {
     const result = await client.callTool({ name, arguments: args });
-    assert.equal(result.isError === true, missing);
+    assert.notEqual(result.isError, true);
     const text = (result.content as { text: string }[]).map(c => c.text).join('\n');
-    assert.ok(missing ? text.includes('需要 TDX 會員 API 金鑰') : text.endsWith('資料介接「交通部TDX平臺」'));
+    assert.ok(missing ? text === railKeyGuide : text.endsWith('資料介接「交通部TDX平臺」'));
     if (!missing && name === 'tra_live') {
       assert.ok(text.includes('晚 5 分'));
       if ('train_no' in args) assert.ok(text.includes('8121 次') && text.includes('目前位置：臺中（已離站）') && text.includes('14:00（臺北時間）'));

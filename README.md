@@ -99,9 +99,30 @@ claude plugin install formosa@formosa-mcp
 
 ### 鐵路金鑰
 
-至 [TDX 註冊](https://tdx.transportdata.tw/register)，審核後在會員中心取得 Client ID／Secret，設定 `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET` 並重新啟動。以 `--toolsets=invoice,stock,rail` 或 `--toolsets=rail` 啟用；缺金鑰時呼叫會顯示設定指引。
+1. 到 [TDX](https://tdx.transportdata.tw) 註冊免費會員，等待審核。免費會員有每月呼叫次數上限。
+2. 在會員中心 → API 金鑰取得 Client Id／Client Secret。
+3. 在 Claude Desktop（`claude_desktop_config.json`）或 Cursor（`.cursor/mcp.json` 或 `~/.cursor/mcp.json`）的 MCP 設定加入 `env`，將下列佔位文字換成自己的金鑰：
 
-使用自己的金鑰在本機執行，可查即時車次與誤點；未來公開網址只提供快取的時刻表與站點。尚未使用真實 TDX 金鑰驗證。成功回覆標示資料介接「交通部TDX平臺」；詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "command": "npx",
+      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,rail"],
+      "env": {
+        "TDX_CLIENT_ID": "你的 Client Id",
+        "TDX_CLIENT_SECRET": "你的 Client Secret"
+      }
+    }
+  }
+}
+```
+
+4. 儲存設定並重新啟動 Claude Desktop／Cursor。
+
+金鑰只放在本機設定，不要貼到對話裡，也不要提交到版本控制；`.env` 已列入 gitignore。以 `--toolsets=invoice,stock,rail` 或 `--toolsets=rail` 啟用；缺金鑰時，鐵路工具會顯示上述設定指引。
+
+使用自己的金鑰在本機執行，可查即時車次與誤點；未來公開網址只提供快取的時刻表與站點。已於 2026-10-29 以真實 TDX 回應驗證。成功回覆標示資料介接「交通部TDX平臺」；詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
 
 ### 遠端版（Cloudflare Workers）
 
@@ -194,7 +215,32 @@ The committed bundle also runs without installing npm packages via `node plugin/
 
 Invoice and stock toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
 
-Register with [TDX](https://tdx.transportdata.tw/register), set your own `TDX_CLIENT_ID` and `TDX_CLIENT_SECRET`, and enable `rail` to use rail tools locally, including live train delays. The future public URL will serve cached timetables and stations only. Rail has not yet been verified with a real TDX key. Successful replies credit 資料介接「交通部TDX平臺」; see [TDX fixtures](test/fixtures/tdx/README.md).
+### Railway keys
+
+1. Register as a free member at [TDX](https://tdx.transportdata.tw) and wait for approval. Free membership has monthly API call limits.
+2. Get your Client Id and Client Secret under 會員中心 → API 金鑰 (Member Center → API Keys).
+3. Add `env` to your Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`) MCP configuration, replacing the placeholders with your own keys:
+
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "command": "npx",
+      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,rail"],
+      "env": {
+        "TDX_CLIENT_ID": "你的 Client Id",
+        "TDX_CLIENT_SECRET": "你的 Client Secret"
+      }
+    }
+  }
+}
+```
+
+4. Save the configuration and restart Claude Desktop or Cursor.
+
+Keep keys in local configuration, never paste them into conversations or commit them; `.env` is gitignored. Enable rail with `--toolsets=invoice,stock,rail` or `--toolsets=rail`. Without a key, rail tools show this setup guide.
+
+Your own key enables local rail queries, including live train delays. The future public URL will serve cached timetables and stations only. Rail was verified against real TDX responses on 2026-10-29. Successful replies credit 資料介接「交通部TDX平臺」; see [TDX fixtures](test/fixtures/tdx/README.md).
 
 ### Remote (Cloudflare Workers)
 

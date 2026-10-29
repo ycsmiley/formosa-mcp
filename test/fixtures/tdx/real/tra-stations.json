@@ -1,0 +1,207 @@
+{
+  "UpdateTime": "2026-10-29T06:02:49+08:00",
+  "UpdateInterval": 14400,
+  "SrcUpdateTime": "2026-10-29T04:00:00+08:00",
+  "SrcUpdateInterval": -1,
+  "AuthorityCode": "TRA",
+  "Stations": [
+    {
+      "StationUID": "TRA-0900",
+      "StationID": "0900",
+      "StationName": {
+        "Zh_tw": "基隆",
+        "En": "Keelung",
+        "Ja": "基隆",
+        "Kr": "지롱"
+      },
+      "StationPosition": {
+        "PositionLon": 121.73837,
+        "PositionLat": 25.13191
+      },
+      "StationAddress": "203001基隆市中山區中山一路 16 之 1 號",
+      "StationPhone": "02-24263743",
+      "StationClass": "1",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/0900"
+    },
+    {
+      "StationUID": "TRA-0990",
+      "StationID": "0990",
+      "StationName": {
+        "Zh_tw": "松山",
+        "En": "Songshan",
+        "Ja": "松山",
+        "Kr": "송산"
+      },
+      "StationPosition": {
+        "PositionLon": 121.57906,
+        "PositionLat": 25.04927
+      },
+      "StationAddress": "110417臺北市信義區松山路 11 號B1",
+      "StationPhone": "02-27673819",
+      "StationClass": "1",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/0990"
+    },
+    {
+      "StationUID": "TRA-1000",
+      "StationID": "1000",
+      "StationName": {
+        "Zh_tw": "臺北",
+        "En": "Taipei",
+        "Ja": "台北",
+        "Kr": "타이베이"
+      },
+      "StationPosition": {
+        "PositionLon": 121.51711,
+        "PositionLat": 25.04775
+      },
+      "StationAddress": "100230臺北市中正區黎明里北平西路 3 號",
+      "StationPhone": "02-23713558",
+      "StationClass": "0",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/1000"
+    },
+    {
+      "StationUID": "TRA-1001",
+      "StationID": "1001",
+      "StationName": {
+        "Zh_tw": "臺北-環島",
+        "En": "Taipei Surround Island",
+        "Ja": "台北サラウンドアイランド",
+        "Kr": "타이베이 서라운드 아일랜드"
+      },
+      "StationPosition": {
+        "PositionLon": 121.51711,
+        "PositionLat": 25.04774
+      },
+      "StationAddress": "100230臺北市中正區",
+      "StationPhone": "",
+      "StationClass": "4",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/1001"
+    },
+    {
+      "StationUID": "TRA-1080",
+      "StationID": "1080",
+      "StationName": {
+        "Zh_tw": "桃園",
+        "En": "Taoyuan",
+        "Ja": "桃園",
+        "Kr": "타오위엔"
+      },
+      "StationPosition": {
+        "PositionLon": 121.31449,
+        "PositionLat": 24.98888
+      },
+      "StationAddress": "330002桃園市桃園區武陵里中正路 1 號",
+      "StationPhone": "03-3767050",
+      "StationClass": "1",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/1080"
+    },
+    {
+      "StationUID": "TRA-3300",
+      "StationID": "3300",
+      "StationName": {
+        "Zh_tw": "臺中",
+        "En": "Taichung",
+        "Ja": "台中",
+        "Kr": "타이종"
+      },
+      "StationPosition": {
+        "PositionLon": 120.68691,
+        "PositionLat": 24.13728
+      },
+      "StationAddress": "400005臺中市中區綠川里臺灣大道一段 1 號",
+      "StationPhone": "04-22227236",
+      "StationClass": "0",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/3300"
+    },
+    {
+      "StationUID": "TRA-4340",
+      "StationID": "4340",
+      "StationName": {
+        "Zh_tw": "新左營",
+        "En": "Xinzuoying",
+        "Ja": "新左営",
+        "Kr": "신줘잉"
+      },
+      "StationPosition": {
+        "PositionLon": 120.30678,
+        "PositionLat": 22.68754
+      },
+      "StationAddress": "813014高雄市左營區尾北里站前北路 1 號",
+      "StationPhone": "07-5887825",
+      "StationClass": "1",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/4340"
+    },
+    {
+      "StationUID": "TRA-4400",
+      "StationID": "4400",
+      "StationName": {
+        "Zh_tw": "高雄",
+        "En": "Kaohsiung",
+        "Ja": "高雄",
+        "Kr": "까오숑"
+      },
+      "StationPosition": {
+        "PositionLon": 120.30292,
+        "PositionLat": 22.63946
+      },
+      "StationAddress": "807001高雄市三民區港西里建國二路 318 號",
+      "StationPhone": "07-2352376",
+      "StationClass": "0",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/4400"
+    },
+    {
+      "StationUID": "TRA-4440",
+      "StationID": "4440",
+      "StationName": {
+        "Zh_tw": "鳳山",
+        "En": "Fongshan",
+        "Ja": "鳳山",
+        "Kr": "펑산"
+      },
+      "StationPosition": {
+        "PositionLon": 120.35745,
+        "PositionLat": 22.63145
+      },
+      "StationAddress": "830025高雄市鳳山區曹公里曹公路 137 號",
+      "StationPhone": "07-7460423",
+      "StationClass": "2",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/4440"
+    },
+    {
+      "StationUID": "TRA-5000",
+      "StationID": "5000",
+      "StationName": {
+        "Zh_tw": "屏東",
+        "En": "Pingtung",
+        "Ja": "屏東",
+        "Kr": "핑동"
+      },
+      "StationPosition": {
+        "PositionLon": 120.48617,
+        "PositionLat": 22.66905
+      },
+      "StationAddress": "900011屏東縣屏東市建國里公勇路 62 號",
+      "StationPhone": "08-7515140",
+      "StationClass": "1",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/5000"
+    },
+    {
+      "StationUID": "TRA-7000",
+      "StationID": "7000",
+      "StationName": {
+        "Zh_tw": "花蓮",
+        "En": "Hualien",
+        "Ja": "花蓮",
+        "Kr": "화리엔"
+      },
+      "StationPosition": {
+        "PositionLon": 121.60131,
+        "PositionLat": 23.99265
+      },
+      "StationAddress": "970015花蓮縣花蓮市國聯里國聯一路 100 號",
+      "StationPhone": "03-8355941",
+      "StationClass": "0",
+      "StationURL": "https://www.trc.com.tw/tra-tip-web/tip/tip00H/tipH41/viewStaInfo/7000"
+    }
+  ]
+}
