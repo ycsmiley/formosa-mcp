@@ -48,8 +48,10 @@ export default {
       if (path !== '/mcp') return plain('找不到這個頁面。', 404);
       if (!['POST', 'GET', 'OPTIONS'].includes(request.method)) return plain('不支援這個請求方法。', 405, { Allow: 'GET, POST, OPTIONS' });
       const ip = request.headers.get('CF-Connecting-IP')?.trim() || 'unknown';
-      const { allowed, retryAfter } = await hitCounter(env.MCP_RATE_LIMIT, ipShard(ip), ip, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
-      if (!allowed) return plain('請求太頻繁，請稍後再試。', 429, { 'Retry-After': String(retryAfter) });
+      try {
+        const { allowed, retryAfter } = await hitCounter(env.MCP_RATE_LIMIT, ipShard(ip), ip, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
+        if (!allowed) return plain('請求太頻繁，請稍後再試。', 429, { 'Retry-After': String(retryAfter) });
+      } catch { console.warn('mcp rate limit unavailable'); }
       if (Number(request.headers.get('Content-Length')) > 65536) return plain('請求內容太大。', 413);
       if (request.body) {
         const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let length = 0;

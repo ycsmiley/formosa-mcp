@@ -47,41 +47,41 @@ it('rounds Retry-After up to whole seconds', async () => {
   expect(await stub.hit('key', 1, 60_000)).toEqual({ allowed: false, count: 1, retryAfter: 1 });
 });
 
-it('prunes expired rows only on the first hit of each window per object instance', async () => {
+it('clears old keys from memory when the window changes', async () => {
   const stub = counter();
   await stub.hit('expired-a', 2, 1000);
   await stub.hit('expired-b', 2, 1000);
-  const storedKeys = () => runInDurableObject(stub, (_instance, ctx) =>
-    ctx.storage.sql.exec<{ key: string }>('SELECT key FROM counters ORDER BY key').toArray().map(row => row.key));
-  expect(await storedKeys()).toEqual(['expired-a', 'expired-b']);
+  const memoryKeys = () => runInDurableObject(stub, instance =>
+    [...(instance as unknown as { counts: Map<string, number> }).counts.keys()].sort());
+  expect(await memoryKeys()).toEqual(['expired-a', 'expired-b']);
   vi.setSystemTime(2000);
   await stub.hit('current', 2, 1000);
-  expect(await storedKeys()).toEqual(['current']);
-  await runInDurableObject(stub, (_instance, ctx) => {
-    ctx.storage.sql.exec('INSERT INTO counters (key, start, count) VALUES (?, ?, ?)', 'late-expired', 1000, 1);
-  });
+  expect(await memoryKeys()).toEqual(['current']);
   await stub.hit('also-current', 2, 1000);
-  expect(await storedKeys()).toEqual(['also-current', 'current', 'late-expired']);
+  expect(await memoryKeys()).toEqual(['also-current', 'current']);
   await stub.hit('current', 2, 1000);
-  expect(await storedKeys()).toEqual(['also-current', 'current', 'late-expired']);
+  expect(await memoryKeys()).toEqual(['also-current', 'current']);
   vi.setSystemTime(3000);
   await stub.hit('next-window', 2, 1000);
-  expect(await storedKeys()).toEqual(['next-window']);
+  expect(await memoryKeys()).toEqual(['next-window']);
 });
 
-it('never sets an alarm for allowed, rejected, or new-window hits', async () => {
+it('uses no storage for allowed, rejected, or new-window hits', async () => {
   const stub = counter();
-  const expectNoAlarm = () => runInDurableObject(stub, async (_instance, ctx) => {
+  const databaseSize = await runInDurableObject(stub, (_instance, ctx) => ctx.storage.sql.databaseSize);
+  const expectNoStorage = () => runInDurableObject(stub, async (_instance, ctx) => {
+    expect(ctx.storage.sql.databaseSize).toBe(databaseSize);
+    expect((await ctx.storage.list()).size).toBe(0);
     expect(await ctx.storage.getAlarm()).toBeNull();
   });
-  await expectNoAlarm();
+  await expectNoStorage();
   await stub.hit('key', 1, 1000);
-  await expectNoAlarm();
+  await expectNoStorage();
   await stub.hit('key', 1, 1000);
-  await expectNoAlarm();
+  await expectNoStorage();
   vi.setSystemTime(2000);
   await stub.hit('key', 1, 1000);
-  await expectNoAlarm();
+  await expectNoStorage();
 });
 
 it.each([0, -1, 1.5, NaN, Infinity, -Infinity].flatMap(value => [[value, 1000], [1, value]]))(

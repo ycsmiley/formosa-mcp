@@ -78,6 +78,26 @@ it('shares one unknown bucket for missing or empty IPs, independently of real IP
   expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '   ' } })).status).toBe(429);
   expect((await run('/mcp', { headers: { 'CF-Connecting-IP': `real-${sequence++}` } })).status).not.toBe(429);
 });
+it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failure => ({ method, failure }))))(
+  'fails open for $method /mcp when the rate-limit $failure call throws', async ({ method, failure }) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const unavailable = () => { throw new Error('private rate-limit details'); };
+    const namespace = {
+      idFromName: failure === 'idFromName' ? unavailable : () => 'test-shard',
+      get: failure === 'get' ? unavailable : () => ({ hit: async () => unavailable() }),
+    } as unknown as Env['MCP_RATE_LIMIT'];
+    const response = await worker.fetch(new Request('http://localhost/mcp', {
+      method,
+      headers: { Host: 'localhost', 'CF-Connecting-IP': 'private-ip', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      ...(method === 'POST' ? { body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) } : {}),
+    }), { ...bindings, MCP_RATE_LIMIT: namespace }, createExecutionContext());
+    expect(response.status).not.toBe(500);
+    expect(response.status).not.toBe(429);
+    if (method === 'POST') expect(response.status).toBe(200);
+    await response.body?.cancel();
+    expect(warn).toHaveBeenCalledExactlyOnceWith('mcp rate limit unavailable');
+  },
+);
 it('lists exactly four tools (rail excluded) and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));

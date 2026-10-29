@@ -1,13 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
 
+/**
+ * Memory-only on purpose to avoid the Workers Free row-write quota. State is lost
+ * only after idle eviction, when the limit is not being hit. Use one windowMs per
+ * object; a future quota that must survive eviction should persist separately.
+ */
 export class FixedWindowCounter extends DurableObject<unknown> {
-  private prunedStart = -1;
-
-  constructor(ctx: DurableObjectState, env: unknown) {
-    super(ctx, env);
-    this.ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS counters (key TEXT PRIMARY KEY, start INTEGER NOT NULL, count INTEGER NOT NULL)');
-    // No start index: save write quota; scan at most once per window per object instance.
-  }
+  private windowStart = -1;
+  private counts = new Map<string, number>();
 
   async hit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; count: number; retryAfter: number }> {
     if (typeof key !== 'string' || key.length === 0) {
@@ -18,18 +18,15 @@ export class FixedWindowCounter extends DurableObject<unknown> {
     }
     const now = Date.now();
     const start = Math.floor(now / windowMs) * windowMs;
-    const sql = this.ctx.storage.sql;
-    // All keys in one object must use the same windowMs so this prunes only expired rows.
-    if (start !== this.prunedStart) {
-      sql.exec('DELETE FROM counters WHERE start < ?', start);
-      this.prunedStart = start;
+    if (start !== this.windowStart) {
+      this.counts.clear();
+      this.windowStart = start;
     }
-    const [state] = sql.exec<{ start: number; count: number }>('SELECT start, count FROM counters WHERE key = ?', key).toArray();
-    const count = state?.start === start ? state.count : 0;
+    const count = this.counts.get(key) ?? 0;
     if (count >= limit) {
       return { allowed: false, count, retryAfter: Math.max(1, Math.ceil((start + windowMs - now) / 1000)) };
     }
-    sql.exec('INSERT INTO counters (key, start, count) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET start = excluded.start, count = excluded.count', key, start, count + 1);
+    this.counts.set(key, count + 1);
     return { allowed: true, count: count + 1, retryAfter: 0 };
   }
 }
