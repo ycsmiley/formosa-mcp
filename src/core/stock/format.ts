@@ -1,6 +1,7 @@
 import { taipeiParts, type Clock } from '../clock.js';
 import { rocDateLabel, type DividendEvent, type StockDate, type StockQuote } from './parse.js';
 import type { StockIdentity, StockLookup } from './lookup.js';
+import type { TpexCheck } from './service.js';
 const number = (n: number | null, digits = 2) => n === null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const decimal = (n: number, digits = 20) => Number.isFinite(n) ? Number(n.toFixed(digits)).toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: digits }) : '—';
 const signed = (n: number) => `${n > 0 ? '+' : ''}${number(n)}`;
@@ -10,22 +11,23 @@ export function formatStockLookup(query: string, result: Exclude<StockLookup<Sto
   if (result.kind === 'none') return `找不到「${query}」，請輸入股票代號（例如 2330）或名稱（例如 台積電）。`;
   return [`找到 ${result.stocks.length} 檔符合「${query}」的股票，請指定代號：`, ...result.stocks.slice(0, 10).map(s => `- ${s.code} ${s.name}（${s.market}）`), ...(result.stocks.length > 10 ? [`…另有 ${result.stocks.length - 10} 檔`] : [])].join('\n');
 }
-export function quoteStalenessNote(s: StockQuote, clock: Clock, checkedAt?: string): string {
+export function quoteStalenessNote(s: StockQuote, clock: Clock, tpexCheck?: TpexCheck): string {
   const now = clock(), today = taipeiParts(now);
   const end = Date.UTC(today.year, today.month - 1, today.day);
   let weekdays = 0;
   for (let day = Date.UTC(s.date.year, s.date.month - 1, s.date.day) + 86400000; day < end; day += 86400000) {
     const weekday = new Date(day).getUTCDay();
     if (weekday !== 0 && weekday !== 6 && ++weekdays >= 3) {
-      const checked = checkedAt ? new Date(checkedAt) : null, age = checked ? now.getTime() - checked.getTime() : NaN;
-      if (s.market === '上櫃' && age >= 0 && age <= 72 * 3600000) return `（注意：上櫃資料停在 ${rocDateLabel(s.date)}；${rocDateLabel(taipeiParts(checked!))} 已確認櫃買中心尚無更新資料，可能為休市）`;
+      const checked = tpexCheck ? new Date(tpexCheck.lastSuccessAt) : null, age = checked ? now.getTime() - checked.getTime() : NaN;
+      const quoteDate = `${String(s.date.year).padStart(4, '0')}-${String(s.date.month).padStart(2, '0')}-${String(s.date.day).padStart(2, '0')}`;
+      if (s.market === '上櫃' && age >= 0 && age <= 72 * 3600000 && tpexCheck?.dataDate === quoteDate) return `（注意：上櫃資料停在 ${rocDateLabel(s.date)}；${rocDateLabel(taipeiParts(checked!))} 已確認櫃買中心尚無更新資料，可能為休市）`;
       return `（注意：${s.market}資料停在 ${rocDateLabel(s.date)}，可能尚未更新）`;
     }
   }
   return '';
 }
-export function formatStockQuote(s: StockQuote, clock?: Clock, checkedAt?: string): string {
-  const note = clock ? quoteStalenessNote(s, clock, checkedAt) : '';
+export function formatStockQuote(s: StockQuote, clock?: Clock, tpexCheck?: TpexCheck): string {
+  const note = clock ? quoteStalenessNote(s, clock, tpexCheck) : '';
   const pct = s.close !== null && s.change !== null && s.close - s.change > 0 ? `（${signed(s.change / (s.close - s.change) * 100)}%）` : '';
   const amount = s.value === null ? '—' : s.value >= 1e8 ? `${number(s.value / 1e8)} 億元` : `${number(s.value / 1e4, 0)} 萬元`;
   return [`${s.name}（${s.code}）｜${s.market}`, `資料日期：${rocDateLabel(s.date)}（盤後資料，非即時）`,

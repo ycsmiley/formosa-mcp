@@ -2,7 +2,7 @@ import type { Clock } from './clock.js';
 import { parseInvoiceFeed, type Draw } from './invoice/parse.js';
 import { parseQuotes, parseDividends, type StockQuote, type DividendEvent } from './stock/parse.js';
 import { stockUrls } from './stock/source.js';
-import type { StockMarketSnapshot } from './stock/service.js';
+import type { StockMarketSnapshot, TpexCheck } from './stock/service.js';
 export interface InvoiceSnapshot { updatedAt: string; draws: Draw[] }
 export interface MarketSnapshot<T> { updatedAt: string; rows: T[] }
 export interface StockSnapshot { quotes: MarketSnapshot<StockQuote> | null; dividends: MarketSnapshot<DividendEvent> | null }
@@ -20,9 +20,9 @@ export async function buildStockSnapshot(market: 'twse' | 'tpex', fetchJson: (ur
   ]);
   return { quotes, dividends };
 }
-export function mergeStockSnapshots<T>(twse: MarketSnapshot<T> | null, tpex: MarketSnapshot<T> | null, tpexCheckedAt?: string): StockMarketSnapshot<T> | null {
+export function mergeStockSnapshots<T>(twse: MarketSnapshot<T> | null, tpex: MarketSnapshot<T> | null, tpexCheck?: TpexCheck): StockMarketSnapshot<T> | null {
   if (!twse && !tpex) return null;
-  return { updatedAt: twse && tpex ? (twse.updatedAt < tpex.updatedAt ? twse.updatedAt : tpex.updatedAt) : (twse ?? tpex)!.updatedAt, twse: twse?.rows ?? null, tpex: tpex?.rows ?? null, ...(tpexCheckedAt ? { tpexCheckedAt } : {}) };
+  return { updatedAt: twse && tpex ? (twse.updatedAt < tpex.updatedAt ? twse.updatedAt : tpex.updatedAt) : (twse ?? tpex)!.updatedAt, twse: twse?.rows ?? null, tpex: tpex?.rows ?? null, ...(tpexCheck ? { tpexCheck } : {}) };
 }
 // Quotes v3 stores one market, with shared market/date and a fixed field dictionary.
 const quoteKeys = ['code', 'name', 'open', 'high', 'low', 'close', 'change', 'volumeShares', 'value', 'pe', 'yield', 'pb'] as const;

@@ -20,10 +20,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The committed bundle skips npm ci, so there is no npm cache to save.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
-          cache: npm
       - run: test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID repo variable is empty"; exit 1; }
       - run: node scripts/dist/publish-tpex.mjs --out "$RUNNER_TEMP/tpex"
         env:

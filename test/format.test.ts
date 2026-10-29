@@ -64,12 +64,19 @@ it.each(['上市', '上櫃'] as const)('labels differing ratio dates for %s and 
 it('uses a recent TPEx check only for stale TPEx quotes, with Taipei dates and a 72-hour boundary', () => {
   const quote = parseQuotes(fixture('tpex-quotes'), fixture('tpex-ratios'), '上櫃')[0];
   const now = () => new Date('2026-10-29T16:00:00Z');
-  expect(quoteStalenessNote({ ...quote, date: { year: 2026, month: 10, day: 29 } }, now, '2026-10-29T08:00:00Z')).toBe('');
+  expect(quoteStalenessNote({ ...quote, date: { year: 2026, month: 10, day: 29 } }, now, { lastSuccessAt: '2026-10-29T08:00:00Z', dataDate: '2026-10-29' })).toBe('');
   for (const [checkedAt, label] of [['2026-10-28T16:00:00Z', '115年10月29日'], ['2026-10-26T16:00:00Z', '115年10月27日']]) {
-    expect(quoteStalenessNote(quote, now, checkedAt)).toBe(`（注意：上櫃資料停在 115年10月22日；${label} 已確認櫃買中心尚無更新資料，可能為休市）`);
+    expect(quoteStalenessNote(quote, now, { lastSuccessAt: checkedAt, dataDate: '2026-10-22' })).toBe(`（注意：上櫃資料停在 115年10月22日；${label} 已確認櫃買中心尚無更新資料，可能為休市）`);
   }
   for (const checkedAt of [undefined, 'invalid', '2026-10-26T15:59:59Z', '2026-10-30T00:00:00Z']) {
-    expect(quoteStalenessNote(quote, now, checkedAt)).toBe('（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
+    expect(quoteStalenessNote(quote, now, checkedAt === undefined ? undefined : { lastSuccessAt: checkedAt, dataDate: '2026-10-22' })).toBe('（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
   }
-  expect(quoteStalenessNote({ ...quote, market: '上市' }, now, now().toISOString())).toBe('（注意：上市資料停在 115年10月22日，可能尚未更新）');
+  expect(quoteStalenessNote({ ...quote, market: '上市' }, now, { lastSuccessAt: now().toISOString(), dataDate: '2026-10-22' })).toBe('（注意：上市資料停在 115年10月22日，可能尚未更新）');
+});
+it('uses the generic stale note when the TPEx heartbeat data date differs from the served quote', () => {
+  const quote = parseQuotes(fixture('tpex-quotes'), fixture('tpex-ratios'), '上櫃')[0];
+  const now = () => new Date('2026-10-29T16:00:00Z');
+  for (const dataDate of ['2026-10-23', '2026-10-21']) {
+    expect(quoteStalenessNote(quote, now, { lastSuccessAt: now().toISOString(), dataDate })).toBe('（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
+  }
 });

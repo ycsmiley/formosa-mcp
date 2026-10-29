@@ -3,6 +3,7 @@ import { createMcpHandler } from 'agents/mcp/server';
 import { registerToolsets, toolsets } from '../mcp/toolsets.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, decodeQuotesSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
 import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
+import type { TpexCheck } from '../core/stock/service.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
@@ -21,18 +22,18 @@ async function read<T>(env: Env, key: string): Promise<T | null> {
   const data = isQuotes(key) ? decodeQuotesSnapshot(value) : decodeSnapshot<{ updatedAt: string }>(value);
   return { ...data, updatedAt: metadata?.updatedAt ?? data.updatedAt } as T;
 }
-async function readTpexCheckedAt(env: Env): Promise<string | undefined> {
+async function readTpexCheck(env: Env): Promise<TpexCheck | undefined> {
   try {
     const data = JSON.parse(await env.SNAPSHOTS.get(collectKeys.tpex) ?? 'null');
     if (data?.v !== 1 || typeof data.lastSuccessAt !== 'string' || typeof data.dataDate !== 'string') return;
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(data.lastSuccessAt) || !Number.isFinite(Date.parse(data.lastSuccessAt))) return;
     if ([data.dataDate, data.lastSuccessAt.slice(0, 10)].some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date)) return;
-    return data.lastSuccessAt;
+    return { lastSuccessAt: data.lastSuccessAt, dataDate: data.dataDate };
   } catch { /* Missing or invalid collector state does not affect quotes. */ }
 }
 async function readMarkets<T>(env: Env, twseKey: string, tpexKey: string) {
-  const [twse, tpex, checkedAt] = await Promise.all([read<MarketSnapshot<T>>(env, twseKey), read<MarketSnapshot<T>>(env, tpexKey), isQuotes(tpexKey) ? readTpexCheckedAt(env) : undefined]);
-  return mergeStockSnapshots(twse, tpex, checkedAt);
+  const [twse, tpex, tpexCheck] = await Promise.all([read<MarketSnapshot<T>>(env, twseKey), read<MarketSnapshot<T>>(env, tpexKey), isQuotes(tpexKey) ? readTpexCheck(env) : undefined]);
+  return mergeStockSnapshots(twse, tpex, tpexCheck);
 }
 const plain = (text: string, status = 200, headers = {}) => new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', ...headers } });
 export default {

@@ -70,9 +70,12 @@ it('lists exactly four tools (rail excluded) and serves seeded snapshots without
 });
 const heartbeat = { v: 1, lastSuccessAt: '2026-10-28T16:00:00.000Z', dataDate: '2026-10-22' };
 it.each([
-  { value: JSON.stringify(heartbeat), valid: true },
-  ...[null, 'invalid', 'null', JSON.stringify({ ...heartbeat, v: 2 }), JSON.stringify({ ...heartbeat, lastSuccessAt: 'invalid' }), JSON.stringify({ ...heartbeat, lastSuccessAt: '2026-02-30T00:00:00.000Z' }), JSON.stringify({ ...heartbeat, dataDate: '2026-02-30' }), JSON.stringify({ lastSuccessAt: heartbeat.lastSuccessAt })].map(value => ({ value, valid: false })),
-])('reads TPEx heartbeat ($value), ignores invalid values and never writes from fetch', async ({ value, valid }) => {
+  { value: JSON.stringify(heartbeat), confirmed: true },
+  // KV keys propagate independently: a newer heartbeat must not confirm older quotes.
+  { value: JSON.stringify({ ...heartbeat, dataDate: '2026-10-23' }), confirmed: false },
+  { value: JSON.stringify({ ...heartbeat, dataDate: '2026-10-21' }), confirmed: false },
+  ...[null, 'invalid', 'null', JSON.stringify({ ...heartbeat, v: 2 }), JSON.stringify({ ...heartbeat, lastSuccessAt: 'invalid' }), JSON.stringify({ ...heartbeat, lastSuccessAt: '2026-02-30T00:00:00.000Z' }), JSON.stringify({ ...heartbeat, dataDate: '2026-02-30' }), JSON.stringify({ lastSuccessAt: heartbeat.lastSuccessAt })].map(value => ({ value, confirmed: false })),
+])('reads TPEx heartbeat ($value), confirms only matching quotes and never writes from fetch', async ({ value, confirmed }) => {
   await seed();
   if (value === null) await bindings.SNAPSHOTS.delete(collectKeys.tpex);
   else await bindings.SNAPSHOTS.put(collectKeys.tpex, value);
@@ -83,7 +86,7 @@ it.each([
   try {
     const text = (await rpc('tools/call', { name: 'stock_quote', arguments: { query: '6488' } })).content[0].text;
     expect(get).toHaveBeenCalledWith(collectKeys.tpex);
-    expect(text).toContain(valid ? '（注意：上櫃資料停在 115年10月22日；115年10月29日 已確認櫃買中心尚無更新資料，可能為休市）' : '（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
+    expect(text).toContain(confirmed ? '（注意：上櫃資料停在 115年10月22日；115年10月29日 已確認櫃買中心尚無更新資料，可能為休市）' : '（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
     expect((await rpc('tools/call', { name: 'stock_quote', arguments: { query: '2330' } })).content[0].text).toContain('（注意：上市資料停在 115年10月22日，可能尚未更新）');
     expect(put).not.toHaveBeenCalled();
     expect(del).not.toHaveBeenCalled();
