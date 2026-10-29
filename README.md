@@ -43,9 +43,23 @@
 
 [![每日即時檢查](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
 
-發布到 npm 後可直接執行 `npx -y formosa-mcp`（尚未發布）。
+需要 Node.js 20 以上。直接用 npm 套件：
 
-尚未上架 npm。需要 Node.js 20 以上及 repository 存取權限：
+```sh
+npx -y formosa-mcp --toolsets=invoice,stock
+```
+
+MCP 客戶端設定：
+
+```json
+{
+  "mcpServers": {
+    "formosa": { "command": "npx", "args": ["-y", "formosa-mcp"] }
+  }
+}
+```
+
+從原始碼執行（需要 repository 存取權限）：
 
 ```sh
 git clone https://github.com/ycsmiley/formosa-mcp.git
@@ -54,7 +68,7 @@ npm ci && npm run build
 node dist/stdio.js --toolsets=invoice,stock
 ```
 
-MCP 客戶端的 `mcpServers` 設定，請將路徑換成實際絕對路徑：
+從原始碼執行時的 `mcpServers` 設定，請將路徑換成實際絕對路徑：
 
 ```json
 {
@@ -138,9 +152,23 @@ The tools are `invoice_get_winning_numbers`, `invoice_check`, `stock_quote`, `st
 
 [![Daily live check](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
 
-After the npm release: `npx -y formosa-mcp` (not published yet).
+Node.js 20+ is required. Run the npm package directly:
 
-Not on npm yet. Node.js 20+ and repository access are required:
+```sh
+npx -y formosa-mcp --toolsets=invoice,stock
+```
+
+MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "formosa": { "command": "npx", "args": ["-y", "formosa-mcp"] }
+  }
+}
+```
+
+From source (repository access required):
 
 ```sh
 git clone https://github.com/ycsmiley/formosa-mcp.git
@@ -149,7 +177,7 @@ npm ci && npm run build
 node dist/stdio.js --toolsets=invoice,stock
 ```
 
-MCP client configuration (replace the path with your absolute path):
+From-source configuration (replace the path with your absolute path):
 
 ```json
 {
