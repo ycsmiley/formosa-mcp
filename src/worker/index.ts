@@ -1,15 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
 import { registerToolsets, toolsets } from '../mcp/toolsets.js';
-import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
+import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, decodeQuotesSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
 import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
+import { keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
+export { keys, metaKeys } from './snapshot-keys.js';
 export interface Env { SNAPSHOTS: KVNamespace; RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> } }
-export const keys = { invoice: 'invoice:v1', twseQuotes: 'stock:quotes:twse:v1', tpexQuotes: 'stock:quotes:tpex:v1', twseDividends: 'stock:dividends:twse:v1', tpexDividends: 'stock:dividends:tpex:v1' };
-export const metaKeys = { twse: 'stock:meta:twse:v1', tpex: 'stock:meta:tpex:v1' };
-const minimumRows = { twse: 100, tpex: 50, invoice: 1 };
 export const cronJobs = {
   '0,30 * * * MON-FRI': 'twse',
   '15,45 * * * MON-FRI': 'tpex',
@@ -17,7 +16,6 @@ export const cronJobs = {
   '0 */3 * * *': 'invoice',
   '*/10 5-15 25 1,3,5,7,9,11 *': 'invoice',
 } as const;
-const isQuotes = (key: string) => key === keys.twseQuotes || key === keys.tpexQuotes;
 async function read<T>(env: Env, key: string): Promise<T | null> {
   const { value, metadata } = await env.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(key);
   if (value === null) return null;
@@ -59,8 +57,7 @@ export default {
     async function write(key: string, snapshot: { updatedAt: string }) {
       // Stable payloads compare directly, without decoding the old value. Metadata
       // holds the last data-change time and is preserved when the payload is unchanged.
-      const stable = { ...snapshot, updatedAt: '' };
-      const encoded = isQuotes(key) ? encodeQuotesSnapshot(stable as MarketSnapshot<StockQuote>) : encodeSnapshot(stable);
+      const encoded = encodeStoredSnapshot(key, snapshot);
       if (await env.SNAPSHOTS.get(key) === encoded) return;
       await env.SNAPSHOTS.put(key, encoded, { metadata: { updatedAt: snapshot.updatedAt } });
       console.log(`${key} ${new TextEncoder().encode(encoded).length} bytes ok`);

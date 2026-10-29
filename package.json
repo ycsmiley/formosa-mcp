@@ -23,6 +23,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "collect:tpex": "tsx scripts/collect-tpex.ts",
     "live-check": "npm run build && tsx scripts/live-check.ts",
     "dev:worker": "wrangler dev --test-scheduled",
     "test:worker": "vitest run --config vitest.worker.config.ts",
