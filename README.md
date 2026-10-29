@@ -43,6 +43,8 @@
 
 [![每日即時檢查](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
 
+發布到 npm 後可直接執行 `npx -y formosa-mcp`（尚未發布）。
+
 尚未上架 npm。需要 Node.js 20 以上及 repository 存取權限：
 
 ```sh
@@ -135,6 +137,8 @@ The tools are `invoice_get_winning_numbers`, `invoice_check`, `stock_quote`, `st
 ### Developers
 
 [![Daily live check](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
+
+After the npm release: `npx -y formosa-mcp` (not published yet).
 
 Not on npm yet. Node.js 20+ and repository access are required:
 

@@ -13,6 +13,22 @@ const registry = JSON.parse(registryText);
 const glama = JSON.parse(glamaText);
 const lhm = JSON.parse(lhmText);
 
+it('restricts npm contents and keeps publishing metadata and lifecycle scripts safe', () => {
+  for (const script of ['preinstall', 'install', 'postinstall', 'prepare']) {
+    expect(pkg.scripts).not.toHaveProperty(script);
+  }
+  expect(pkg.scripts.prepublishOnly).toBe('npm run clean && npm run build && npm test');
+  expect(pkg.files).toEqual(['dist/**/*.js', 'dist/**/*.d.ts']);
+  for (const entry of pkg.files) {
+    expect(entry).not.toMatch(/src|test|scripts|evals|plugin|wrangler|\.env|\.map/);
+  }
+  expect(pkg.repository).toEqual({ type: 'git', url: 'git+https://github.com/ycsmiley/formosa-mcp.git' });
+  expect(pkg.homepage).toBe('https://github.com/ycsmiley/formosa-mcp#readme');
+  expect(pkg.bugs).toEqual({ url: 'https://github.com/ycsmiley/formosa-mcp/issues' });
+  expect(pkg.keywords).toEqual(expect.arrayContaining(['taiwan', 'mcp', 'invoice', 'twse', 'tpex']));
+  expect(pkg.publishConfig).toEqual({ access: 'public' });
+});
+
 it('keeps listing metadata consistent and excludes unpublished remote endpoints', () => {
   expect(registry.name).toBe('io.github.ycsmiley/formosa-mcp');
   expect(registry.name).toBe(pkg.mcpName);

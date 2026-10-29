@@ -3,12 +3,24 @@
   "version": "0.1.0",
   "description": "讓 AI agent 懂台灣的 MCP server：發票對獎、台股（上市＋上櫃）；高鐵、台鐵開發中",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ycsmiley/formosa-mcp.git"
+  },
+  "homepage": "https://github.com/ycsmiley/formosa-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/ycsmiley/formosa-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "bin": {
     "formosa-mcp": "dist/stdio.js"
   },
   "files": [
-    "dist"
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
   ],
   "engines": {
     "node": ">=20"
@@ -17,12 +29,16 @@
     "taiwan",
     "mcp",
     "invoice",
+    "twse",
+    "tpex",
     "model-context-protocol",
     "統一發票"
   ],
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc",
     "test": "vitest run",
+    "prepublishOnly": "npm run clean && npm run build && npm test",
     "build:tpex": "node scripts/build-tpex.mjs",
     "collect:tpex": "tsx scripts/collect-tpex.ts",
     "live-check": "npm run build && tsx scripts/live-check.ts",
