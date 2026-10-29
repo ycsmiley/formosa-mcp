@@ -12,10 +12,9 @@
   "triggers": { "crons": [
     // TWSE: UTC Mon–Fri :00/:30 = Taipei Mon 08:00–Sat 07:30, every 30m.
     "0,30 * * * MON-FRI",
-    // TPEx: UTC Mon–Fri :15/:45 = Taipei Mon 08:15–Sat 07:45, every 30m.
-    "15,45 * * * MON-FRI",
-    // Weekend UTC Sat/Sun 00/06/12/18 :00 TWSE, :30 TPEx = Taipei 08/14/20/02 :00/:30.
-    "0,30 */6 * * SAT,SUN",
+    // TPEx snapshots are written by .github/workflows/tpex-collect.yml.
+    // Weekend TWSE only: UTC Sat/Sun 00/06/12/18 :00 = Taipei 08/14/20/02 :00.
+    "0 */6 * * SAT,SUN",
     // Invoice: every 3h UTC 00–21 = Taipei 08/11/14/17/20/23/02/05.
     "0 */3 * * *",
     // Invoice draw day: odd months, UTC 25th 05:00–15:50 = Taipei 13:00–23:50, every 10m.

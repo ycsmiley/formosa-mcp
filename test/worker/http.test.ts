@@ -75,7 +75,7 @@ it('returns updating for empty KV and hides malformed data errors', async () => 
   await bindings.SNAPSHOTS.put(keys.twseQuotes, 'private error');
   expect((await rpc('tools/call', { name: 'stock_quote', arguments: { query: '2330' } })).content[0].text).toBe('暫時無法取得資料，請稍後再試。');
 });
-it('matches the five configured cron strings', () => {
+it('matches the four configured cron strings', () => {
   expect(JSON.parse(config.replace(/\/\/[^\n]*/g, '')).triggers.crons).toEqual(Object.keys(cronJobs));
 });
 it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warnings and no upstream fetch', async missing => {
@@ -91,9 +91,7 @@ it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warn
     expect(spy).not.toHaveBeenCalled();
   } finally { spy.mockRestore(); }
 });
-const schedules = Object.entries(cronJobs).flatMap(([cron, job]) => job === 'weekend'
-  ? [0, 30].map(minute => ({ cron, job: minute < 30 ? 'twse' : 'tpex', scheduledTime: Date.UTC(2026, 9, 31, 0, minute) }))
-  : [{ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }]);
+const schedules = Object.entries(cronJobs).map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
 it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cron, job, scheduledTime }) => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
@@ -105,15 +103,16 @@ it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cr
     for (const key of allKeys) expect(await bindings.SNAPSHOTS.get(key) !== null).toBe(written.includes(key));
   } finally { spy.mockRestore(); }
 });
-it('unknown local cron bootstraps all feeds, roundtrips payloads and skips all unchanged puts', async () => {
+it('unknown local cron bootstraps invoice and TWSE, roundtrips payloads and skips all unchanged puts', async () => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
   try {
     await worker.scheduled(createScheduledController({ cron: '' }), bindings, createExecutionContext());
-    expect(spy).toHaveBeenCalledTimes(7);
-    const before = await Promise.all(allKeys.map(key => bindings.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(key)));
+    expect(spy).toHaveBeenCalledTimes(4);
+    const bootstrapKeys = [keys.invoice, keys.twseQuotes, keys.twseDividends];
+    const before = await Promise.all(bootstrapKeys.map(key => bindings.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(key)));
     for (const [i, { value, metadata }] of before.entries()) {
-      const quotes = allKeys[i] === keys.twseQuotes || allKeys[i] === keys.tpexQuotes;
+      const quotes = bootstrapKeys[i] === keys.twseQuotes;
       expect(quotes ? encodeQuotesSnapshot(decodeQuotesSnapshot(value!)) : encodeSnapshot(decodeSnapshot<object>(value!))).toBe(value);
       expect(Number.isFinite(Date.parse(metadata!.updatedAt))).toBe(true);
     }
@@ -121,11 +120,11 @@ it('unknown local cron bootstraps all feeds, roundtrips payloads and skips all u
     try {
       await worker.scheduled(createScheduledController({ cron: '' }), bindings, createExecutionContext());
       expect(put).not.toHaveBeenCalled();
-      expect(await Promise.all(allKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
+      expect(await Promise.all(bootstrapKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
     } finally { put.mockRestore(); }
   } finally { spy.mockRestore(); }
 });
-it.each((['twse', 'tpex'] as const).flatMap(market => ['quotes', 'ratios', 'div'].map(failed => ({ market, failed }))))('keeps previous $market $failed data and still writes the independent snapshot', async ({ market, failed }) => {
+it.each((['twse'] as const).flatMap(market => ['quotes', 'ratios', 'div'].map(failed => ({ market, failed }))))('keeps previous $market $failed data and still writes the independent snapshot', async ({ market, failed }) => {
   await seed();
   const [quoteKey, divKey] = marketKeys(market);
   const retainedKey = failed === 'div' ? divKey : quoteKey, freshKey = failed === 'div' ? quoteKey : divKey;
@@ -175,7 +174,7 @@ it.each(['fetch', 'parse'])('writes nothing on market %s failure and updates met
 const modified = 'Tue, 27 Oct 2026 01:00:00 GMT';
 const validators = (key: string, version = 1) => ({ etag: `"${key}-${version}"`, lastModified: modified });
 const marketFeeds = (market: 'twse' | 'tpex') => Object.entries(stockUrls).filter(([key]) => key.startsWith(market));
-const refresh = (market: 'twse' | 'tpex' | 'invoice') => worker.scheduled(createScheduledController({ cron: Object.entries(cronJobs).find(([, job]) => job === market)![0] }), bindings, createExecutionContext());
+const refresh = (market: 'twse' | 'invoice') => worker.scheduled(createScheduledController({ cron: Object.entries(cronJobs).find(([, job]) => job === market)![0] }), bindings, createExecutionContext());
 const reset = async () => { for (const key of [...allKeys, ...Object.values(metaKeys)]) await bindings.SNAPSHOTS.delete(key); };
 const withValidators = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
   const [key] = Object.entries(stockUrls).find(([, url]) => url === String(input))!;
@@ -183,7 +182,7 @@ const withValidators = () => vi.spyOn(globalThis, 'fetch').mockImplementation(as
 });
 afterEach(() => vi.restoreAllMocks());
 
-it.each(['twse', 'tpex'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and performs no parsing or writes', async market => {
+it.each(['twse'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and performs no parsing or writes', async market => {
   await reset();
   const fetch = withValidators(), put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
   await refresh(market);
@@ -253,16 +252,16 @@ it.each(['quotes', 'dividends'] as const)('ignores stored meta when the %s snaps
   for (const key of marketKeys('twse')) expect(await bindings.SNAPSHOTS.get(key)).not.toBeNull();
 });
 
-it.each(['twse', 'tpex'] as const)('guards tiny %s quotes, retains previous snapshots and deletes stale meta', async market => {
+it.each(['twse'] as const)('guards tiny %s quotes, retains previous snapshots and deletes stale meta', async market => {
   await reset();
   const fetch = withValidators();
   await refresh(market);
   const before = await Promise.all(marketKeys(market).map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
   const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), warning = vi.spyOn(console, 'warn');
-  fetch.mockImplementation(async input => Response.json(String(input) === stockUrls[`${market}-quotes`] ? (market === 'twse' ? tq : pq) : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
+  fetch.mockImplementation(async input => Response.json(String(input) === stockUrls[`${market}-quotes`] ? tq : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
   await refresh(market);
   expect(put).not.toHaveBeenCalled();
-  expect(warning).toHaveBeenCalledWith(`${keys[`${market}Quotes`]} guard ${market === 'twse' ? tq.length : pq.length} rows`);
+  expect(warning).toHaveBeenCalledWith(`${keys[`${market}Quotes`]} guard ${tq.length} rows`);
   expect(await Promise.all(marketKeys(market).map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
   expect(await bindings.SNAPSHOTS.get(metaKeys[market])).toBeNull();
 });
@@ -308,7 +307,7 @@ it('logs the error name and message when the stock job fails before fetching', a
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each(['twse', 'tpex'] as const)('deletes %s meta after a partial update so the next run fetches unconditionally', async market => {
+it.each(['twse'] as const)('deletes %s meta after a partial update so the next run fetches unconditionally', async market => {
   await reset();
   const fetch = withValidators();
   await refresh(market);
@@ -319,7 +318,7 @@ it.each(['twse', 'tpex'] as const)('deletes %s meta after a partial update so th
     const url = String(input);
     if (url === stockUrls[`${market}-div`]) return new Response('unavailable', { status: 503 });
     const data = await fixtureFetch(url);
-    return Response.json(url === stockUrls[`${market}-quotes`] ? data.map((row: object) => ({ ...row, [market === 'twse' ? 'ClosingPrice' : 'Close']: '2500' })) : data, { headers: { ETag: '"changed"' } });
+    return Response.json(url === stockUrls[`${market}-quotes`] ? data.map((row: object) => ({ ...row, ClosingPrice: '2500' })) : data, { headers: { ETag: '"changed"' } });
   });
   await refresh(market);
   expect(put.mock.calls.map(([key]) => key)).toEqual([keys[`${market}Quotes`]]);
@@ -349,4 +348,20 @@ it('advances changed validators on unchanged snapshots, skips unchanged meta, an
   fetch.mockImplementation(async input => Response.json(String(input) === stockUrls['twse-div'] ? [] : await fixtureFetch(String(input)), { headers: { ETag: '"new"' } }));
   await refresh('twse');
   expect(put.mock.calls.map(([key]) => key)).toEqual([metaKeys.twse]);
+});
+
+it.each([...Object.keys(cronJobs), '', '15,45 * * * MON-FRI', '0,30 */6 * * SAT,SUN'])('cron %j never fetches or changes TPEx and still serves seeded TPEx', async cron => {
+  await reset();
+  await seed();
+  const protectedKeys = [keys.tpexQuotes, keys.tpexDividends, 'stock:meta:tpex:v1'];
+  const before = await Promise.all(protectedKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
+  const fetch = mockUpstream(), put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
+  await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
+  expect(fetch.mock.calls.some(([url]) => new URL(String(url)).hostname.endsWith('tpex.org.tw'))).toBe(false);
+  for (const spy of [put, del]) expect(spy.mock.calls.some(([key]) => protectedKeys.includes(key))).toBe(false);
+  expect(await Promise.all(protectedKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
+  fetch.mockClear();
+  expect((await rpc('tools/call', { name: 'stock_quote', arguments: { query: '6488' } })).content[0].text).toContain('環球晶');
+  expect((await rpc('tools/call', { name: 'stock_dividends', arguments: { query: '2063' } })).content[0].text).toContain('世鎧');
+  expect(fetch).not.toHaveBeenCalled();
 });

@@ -207,3 +207,53 @@ it('rounds dividend cash and prints small amounts without exponent notation', ()
   }
   expect(formatStockDividends([{ ...event, subscriptionRatio: '尚未公告' }], clock)).toContain('現金增資認購率尚未公告');
 });
+
+it.each(['上市', '上櫃'] as const)('labels stale %s quotes independently of the fresh market', async stale => {
+  const freshDate = { year: 2026, month: 10, day: 29 };
+  const service = createStockService({ clock: () => new Date('2026-10-28T16:00:00Z'), snapshot: {
+    quotes: async () => ({ updatedAt: '', twse: tw.map(row => ({ ...row, date: stale === '上市' ? row.date : freshDate })),
+      tpex: tp.map(row => ({ ...row, date: stale === '上櫃' ? row.date : freshDate })) }),
+    dividends: async () => null,
+  } });
+  for (const [code, market] of [['2330', '上市'], ['6488', '上櫃']]) {
+    const text = (await service.quote(code)).text;
+    if (market === stale) expect(text).toContain(`（注意：${market}資料停在 115年10月22日，可能尚未更新）`);
+    else expect(text).not.toContain('注意：');
+    expect(text).not.toContain(`注意：${market === '上市' ? '上櫃' : '上市'}`);
+  }
+});
+
+it.each(['2026-10-26', '2026-10-27', '2026-10-28'])('counts only weekdays strictly between Friday data and %s', async today => {
+  const service = createStockService({ clock: () => new Date(`${today}T12:00:00+08:00`), snapshot: {
+    quotes: async () => ({ updatedAt: '', twse: tw.map(row => ({ ...row, date: { year: 2026, month: 10, day: 23 } })), tpex: null }),
+    dividends: async () => null,
+  } });
+  expect((await service.quote('2330')).text).not.toContain('注意：');
+});
+
+it('starts warning at three intervening weekdays', async () => {
+  const service = createStockService({ clock: () => new Date('2026-10-29T12:00:00+08:00'), snapshot: {
+    quotes: async () => ({ updatedAt: '', twse: tw.map(row => ({ ...row, date: { year: 2026, month: 10, day: 23 } })), tpex: null }),
+    dividends: async () => null,
+  } });
+  expect((await service.quote('2330')).text).toContain('（注意：上市資料停在 115年10月23日，可能尚未更新）');
+});
+
+it.each([
+  [true, false, '上市'], [false, true, '上櫃'], [true, true, '上市＋上櫃'],
+] as const)('dividends title uses available sources (TWSE=%s TPEx=%s), even with no matching rows', async (hasTwse, hasTpex, title) => {
+  const snapshot = createStockService({ clock, snapshot: {
+    quotes: async () => null,
+    dividends: async () => ({ updatedAt: '', twse: hasTwse ? [] : null, tpex: hasTpex ? [] : null }),
+  } });
+  const live = createStockService({ clock, fetchJson: async url => {
+    if (url === stockUrls['twse-div'] && hasTwse || url === stockUrls['tpex-div'] && hasTpex) return [];
+    throw new Error('offline');
+  } });
+  for (const service of [snapshot, live]) {
+    const result = await service.dividends();
+    expect(result.isError).toBe(false);
+    expect(result.text.split('\n')[0]).toContain(`起，${title}，依日期排序`);
+    if (!hasTpex) expect(result.text).toContain('（櫃買中心資料暫時取不到）');
+  }
+});

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, resolve, join } from 'node:path';
+import { basename, dirname, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildStockSnapshot } from '../src/core/snapshot.js';
 import { parseRocDate, stockRows } from '../src/core/stock/parse.js';
@@ -100,6 +100,7 @@ export async function collectTpex({ outDir, previous, previousDir, now = new Dat
   for (const [key, entry] of Object.entries(manifest.keys)) {
     if (manifest.written.includes(key)) continue;
     try {
+      if (entry.file !== `${key.replaceAll(':', '_')}.json`) throw new Error('unexpected file');
       const file = join(outDir, entry.file);
       let bytes: Buffer;
       try { bytes = await readFile(file); }
@@ -145,4 +146,4 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await main();
+if (process.argv[1] && /^collect-tpex\.(ts|js)$/.test(basename(process.argv[1])) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await main();

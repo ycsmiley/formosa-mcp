@@ -134,11 +134,15 @@ it('copies a carried file from the CLI previous manifest directory', async () =>
   expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
 });
 
-it.each(['missing', 'changed'] as const)('drops a carried entry whose file is %s', async mode => {
+it.each(['missing', 'changed', 'unexpected-name'] as const)('drops a carried entry whose file is %s', async mode => {
   const previousDir = await mkdtemp(join(outDir, 'previous-'));
   const previous = await collectTpex({ outDir: previousDir, now, retryDelayMs: 0 });
   if (mode === 'missing') await rm(join(previousDir, quoteFile));
-  else await writeFile(join(outDir, quoteFile), 'changed');
+  else if (mode === 'changed') await writeFile(join(outDir, quoteFile), 'changed');
+  else {
+    await writeFile(join(previousDir, 'unexpected.json'), await readFile(join(previousDir, quoteFile)));
+    previous.keys[keys.tpexQuotes].file = 'unexpected.json';
+  }
   overrides[stockUrls['tpex-ratios']] = () => Response.json([]);
   const result = await collectTpex({ outDir, previous, previousDir, now, retryDelayMs: 0 });
   expect(result.keys[keys.tpexQuotes]).toBeUndefined();
@@ -146,7 +150,8 @@ it.each(['missing', 'changed'] as const)('drops a carried entry whose file is %s
   expect(vi.mocked(console.warn).mock.calls.filter(([line]) => String(line).startsWith('tpex collect drop ')))
     .toEqual([[`tpex collect drop ${keys.tpexQuotes}: previous file missing or changed`]]);
   if (mode === 'missing') await expect(readFile(join(outDir, quoteFile))).rejects.toMatchObject({ code: 'ENOENT' });
-  else expect(await readFile(join(outDir, quoteFile), 'utf8')).toBe('changed');
+  else if (mode === 'changed') expect(await readFile(join(outDir, quoteFile), 'utf8')).toBe('changed');
+  else await expect(readFile(join(outDir, 'unexpected.json'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 it.each([0, minimumRows.tpex - 1])('rejects %i ratios rows while writing dividends', async count => {

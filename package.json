@@ -23,6 +23,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "build:tpex": "node scripts/build-tpex.mjs",
     "collect:tpex": "tsx scripts/collect-tpex.ts",
     "live-check": "npm run build && tsx scripts/live-check.ts",
     "dev:worker": "wrangler dev --test-scheduled",

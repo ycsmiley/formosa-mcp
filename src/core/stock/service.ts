@@ -14,7 +14,7 @@ class Updating extends Error {}
 function fromSnapshot<T>(data: StockMarketSnapshot<T> | null) {
   if (!data) throw new Updating();
   if (!data.twse && !data.tpex) throw new Error('missing markets');
-  return { rows: [...(data.twse ?? []), ...(data.tpex ?? [])], warning: [!data.twse ? '（證交所資料暫時取不到）' : '', !data.tpex ? '（櫃買中心資料暫時取不到）' : ''].filter(Boolean).join('\n') };
+  return { markets: [data.twse !== null ? '上市' : '', data.tpex !== null ? '上櫃' : ''].filter(Boolean).join('＋'), rows: [...(data.twse ?? []), ...(data.tpex ?? [])], warning: [!data.twse ? '（證交所資料暫時取不到）' : '', !data.tpex ? '（櫃買中心資料暫時取不到）' : ''].filter(Boolean).join('\n') };
 }
 export interface StockServiceOptions {
   snapshot?: StockSnapshotProvider;
@@ -29,7 +29,7 @@ export function createStockService({ snapshot, fetchJson = defaultFetchJson, clo
   async function markets<T>(loader: (prefix: 'twse' | 'tpex', market: Market) => Promise<T[]>) {
     const results = await Promise.allSettled([loader('twse', '上市'), loader('tpex', '上櫃')]);
     if (results.every(r => r.status === 'rejected')) throw new Error(results.map(r => r.status === 'rejected' ? String(r.reason instanceof Error ? r.reason.message : r.reason) : '').join('；'));
-    return { rows: results.flatMap(r => r.status === 'fulfilled' ? r.value : []), warning: results.map((r, i) => r.status === 'rejected' ? `（${i ? '櫃買中心' : '證交所'}資料暫時取不到）` : '').filter(Boolean).join('\n') };
+    return { markets: results.flatMap((r, i) => r.status === 'fulfilled' ? [i ? '上櫃' : '上市'] : []).join('＋'), rows: results.flatMap(r => r.status === 'fulfilled' ? r.value : []), warning: results.map((r, i) => r.status === 'rejected' ? `（${i ? '櫃買中心' : '證交所'}資料暫時取不到）` : '').filter(Boolean).join('\n') };
   }
   const quotes = () => snapshot ? snapshot.quotes().then(fromSnapshot) : markets((p, market) => quoteCache.getOrLoad(p, async () => {
     const [q, r] = await Promise.all([load(`${p}-quotes`), load(`${p}-ratios`)]);
@@ -43,11 +43,11 @@ export function createStockService({ snapshot, fetchJson = defaultFetchJson, clo
   return {
     quote(query: string) { return safely(query, async () => {
       const { rows, warning } = await quotes(), found = findStocks(query, rows);
-      return { text: found.kind === 'one' ? formatStockQuote(found.stock) : formatStockLookup(query, found), warning };
+      return { text: found.kind === 'one' ? formatStockQuote(found.stock, clock) : formatStockLookup(query, found), warning };
     }); },
     dividends(query?: string) { return safely(query, async () => {
       const div = await (snapshot ? snapshot.dividends().then(fromSnapshot) : markets((p, market) => dividendCache.getOrLoad(p, async () => parseDividends(await load(`${p}-div`), market))));
-      if (query === undefined) return { text: formatStockDividends(div.rows, clock), warning: div.warning };
+      if (query === undefined) return { text: formatStockDividends(div.rows, clock, undefined, 20, div.markets), warning: div.warning };
       // A schedule can still resolve ETFs absent from the quote feed, even during a quote outage.
       const q = await quotes().catch(() => ({ rows: [], warning: '（行情資料暫時取不到）' }));
       const identities: StockIdentity[] = [...q.rows];

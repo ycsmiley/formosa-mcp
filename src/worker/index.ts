@@ -11,8 +11,7 @@ export { keys, metaKeys } from './snapshot-keys.js';
 export interface Env { SNAPSHOTS: KVNamespace; RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> } }
 export const cronJobs = {
   '0,30 * * * MON-FRI': 'twse',
-  '15,45 * * * MON-FRI': 'tpex',
-  '0,30 */6 * * SAT,SUN': 'weekend',
+  '0 */6 * * SAT,SUN': 'twse',
   '0 */3 * * *': 'invoice',
   '*/10 5-15 25 1,3,5,7,9,11 *': 'invoice',
 } as const;
@@ -62,10 +61,9 @@ export default {
       await env.SNAPSHOTS.put(key, encoded, { metadata: { updatedAt: snapshot.updatedAt } });
       console.log(`${key} ${new TextEncoder().encode(encoded).length} bytes ok`);
     }
-    const configured = Object.hasOwn(cronJobs, controller.cron) ? cronJobs[controller.cron as keyof typeof cronJobs] : undefined;
-    const job = configured === 'weekend' ? (new Date(controller.scheduledTime).getUTCMinutes() < 30 ? 'twse' : 'tpex') : configured;
+    const job = Object.hasOwn(cronJobs, controller.cron) ? cronJobs[controller.cron as keyof typeof cronJobs] : undefined;
     // Production only sends configured crons. Unknown cron is local bootstrap.
-    const jobs = job ? [job] : ['invoice', 'twse', 'tpex'] as const;
+    const jobs = job ? [job] : ['invoice', 'twse'] as const;
     await Promise.all(jobs.map(async job => {
       if (job === 'invoice') {
         try {
