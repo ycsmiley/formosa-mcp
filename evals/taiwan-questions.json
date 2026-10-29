@@ -1,32 +1,498 @@
 [
-  {"id":"invoice-001","question":"這期發票特別獎號碼是多少？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{},"expected_key_facts":["特別獎獎金 1,000 萬元"],"notes":"最新一期依即時資料回答，不固定號碼。"},
-  {"id":"invoice-002","question":"幫我查115年7-8月的發票中獎號碼。","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年07-08月"},"expected_key_facts":["特別獎 89996565","特獎 91098182","頭獎 54348835、44991397、06595111"],"notes":"期別格式可正規化；固定開獎資料。"},
-  {"id":"invoice-003","question":"我的115年7-8月發票54348835有沒有中？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"54348835","period":"115年07-08月"},"expected_key_facts":["頭獎","20 萬元"],"notes":"完整8碼中頭獎；三獎以上扣20%所得稅。"},
-  {"id":"invoice-004","question":"115年7-8月這張04348835中了多少？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"04348835","period":"115年07-08月"},"expected_key_facts":["二獎","4 萬元"],"notes":"完整8碼末7碼符合頭獎54348835。"},
-  {"id":"invoice-005","question":"115年7-8月的00000000有中嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"00000000","period":"115年07-08月"},"expected_key_facts":["沒中"],"notes":"固定期別的未中獎號碼。"},
-  {"id":"invoice-006","question":"115年7-8月末三碼835有中嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"835","period":"115年07-08月"},"expected_key_facts":["至少中六獎 200 元","只能判斷六獎","大獎要對完整 8 碼"],"notes":"不能由末三碼推斷頭獎。"},
-  {"id":"invoice-007","question":"發票12a45678這樣能對嗎？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"12a45678"},"expected_key_facts":["請輸入 3～8 碼發票數字"],"notes":"預期isError；12345是有效的部分號碼，不應當成無效輸入。"},
-  {"id":"invoice-008","question":"現在還沒11月25號，115年9-10月發票號碼出來了嗎？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年9-10月"},"expected_key_facts":["尚未開獎","115年11月25日"],"notes":"評估日期固定為2026-10-26，且財政部尚未發布該期；開獎後需更新。"},
-  {"id":"invoice-009","question":"115年7-8月的發票什麼時候可以領獎？","toolset":"invoice","expected_tool":"invoice_get_winning_numbers","expected_args":{"period":"115年07-08月"},"expected_key_facts":["領獎期間 115年10月06日～116年01月05日"],"notes":"日期範圍固定；是否目前可領須依評估日期判斷。"},
-  {"id":"invoice-010","question":"115年7-8月發票號碼AB-54348835中了沒？","toolset":"invoice","expected_tool":"invoice_check","expected_args":{"number":"AB-54348835","period":"115年07-08月"},"expected_key_facts":["頭獎","20 萬元"],"notes":"接受兩碼英文字母前綴與連字號。"},
-  {"id":"stock-001","question":"2330收盤多少？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"2330"},"expected_key_facts":["台積電","盤後資料，非即時"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-002","question":"台積電今天股價？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"台積電"},"expected_key_facts":["台積電","資料日期"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-003","question":"上櫃6488環球晶行情？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"6488"},"expected_key_facts":["環球晶","上櫃"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-004","question":"國泰股價？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"國泰"},"expected_key_facts":["找到","請指定代號"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-005","question":"近期有哪些除權息？","toolset":"stock","expected_tool":"stock_dividends","expected_args":{},"expected_key_facts":["近期除權息","依日期排序"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-006","question":"台積電近期除息日？","toolset":"stock","expected_tool":"stock_dividends","expected_args":{"query":"2330"},"expected_key_facts":["台積電","近期除權息"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-007","question":"台積電本益比和殖利率？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"2330"},"expected_key_facts":["本益比","殖利率"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-008","question":"不存在的股票zz股價？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"不存在的股票zz"},"expected_key_facts":["找不到","請輸入股票代號"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-009","question":"００４００Ａ股價多少？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"００４００Ａ"},"expected_key_facts":["00400A","盤後資料"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"stock-010","question":"00719B漲跌多少？","toolset":"stock","expected_tool":"stock_quote","expected_args":{"query":"00719B"},"expected_key_facts":["除息（不計漲跌）"],"notes":"使用資料自身日期；行情與除權息依來源最新公告，非即時報價。"},
-  {"id":"rail-001","question":"2026年10月28日高鐵台北到高雄有哪些班次？從凌晨零點列起。","toolset":"rail","expected_tool":"thsr_timetable","expected_args":{"origin":"台北","destination":"高雄","date":"2026-10-28","time":"00:00"},"expected_key_facts":["高鐵高雄站為左營站","0601 次","左營"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-002","question":"115/10/28 北車到左營，早上九點以後的高鐵？","toolset":"rail","expected_tool":"thsr_timetable","expected_args":{"origin":"北車","destination":"左營","date":"115/10/28","time":"09:00"},"expected_key_facts":["0801 次","09:00 → 10:50"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-003","question":"2026-10-28 晚上十點之後 Taipei 到 Zuoying 的高鐵？","toolset":"rail","expected_tool":"thsr_timetable","expected_args":{"origin":"Taipei","destination":"Zuoying","date":"2026-10-28","time":"22:00"},"expected_key_facts":["0997 次","0999 次","0998 次"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-004","question":"2026/10/28 台北到左營的高鐵跨夜車多久抵達？從23:00起查。","toolset":"rail","expected_tool":"thsr_timetable","expected_args":{"origin":"臺北","destination":"左營","date":"2026/10/28","time":"23:00"},"expected_key_facts":["01:10（隔日）","2 小時 0 分","00:40（隔日）"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-005","question":"2026-10-28 台北到高雄的台鐵有哪些車種和班次？","toolset":"rail","expected_tool":"tra_timetable","expected_args":{"origin":"臺北","destination":"高雄","date":"2026-10-28","time":"00:00"},"expected_key_facts":["自強","101 次","123 次"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-006","question":"2026年10月28日台鐵台北到高雄，停駛和加班車有哪些？","toolset":"rail","expected_tool":"tra_timetable","expected_args":{"origin":"臺北","destination":"高雄","date":"2026-10-28","time":"00:00"},"expected_key_facts":["115 次","停駛","部分停駛","8121 次","加班車"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-007","question":"民國115年10月28日晚上九點後，台北到高雄台鐵跨夜班次？","toolset":"rail","expected_tool":"tra_timetable","expected_args":{"origin":"臺北","destination":"高雄","date":"民國 115-10-28","time":"21:00"},"expected_key_facts":["123 次","02:15（隔日）","4 小時 45 分","125 次"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-008","question":"台鐵8121次現在到哪了，有誤點嗎？","toolset":"rail","expected_tool":"tra_live","expected_args":{"train_no":"8121"},"expected_key_facts":["晚 5 分","目前位置：臺中（已離站）"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-009","question":"台鐵101次目前準點嗎？","toolset":"rail","expected_tool":"tra_live","expected_args":{"train_no":"101"},"expected_key_facts":["準點","目前位置：臺北（在站上）"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"},
-  {"id":"rail-010","question":"台北車站的台鐵即時看板，哪些準點、誤點或取消？","toolset":"rail","expected_tool":"tra_live","expected_args":{"station":"台北車站"},"expected_key_facts":["準點","晚 5 分","取消"],"notes":"以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）"}
+  {
+    "id": "invoice-001",
+    "question": "這期發票特別獎號碼是多少？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_get_winning_numbers",
+    "expected_args": {},
+    "expected_key_facts": [
+      "特別獎",
+      "1,000 萬元"
+    ],
+    "notes": "最新一期依即時資料回答，不固定號碼。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-002",
+    "question": "幫我查115年7-8月的發票中獎號碼。",
+    "toolset": "invoice",
+    "expected_tool": "invoice_get_winning_numbers",
+    "expected_args": {
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "特別獎 89996565",
+      "特獎 91098182",
+      "頭獎 54348835、44991397、06595111"
+    ],
+    "notes": "期別格式可正規化；固定開獎資料。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-003",
+    "question": "我的115年7-8月發票54348835有沒有中？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "54348835",
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "頭獎",
+      "20 萬元"
+    ],
+    "notes": "完整8碼中頭獎；三獎以上扣20%所得稅。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-004",
+    "question": "115年7-8月這張04348835中了多少？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "04348835",
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "二獎",
+      "4 萬元"
+    ],
+    "notes": "完整8碼末7碼符合頭獎54348835。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-005",
+    "question": "115年7-8月的00000000有中嗎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "00000000",
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "沒中"
+    ],
+    "notes": "固定期別的未中獎號碼。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-006",
+    "question": "115年7-8月末三碼835有中嗎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "835",
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "至少中六獎 200 元",
+      "只能判斷六獎",
+      "大獎要對完整 8 碼"
+    ],
+    "notes": "不能由末三碼推斷頭獎。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-007",
+    "question": "發票12a45678這樣能對嗎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "12a45678"
+    },
+    "expected_key_facts": [
+      "請輸入 3～8 碼發票數字"
+    ],
+    "notes": "預期isError；12345是有效的部分號碼，不應當成無效輸入。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-008",
+    "question": "現在還沒11月25號，115年9-10月發票號碼出來了嗎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_get_winning_numbers",
+    "expected_args": {
+      "period": "115年9-10月"
+    },
+    "expected_key_facts": [
+      "尚未開獎",
+      "115年11月25日"
+    ],
+    "notes": "評估日期固定為2026-10-26，且財政部尚未發布該期；開獎後需更新。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-009",
+    "question": "115年7-8月的發票什麼時候可以領獎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_get_winning_numbers",
+    "expected_args": {
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "領獎期間 115年10月06日～116年01月05日"
+    ],
+    "notes": "日期範圍固定；是否目前可領須依評估日期判斷。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-010",
+    "question": "115年7-8月發票號碼AB-54348835中了沒？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "AB-54348835",
+      "period": "115年07-08月"
+    },
+    "expected_key_facts": [
+      "頭獎",
+      "20 萬元"
+    ],
+    "notes": "接受兩碼英文字母前綴與連字號。 財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-011",
+    "question": "115年5-6月發票特別獎是幾號？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_get_winning_numbers",
+    "expected_args": {
+      "period": "115年05-06月"
+    },
+    "expected_key_facts": [
+      "特別獎 38548029",
+      "特獎 10138845",
+      "頭獎 24121106、28589937、83663333"
+    ],
+    "notes": "固定期別；財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-012",
+    "question": "我手上115年5-6月的發票83663333有中嗎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_check",
+    "expected_args": {
+      "number": "83663333",
+      "period": "115年05-06月"
+    },
+    "expected_key_facts": [
+      "頭獎",
+      "20 萬元"
+    ],
+    "notes": "固定期別；財政部 RSS 保留最近六期，約一年後需更新。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "invoice-013",
+    "question": "116年1-2月的發票開獎了嗎？",
+    "toolset": "invoice",
+    "expected_tool": "invoice_get_winning_numbers",
+    "expected_args": {
+      "period": "116年1-2月"
+    },
+    "expected_key_facts": [
+      "尚未開獎",
+      "116年3月25日"
+    ],
+    "notes": "尚未開獎的邊界案例；有效至 116年3月25日。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-001",
+    "question": "2330收盤多少？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "2330"
+    },
+    "expected_key_facts": [
+      "台積電",
+      "盤後資料，非即時"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "stock-002",
+    "question": "台積電今天股價？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "台積電"
+    },
+    "expected_key_facts": [
+      "台積電",
+      "資料日期"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-003",
+    "question": "上櫃6488環球晶行情？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "6488"
+    },
+    "expected_key_facts": [
+      "環球晶",
+      "上櫃"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "stock-004",
+    "question": "國泰股價？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "國泰"
+    },
+    "expected_key_facts": [
+      "找到",
+      "請指定代號"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-005",
+    "question": "近期有哪些除權息？",
+    "toolset": "stock",
+    "expected_tool": "stock_dividends",
+    "expected_args": {},
+    "expected_key_facts": [
+      "近期除權息",
+      "依日期排序"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-006",
+    "question": "台積電近期除息日？",
+    "toolset": "stock",
+    "expected_tool": "stock_dividends",
+    "expected_args": {
+      "query": "2330"
+    },
+    "expected_key_facts": [
+      "台積電",
+      "近期除權息"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-007",
+    "question": "台積電本益比和殖利率？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "2330"
+    },
+    "expected_key_facts": [
+      "本益比",
+      "殖利率"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-008",
+    "question": "不存在的股票zz股價？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "不存在的股票zz"
+    },
+    "expected_key_facts": [
+      "找不到",
+      "請輸入股票代號"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-009",
+    "question": "００４００Ａ股價多少？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "００４００Ａ"
+    },
+    "expected_key_facts": [
+      "00400A",
+      "盤後資料"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-010",
+    "question": "00719B漲跌多少？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "00719B"
+    },
+    "expected_key_facts": [
+      "除息（不計漲跌）"
+    ],
+    "notes": "使用資料自身日期；行情與除權息依來源最新公告，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-011",
+    "question": "環球晶本益比多少？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "6488"
+    },
+    "expected_key_facts": [
+      "環球晶",
+      "上櫃",
+      "本益比"
+    ],
+    "notes": "使用資料自身日期，非即時報價。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "stock-012",
+    "question": "上櫃元太8069收盤價？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "8069"
+    },
+    "expected_key_facts": [
+      "元太",
+      "上櫃",
+      "收盤"
+    ],
+    "notes": "使用資料自身日期，非即時報價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-013",
+    "question": "代號9999的股票多少錢？",
+    "toolset": "stock",
+    "expected_tool": "stock_quote",
+    "expected_args": {
+      "query": "9999"
+    },
+    "expected_key_facts": [
+      "找不到",
+      "請輸入股票代號"
+    ],
+    "notes": "未知代號的邊界案例。",
+    "daily_ci": true,
+    "requires_key": null
+  },
+  {
+    "id": "rail-001",
+    "question": "2026年10月28日高鐵台北到高雄有哪些班次？從凌晨零點列起。",
+    "toolset": "rail",
+    "expected_tool": "thsr_timetable",
+    "expected_args": {
+      "origin": "台北",
+      "destination": "高雄",
+      "date": "2026-10-28",
+      "time": "00:00"
+    },
+    "expected_key_facts": [
+      "高鐵高雄站為左營站",
+      "0601 次",
+      "左營"
+    ],
+    "notes": "以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）；待 TDX 金鑰",
+    "daily_ci": false,
+    "requires_key": "TDX"
+  },
+  {
+    "id": "rail-005",
+    "question": "2026-10-28 台北到高雄的台鐵有哪些車種和班次？",
+    "toolset": "rail",
+    "expected_tool": "tra_timetable",
+    "expected_args": {
+      "origin": "臺北",
+      "destination": "高雄",
+      "date": "2026-10-28",
+      "time": "00:00"
+    },
+    "expected_key_facts": [
+      "自強",
+      "101 次",
+      "123 次"
+    ],
+    "notes": "以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）；待 TDX 金鑰",
+    "daily_ci": false,
+    "requires_key": "TDX"
+  },
+  {
+    "id": "rail-007",
+    "question": "民國115年10月28日晚上九點後，台北到高雄台鐵跨夜班次？",
+    "toolset": "rail",
+    "expected_tool": "tra_timetable",
+    "expected_args": {
+      "origin": "臺北",
+      "destination": "高雄",
+      "date": "民國 115-10-28",
+      "time": "21:00"
+    },
+    "expected_key_facts": [
+      "123 次",
+      "02:15（隔日）",
+      "4 小時 45 分",
+      "125 次"
+    ],
+    "notes": "以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）；待 TDX 金鑰",
+    "daily_ci": false,
+    "requires_key": "TDX"
+  },
+  {
+    "id": "rail-008",
+    "question": "台鐵8121次現在到哪了，有誤點嗎？",
+    "toolset": "rail",
+    "expected_tool": "tra_live",
+    "expected_args": {
+      "train_no": "8121"
+    },
+    "expected_key_facts": [
+      "晚 5 分",
+      "目前位置：臺中（已離站）"
+    ],
+    "notes": "以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）；待 TDX 金鑰",
+    "daily_ci": false,
+    "requires_key": "TDX"
+  }
 ]

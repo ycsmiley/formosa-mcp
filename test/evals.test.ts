@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { checks } from '../scripts/eval-live.js';
 import { createServer } from '../src/mcp/server.js';
 
 it('validates eval schema, unique ids, and registered tool names', async () => {
@@ -14,9 +15,19 @@ it('validates eval schema, unique ids, and registered tool names', async () => {
     expected_args: z.object({ query: z.string().optional(), number: z.string().optional(), period: z.string().optional(), origin: z.string().optional(), destination: z.string().optional(), date: z.string().optional(), time: z.string().optional(), train_no: z.string().optional(), station: z.string().optional() }).strict(),
     expected_key_facts: z.array(z.string().min(1)).min(1),
     notes: z.string().min(1),
+    daily_ci: z.boolean(),
+    requires_key: z.enum(['TDX']).nullable(),
   }).strict()).length(30);
   const questions = schema.parse(JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8')));
   expect(new Set(questions.map(q => q.id)).size).toBe(questions.length);
+  for (const [toolset, count] of [['invoice', 13], ['stock', 13], ['rail', 4]] as const) expect(questions.filter(q => q.toolset === toolset)).toHaveLength(count);
+  const daily = questions.filter(q => q.daily_ci);
+  expect(daily.length).toBeGreaterThanOrEqual(8);
+  expect(daily.length).toBeLessThanOrEqual(10);
+  for (const q of questions) {
+    expect(q.requires_key).toBe(q.toolset === 'rail' ? 'TDX' : null);
+    if (q.daily_ci) { expect(['invoice', 'stock']).toContain(q.toolset); expect(checks[q.id]).toBeDefined(); }
+  }
   const server = createServer({ toolsets: ['invoice', 'stock', 'rail'] });
   const client = new Client({ name: 'eval-schema-client', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -51,4 +62,18 @@ it('keeps all implemented toolsets within the MVP limit of 10 tools', async () =
 
 it('rejects unknown toolsets and lists valid values', () => {
   expect(() => createServer({ toolsets: ['missing'] })).toThrow(/有效工具集：invoice/);
+});
+
+it('keeps the daily workflow restricted and pinned', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/daily-eval.yml', import.meta.url), 'utf8');
+  const uses = [...workflow.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)];
+  expect(uses.length).toBeGreaterThan(0);
+  for (const match of uses) expect(match[1]).toMatch(/@[0-9a-f]{40}$/);
+  expect(workflow).toMatch(/persist-credentials:\s*false/);
+  expect(workflow).toMatch(/permissions:\s*\n\s*contents:\s*read/);
+  const timeout = workflow.match(/timeout-minutes:\s*(\d+)/);
+  expect(timeout).not.toBeNull();
+  expect(Number(timeout![1])).toBeLessThanOrEqual(5);
+  expect(workflow).not.toContain('secrets.');
+  expect(workflow).toContain('npm run eval:live');
 });

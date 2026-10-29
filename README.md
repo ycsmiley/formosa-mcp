@@ -117,7 +117,7 @@ npm run live-check
 ```
 
 `live-check` 會建置並透過 MCP SDK 啟動實際 server，連線財政部、證交所與櫃買中心驗證工具，需要網路。
-評估題目與欄位說明見 [evals/README.md](evals/README.md)，目前沒有評估 runner。
+每日即時檢查請執行 `npm run eval:live`，詳見 [evals/README.md](evals/README.md)。
 
 ## English
 
@@ -208,7 +208,7 @@ Sources and caching:
 - [Ministry of Finance RSS](https://invoice.etax.nat.gov.tw/invoice.xml): no key, latest six draws, six-hour cache. On announcement days, an unpublished new draw reduces the cache to ten minutes.
 - [TWSE OpenAPI](https://openapi.twse.com.tw/) and [TPEx OpenAPI](https://www.tpex.org.tw/openapi/): no key, one-hour cache per dataset shared by both stock tools. If one market is unavailable, the other still returns results with a notice.
 
-Run `npm run build`, `npm test`, and `npm run live-check`. The live check builds and starts the actual MCP server and needs network access to all three sources. See [evals/README.md](evals/README.md) for evaluation questions; no evaluation runner is included yet.
+Run `npm run build`, `npm test`, and `npm run live-check`. The live check builds and starts the actual MCP server and needs network access to all three sources. Run `npm run eval:live` for the daily live evaluation; see [evals/README.md](evals/README.md).
 
 ## License
 

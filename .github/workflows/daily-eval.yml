@@ -1,0 +1,22 @@
+name: Daily eval
+on:
+  schedule:
+    # UTC = Taipei 19:23 weekdays, after market close, off the hour.
+    - cron: '23 11 * * 1-5'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: daily-eval
+  cancel-in-progress: true
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: npm ci
+      - run: npm run build
+      - run: npm run eval:live

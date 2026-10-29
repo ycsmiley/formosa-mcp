@@ -399,6 +399,10 @@ it.each(['THSR', 'TRA'] as const)('keeps an evening %s segment on the operating 
 });
 
 const railQuestions = JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8')).filter((q: { toolset: string }) => q.toolset === 'rail');
+it('keeps four rail evals requiring TDX', () => {
+  expect(railQuestions).toHaveLength(4);
+  for (const q of railQuestions) expect(q.requires_key).toBe('TDX');
+});
 it.each(railQuestions)('answers synthetic eval $id with fixture-checkable facts', async q => {
   const r = await call(await setup(), q.expected_tool, q.expected_args);
   expect(r.isError).not.toBe(true);
