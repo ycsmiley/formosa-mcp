@@ -20,9 +20,9 @@ export async function buildStockSnapshot(market: 'twse' | 'tpex', fetchJson: (ur
   ]);
   return { quotes, dividends };
 }
-export function mergeStockSnapshots<T>(twse: MarketSnapshot<T> | null, tpex: MarketSnapshot<T> | null): StockMarketSnapshot<T> | null {
+export function mergeStockSnapshots<T>(twse: MarketSnapshot<T> | null, tpex: MarketSnapshot<T> | null, tpexCheckedAt?: string): StockMarketSnapshot<T> | null {
   if (!twse && !tpex) return null;
-  return { updatedAt: twse && tpex ? (twse.updatedAt < tpex.updatedAt ? twse.updatedAt : tpex.updatedAt) : (twse ?? tpex)!.updatedAt, twse: twse?.rows ?? null, tpex: tpex?.rows ?? null };
+  return { updatedAt: twse && tpex ? (twse.updatedAt < tpex.updatedAt ? twse.updatedAt : tpex.updatedAt) : (twse ?? tpex)!.updatedAt, twse: twse?.rows ?? null, tpex: tpex?.rows ?? null, ...(tpexCheckedAt ? { tpexCheckedAt } : {}) };
 }
 // Quotes v3 stores one market, with shared market/date and a fixed field dictionary.
 const quoteKeys = ['code', 'name', 'open', 'high', 'low', 'close', 'change', 'volumeShares', 'value', 'pe', 'yield', 'pb'] as const;
@@ -32,6 +32,7 @@ export function encodeQuotesSnapshot({ updatedAt, rows }: MarketSnapshot<StockQu
   const keys: (keyof StockQuote)[] = [...quoteKeys];
   if (rows.some(row => !sameDate(row))) keys.push('date');
   if (rows.some(row => row.changeNote !== undefined)) keys.push('changeNote');
+  if (rows.some(row => row.ratioDate !== undefined)) keys.push('ratioDate');
   return JSON.stringify({ v: 3, d: { updatedAt, market, date, k: keys, r: rows.map(row => {
     const values = keys.map(k => k === 'date' && sameDate(row) ? null : row[k] ?? null);
     while (values.length && values.at(-1) === null) values.pop();
@@ -46,7 +47,7 @@ export function decodeQuotesSnapshot(encoded: string): MarketSnapshot<StockQuote
   return { updatedAt: table.updatedAt, rows: table.r.map((row: unknown[]) => {
     const quote: Record<string, unknown> = { market: table.market, date: table.date };
     table.k.forEach((key: string, i: number) => {
-      if ((key === 'date' || key === 'changeNote') && row[i] == null) return;
+      if ((key === 'date' || key === 'changeNote' || key === 'ratioDate') && row[i] == null) return;
       quote[key] = row[i] ?? null;
     });
     return quote as unknown as StockQuote;

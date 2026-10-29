@@ -1,6 +1,7 @@
 import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import worker, { keys, metaKeys, cronJobs, type Env } from '../../src/worker/index.js';
+import { collectKeys } from '../../src/worker/snapshot-keys.js';
 import * as stockSource from '../../src/worker/stock-source.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot } from '../../src/core/snapshot.js';
 import { stockUrls } from '../../src/core/stock/source.js';
@@ -66,6 +67,28 @@ it('lists exactly four tools (rail excluded) and serves seeded snapshots without
     }
     expect(spy).not.toHaveBeenCalled();
   } finally { spy.mockRestore(); }
+});
+const heartbeat = { v: 1, lastSuccessAt: '2026-10-28T16:00:00.000Z', dataDate: '2026-10-22' };
+it.each([
+  { value: JSON.stringify(heartbeat), valid: true },
+  ...[null, 'invalid', 'null', JSON.stringify({ ...heartbeat, v: 2 }), JSON.stringify({ ...heartbeat, lastSuccessAt: 'invalid' }), JSON.stringify({ ...heartbeat, lastSuccessAt: '2026-02-30T00:00:00.000Z' }), JSON.stringify({ ...heartbeat, dataDate: '2026-02-30' }), JSON.stringify({ lastSuccessAt: heartbeat.lastSuccessAt })].map(value => ({ value, valid: false })),
+])('reads TPEx heartbeat ($value), ignores invalid values and never writes from fetch', async ({ value, valid }) => {
+  await seed();
+  if (value === null) await bindings.SNAPSHOTS.delete(collectKeys.tpex);
+  else await bindings.SNAPSHOTS.put(collectKeys.tpex, value);
+  const get = vi.spyOn(bindings.SNAPSHOTS, 'get'), put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-29T08:00:00Z'));
+  try {
+    const text = (await rpc('tools/call', { name: 'stock_quote', arguments: { query: '6488' } })).content[0].text;
+    expect(get).toHaveBeenCalledWith(collectKeys.tpex);
+    expect(text).toContain(valid ? '（注意：上櫃資料停在 115年10月22日；115年10月29日 已確認櫃買中心尚無更新資料，可能為休市）' : '（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
+    expect((await rpc('tools/call', { name: 'stock_quote', arguments: { query: '2330' } })).content[0].text).toContain('（注意：上市資料停在 115年10月22日，可能尚未更新）');
+    expect(put).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
 });
 it('returns updating for empty KV and hides malformed data errors', async () => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
@@ -175,7 +198,7 @@ const modified = 'Tue, 27 Oct 2026 01:00:00 GMT';
 const validators = (key: string, version = 1) => ({ etag: `"${key}-${version}"`, lastModified: modified });
 const marketFeeds = (market: 'twse' | 'tpex') => Object.entries(stockUrls).filter(([key]) => key.startsWith(market));
 const refresh = (market: 'twse' | 'invoice') => worker.scheduled(createScheduledController({ cron: Object.entries(cronJobs).find(([, job]) => job === market)![0] }), bindings, createExecutionContext());
-const reset = async () => { for (const key of [...allKeys, ...Object.values(metaKeys)]) await bindings.SNAPSHOTS.delete(key); };
+const reset = async () => { for (const key of [...allKeys, ...Object.values(metaKeys), ...Object.values(collectKeys)]) await bindings.SNAPSHOTS.delete(key); };
 const withValidators = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
   const [key] = Object.entries(stockUrls).find(([, url]) => url === String(input))!;
   return Response.json(await fixtureFetch(String(input)), { headers: { ETag: validators(key).etag, 'Last-Modified': modified } });
@@ -353,7 +376,7 @@ it('advances changed validators on unchanged snapshots, skips unchanged meta, an
 it.each([...Object.keys(cronJobs), '', '15,45 * * * MON-FRI', '0,30 */6 * * SAT,SUN'])('cron %j never fetches or changes TPEx and still serves seeded TPEx', async cron => {
   await reset();
   await seed();
-  const protectedKeys = [keys.tpexQuotes, keys.tpexDividends, 'stock:meta:tpex:v1'];
+  const protectedKeys = [keys.tpexQuotes, keys.tpexDividends, 'stock:meta:tpex:v1', collectKeys.tpex];
   const before = await Promise.all(protectedKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
   const fetch = mockUpstream(), put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
   await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());

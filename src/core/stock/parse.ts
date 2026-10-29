@@ -4,7 +4,7 @@ export interface StockQuote {
   market: Market; code: string; name: string; date: StockDate;
   open: number | null; high: number | null; low: number | null; close: number | null;
   change: number | null; changeNote?: string; volumeShares: number | null; value: number | null;
-  pe: number | null; yield: number | null; pb: number | null;
+  pe: number | null; yield: number | null; pb: number | null; ratioDate?: StockDate;
 }
 export interface DividendEvent {
   market: Market; code: string; name: string; date: StockDate; type: '除息' | '除權' | '除權息';
@@ -35,12 +35,14 @@ export function parseQuotes(data: unknown, ratios: unknown, market: Market): Sto
     const code = r[codeKey]?.trim(), date = parseRocDate(r.Date ?? '');
     if (!code || !date) return [];
     const ratio = byCode.get(code) ?? {}, n = (key: string) => parseNumber(r[key]);
+    const ratioDate = parseRocDate(ratio.Date ?? '');
     const change = n('Change'), note = r.Change?.trim();
     return [{ market, code, name: r[tw ? 'Name' : 'CompanyName'], date,
       open: n(tw ? 'OpeningPrice' : 'Open'), high: n(tw ? 'HighestPrice' : 'High'), low: n(tw ? 'LowestPrice' : 'Low'), close: n(tw ? 'ClosingPrice' : 'Close'),
       change, ...(change === null && note?.startsWith('除') ? { changeNote: note } : {}),
       volumeShares: n(tw ? 'TradeVolume' : 'TradingShares'), value: n(tw ? 'TradeValue' : 'TransactionAmount'),
       pe: parseNumber(ratio[tw ? 'PEratio' : 'PriceEarningRatio']), yield: parseNumber(ratio[tw ? 'DividendYield' : 'YieldRatio']), pb: parseNumber(ratio[tw ? 'PBratio' : 'PriceBookRatio']),
+      ...(ratioDate && (ratioDate.year !== date.year || ratioDate.month !== date.month || ratioDate.day !== date.day) ? { ratioDate } : {}),
     }];
   });
 }

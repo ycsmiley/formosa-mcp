@@ -38,6 +38,7 @@ function parseQuotes(data, ratios, market) {
     const code = r[codeKey]?.trim(), date = parseRocDate(r.Date ?? "");
     if (!code || !date) return [];
     const ratio = byCode.get(code) ?? {}, n = (key) => parseNumber(r[key]);
+    const ratioDate = parseRocDate(ratio.Date ?? "");
     const change = n("Change"), note = r.Change?.trim();
     return [{
       market,
@@ -54,7 +55,8 @@ function parseQuotes(data, ratios, market) {
       value: n(tw ? "TradeValue" : "TransactionAmount"),
       pe: parseNumber(ratio[tw ? "PEratio" : "PriceEarningRatio"]),
       yield: parseNumber(ratio[tw ? "DividendYield" : "YieldRatio"]),
-      pb: parseNumber(ratio[tw ? "PBratio" : "PriceBookRatio"])
+      pb: parseNumber(ratio[tw ? "PBratio" : "PriceBookRatio"]),
+      ...ratioDate && (ratioDate.year !== date.year || ratioDate.month !== date.month || ratioDate.day !== date.day) ? { ratioDate } : {}
     }];
   });
 }
@@ -119,6 +121,7 @@ function encodeQuotesSnapshot({ updatedAt, rows }) {
   const keys2 = [...quoteKeys];
   if (rows.some((row) => !sameDate(row))) keys2.push("date");
   if (rows.some((row) => row.changeNote !== void 0)) keys2.push("changeNote");
+  if (rows.some((row) => row.ratioDate !== void 0)) keys2.push("ratioDate");
   return JSON.stringify({ v: 3, d: { updatedAt, market, date, k: keys2, r: rows.map((row) => {
     const values = keys2.map((k) => k === "date" && sameDate(row) ? null : row[k] ?? null);
     while (values.length && values.at(-1) === null) values.pop();
@@ -132,7 +135,7 @@ function decodeQuotesSnapshot(encoded) {
   return { updatedAt: table.updatedAt, rows: table.r.map((row) => {
     const quote = { market: table.market, date: table.date };
     table.k.forEach((key, i) => {
-      if ((key === "date" || key === "changeNote") && row[i] == null) return;
+      if ((key === "date" || key === "changeNote" || key === "ratioDate") && row[i] == null) return;
       quote[key] = row[i] ?? null;
     });
     return quote;
@@ -163,6 +166,7 @@ function decodeSnapshot(encoded) {
 
 // src/worker/snapshot-keys.ts
 var keys = { invoice: "invoice:v1", twseQuotes: "stock:quotes:twse:v1", tpexQuotes: "stock:quotes:tpex:v1", twseDividends: "stock:dividends:twse:v1", tpexDividends: "stock:dividends:tpex:v1" };
+var collectKeys = { tpex: "stock:collect:tpex:v1" };
 var minimumRows = { twse: 100, tpex: 50, invoice: 1 };
 var isQuotes = (key) => key === keys.twseQuotes || key === keys.tpexQuotes;
 function encodeStoredSnapshot(key, snapshot) {
@@ -488,6 +492,21 @@ async function publishTpex({ outDir, env = process.env, now = /* @__PURE__ */ ne
       } catch {
         failed = true;
         console.error(`kv put ${key} failed`);
+      }
+    }
+    if (!failed && manifest.written.includes(keys.tpexQuotes)) {
+      const lastSuccessAt = now.toISOString(), dataDate = manifest.keys[keys.tpexQuotes].dataDate;
+      try {
+        const response = await request(collectKeys.tpex, { method: "PUT", body: JSON.stringify({ v: 1, lastSuccessAt, dataDate }) });
+        const result = await response.json().catch(() => null);
+        if (response.status === 200 && result?.success === true) console.log(`kv heartbeat lastSuccessAt=${lastSuccessAt} dataDate=${dataDate}`);
+        else {
+          failed = true;
+          console.error(`kv put ${collectKeys.tpex} HTTP ${response.status}`);
+        }
+      } catch {
+        failed = true;
+        console.error(`kv put ${collectKeys.tpex} failed`);
       }
     }
     return failed ? 1 : 0;

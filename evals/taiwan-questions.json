@@ -127,6 +127,7 @@
     ],
     "notes": "評估日期固定為2026-10-26，且財政部尚未發布該期；開獎後需更新。",
     "daily_ci": false,
+    "expires": "2026-11-25",
     "requires_key": null
   },
   {
@@ -176,6 +177,7 @@
     ],
     "notes": "固定期別；財政部 RSS 保留最近六期，約一年後需更新。",
     "daily_ci": true,
+    "expires": "2027-07-01",
     "requires_key": null
   },
   {
@@ -193,6 +195,7 @@
     ],
     "notes": "固定期別；財政部 RSS 保留最近六期，約一年後需更新。",
     "daily_ci": true,
+    "expires": "2027-07-01",
     "requires_key": null
   },
   {
@@ -209,6 +212,7 @@
     ],
     "notes": "尚未開獎的邊界案例；有效至 116年3月25日。",
     "daily_ci": false,
+    "expires": "2027-03-25",
     "requires_key": null
   },
   {

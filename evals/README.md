@@ -11,6 +11,7 @@ JSON 是物件陣列，每題欄位如下：
 - `expected_key_facts`：答案應包含的語意事實，不要求逐字比對。
 - `notes`：評估條件、規則或例外。
 - `daily_ci`：是否納入每日即時檢查。
+- `expires`（選填，`YYYY-MM-DD`）：此日期之後預期答案不再有效，必須更新題目；eval-live 對每日題目在到期前 30 天警告，過期後判定失敗。
 - `requires_key`：鐵路題為 `TDX`，其他為 `null`。
 
 固定開獎答案綁定 115年05-06月及 115年07-08月；財政部 RSS 保留最近六期，約一年後需更新。尚未開獎題 `invoice-008` 的評估日期固定為 2026-10-26，開獎後需更新；`invoice-013` 有效至 116年3月25日。
@@ -21,7 +22,7 @@ JSON 是物件陣列，每題欄位如下：
 
 ## English
 
-The 30 questions cover 13 invoice, 13 stock, and 4 rail cases. JSON fields: `id` (unique ID), `question` (zh-TW question), `toolset` and `expected_tool` (expected tools), `expected_args` (equivalent period formats may be normalized), `expected_key_facts` (semantic facts, not verbatim text), `notes` (conditions and exceptions), `daily_ci` (daily selection), and `requires_key` (`TDX` for rail, otherwise `null`).
+The 30 questions cover 13 invoice, 13 stock, and 4 rail cases. JSON fields: `id` (unique ID), `question` (zh-TW question), `toolset` and `expected_tool` (expected tools), `expected_args` (equivalent period formats may be normalized), `expected_key_facts` (semantic facts, not verbatim text), `notes` (conditions and exceptions), `daily_ci` (daily selection), optional `expires` (`YYYY-MM-DD`, the date after which the expected answer is no longer valid and the question must be updated; eval-live warns for daily questions within 30 days and fails after expiry), and `requires_key` (`TDX` for rail, otherwise `null`).
 
 Fixed invoice answers use ROC 115 May–June and July–August; the MOF RSS retains six draws, so refresh them roughly a year later. The undrawn `invoice-008` uses evaluation date 2026-10-26 and must be updated after the draw; `invoice-013` is valid through ROC 116 March 25. Stock answers follow source data dates, not live prices; ex-dividend dates are filtered using the evaluation date in Taipei time.
 

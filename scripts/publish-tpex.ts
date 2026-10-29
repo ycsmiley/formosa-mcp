@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decodeQuotesSnapshot, decodeSnapshot } from '../src/core/snapshot.js';
-import { keys } from '../src/worker/snapshot-keys.js';
+import { collectKeys, keys } from '../src/worker/snapshot-keys.js';
 import { collectTpex, type TpexManifest } from './collect-tpex.js';
 
 const requiredEnv = ['CLOUDFLARE_ACCOUNT_ID', 'KV_NAMESPACE_ID', 'CLOUDFLARE_KV_WRITE_TOKEN'] as const;
@@ -74,6 +74,15 @@ export async function publishTpex({ outDir, env = process.env, now = new Date() 
           console.error(`kv put ${key} HTTP ${response.status}${errors ? ` ${errors.replaceAll(token, '[redacted]').replace(/\s+/g, ' ')}` : ''}`);
         }
       } catch { failed = true; console.error(`kv put ${key} failed`); }
+    }
+    if (!failed && manifest.written.includes(keys.tpexQuotes)) {
+      const lastSuccessAt = now.toISOString(), dataDate = manifest.keys[keys.tpexQuotes].dataDate;
+      try {
+        const response = await request(collectKeys.tpex, { method: 'PUT', body: JSON.stringify({ v: 1, lastSuccessAt, dataDate }) });
+        const result = await response.json().catch(() => null) as { success?: boolean } | null;
+        if (response.status === 200 && result?.success === true) console.log(`kv heartbeat lastSuccessAt=${lastSuccessAt} dataDate=${dataDate}`);
+        else { failed = true; console.error(`kv put ${collectKeys.tpex} HTTP ${response.status}`); }
+      } catch { failed = true; console.error(`kv put ${collectKeys.tpex} failed`); }
     }
     return failed ? 1 : 0;
   } catch { console.error('tpex publish failed'); return 1; }

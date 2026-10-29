@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp/server.js';
 
-type Question = { id: string; question: string; expected_tool: string; expected_args: Record<string, string>; expected_key_facts: string[]; daily_ci: boolean };
+type Question = { id: string; question: string; expected_tool: string; expected_args: Record<string, string>; expected_key_facts: string[]; daily_ci: boolean; expires?: string };
 type Reply = { text: string; isError?: boolean };
 type Check = string | RegExp;
 const datePattern = /資料日期：(\d{3})年(\d{2})月(\d{2})日/;
@@ -35,15 +35,21 @@ function taipeiToday(): Date {
   const get = (type: string) => Number(parts.find(p => p.type === type)?.value);
   return new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
 }
-export async function runChecks(questions: Question[], callTool: (q: Question) => Promise<Reply>, log: (line: string) => void = console.log, today = taipeiToday()) {
+export async function runChecks(questions: Question[], callTool: (q: Question, signal: AbortSignal) => Promise<Reply>, log: (line: string) => void = console.log, today = taipeiToday()) {
   const daily = questions.filter(q => q.daily_ci), failures: string[] = [];
   for (const q of daily) {
     let reply: Reply | undefined;
     try {
+      if (q.expires) {
+        const days = (Date.parse(q.expires) - today.getTime()) / 86400000;
+        if (days < 0) throw new Error(`題目已過期（expires ${q.expires}），請更新題目`);
+        if (days <= 30) log(`警告：題目 ${q.id} 將於 ${q.expires} 過期，請準備更新`);
+      }
       if (!checks[q.id]) throw new Error('未定義檢查');
+      const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        reply = await Promise.race([callTool(q), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('呼叫逾時（30 秒）')), 30000); })]);
+        reply = await Promise.race([callTool(q, controller.signal), new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new Error('呼叫逾時（30 秒）')); controller.abort(); }, 30000); })]);
       } finally { clearTimeout(timer); }
       if (reply.isError) throw new Error('工具回傳錯誤');
       if (!reply.text.trim() || !/[\u3400-\u9fff]/.test(reply.text)) throw new Error('回覆為空或不含中文');
@@ -71,12 +77,12 @@ async function main() {
   const [a, b] = InMemoryTransport.createLinkedPair();
   try {
     await server.connect(a); await client.connect(b);
-    const result = await runChecks(questions, async q => {
-      const response = await client.callTool({ name: q.expected_tool, arguments: q.expected_args });
+    const result = await runChecks(questions, async (q, signal) => {
+      const response = await client.callTool({ name: q.expected_tool, arguments: q.expected_args }, undefined, { signal });
       const content = Array.isArray(response.content) ? response.content : [];
       return { text: content.map(item => typeof item === 'object' && item !== null && 'text' in item && typeof item.text === 'string' ? item.text : '').join('\n'), isError: response.isError === true };
     });
     if (result.failures.length) process.exitCode = 1;
   } finally { await client.close(); await server.close(); }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }).finally(() => process.exit(process.exitCode ?? 0));

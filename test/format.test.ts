@@ -3,6 +3,9 @@ import { expect, it } from 'vitest';
 import { formatAmount, formatCheckResult, formatWinningNumbers } from '../src/core/invoice/format.js';
 import { parseInvoiceFeed } from '../src/core/invoice/parse.js';
 import { checkNumber } from '../src/core/invoice/match.js';
+import { parseQuotes } from '../src/core/stock/parse.js';
+import { formatStockQuote, quoteStalenessNote } from '../src/core/stock/format.js';
+import { fixture } from './stock-fixtures.js';
 const draw = parseInvoiceFeed(readFileSync(new URL('./fixtures/invoice.xml', import.meta.url), 'utf8'))[0];
 const clock = () => new Date('2026-10-26T00:00:00+08:00');
 it('formats winning numbers and claim period without an empty extra prize line', () => {
@@ -38,4 +41,35 @@ it('keeps all formatted result types clean and human-readable', () => {
     expect(value).not.toContain('{"');
     expect(() => JSON.parse(value)).toThrow();
   }
+});
+it.each(['上市', '上櫃'] as const)('labels differing ratio dates for %s and preserves absent fields and missing values', market => {
+  const prefix = market === '上市' ? 'twse' : 'tpex';
+  const quotes = fixture(`${prefix}-quotes`), ratios = fixture(`${prefix}-ratios`) as Record<string, string>[];
+  const parse = (ratios: unknown) => parseQuotes(quotes, ratios, market).find(row => row.code === (market === '上市' ? '2330' : '6488'))!;
+  const same = parse(ratios);
+  expect(same).not.toHaveProperty('ratioDate');
+  expect(formatStockQuote(same)).not.toContain('本益比資料日期');
+  const different = parse(ratios.map(row => ({ ...row, Date: '1151028' })));
+  expect(different.ratioDate).toEqual({ year: 2026, month: 10, day: 28 });
+  expect(formatStockQuote(different)).toContain('（本益比資料日期 115年10月28日）');
+  expect(formatStockQuote({ ...different, pe: null, yield: null, pb: null })).not.toContain('本益比資料日期');
+  expect(formatStockQuote({ ...different, yield: null })).toContain('殖利率 —｜');
+  for (const rows of [[], ratios.map(row => ({ ...row, Date: '1150230' }))]) {
+    const quote = parse(rows);
+    expect(quote).not.toHaveProperty('ratioDate');
+    expect(formatStockQuote(quote)).not.toContain('本益比資料日期');
+    if (!rows.length) expect(formatStockQuote(quote)).toContain('本益比 —｜殖利率 —｜股價淨值比 —');
+  }
+});
+it('uses a recent TPEx check only for stale TPEx quotes, with Taipei dates and a 72-hour boundary', () => {
+  const quote = parseQuotes(fixture('tpex-quotes'), fixture('tpex-ratios'), '上櫃')[0];
+  const now = () => new Date('2026-10-29T16:00:00Z');
+  expect(quoteStalenessNote({ ...quote, date: { year: 2026, month: 10, day: 29 } }, now, '2026-10-29T08:00:00Z')).toBe('');
+  for (const [checkedAt, label] of [['2026-10-28T16:00:00Z', '115年10月29日'], ['2026-10-26T16:00:00Z', '115年10月27日']]) {
+    expect(quoteStalenessNote(quote, now, checkedAt)).toBe(`（注意：上櫃資料停在 115年10月22日；${label} 已確認櫃買中心尚無更新資料，可能為休市）`);
+  }
+  for (const checkedAt of [undefined, 'invalid', '2026-10-26T15:59:59Z', '2026-10-30T00:00:00Z']) {
+    expect(quoteStalenessNote(quote, now, checkedAt)).toBe('（注意：上櫃資料停在 115年10月22日，可能尚未更新）');
+  }
+  expect(quoteStalenessNote({ ...quote, market: '上市' }, now, now().toISOString())).toBe('（注意：上市資料停在 115年10月22日，可能尚未更新）');
 });

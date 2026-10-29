@@ -76,3 +76,19 @@ it('roundtrips quote date outliers, empty markets, change notes and trailing nul
     expect(decodeQuotesSnapshot(encodeQuotesSnapshot(snapshot))).toEqual(snapshot);
   }
 });
+it('roundtrips optional ratio dates in v3 and still decodes old snapshots without the key', async () => {
+  const { quotes } = await buildStockSnapshot('twse', stockFetch);
+  const row = quotes!.rows[0], ratioDate = { year: 2026, month: 10, day: 28 };
+  const snapshot = { ...quotes!, rows: [row, { ...row, ratioDate }, row] };
+  const encoded = encodeQuotesSnapshot(snapshot), table = JSON.parse(encoded);
+  expect(table.v).toBe(3);
+  expect(table.d.k.at(-1)).toBe('ratioDate');
+  expect(decodeQuotesSnapshot(encoded)).toEqual(snapshot);
+  // Explicit nulls and trimmed cells must both leave the optional field absent.
+  table.d.r[0][table.d.k.indexOf('ratioDate')] = null;
+  expect(decodeQuotesSnapshot(JSON.stringify(table)).rows[0]).not.toHaveProperty('ratioDate');
+  const old = encodeQuotesSnapshot({ ...quotes!, rows: [row] });
+  expect(JSON.parse(old).d.k).not.toContain('ratioDate');
+  expect(decodeQuotesSnapshot(old).rows[0]).toEqual(row);
+  expect(decodeQuotesSnapshot(old).rows[0]).not.toHaveProperty('ratioDate');
+});
