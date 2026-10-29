@@ -19,7 +19,7 @@ Claude Desktop（claude_desktop_config.json）或 Cursor（.cursor/mcp.json 或 
   }
 }
 
-不想申請金鑰：公開遠端網址 https://formosa-mcp.ycsmiley.workers.dev/mcp 免金鑰，目前提供發票與台股，鐵路即將加入。
+不想申請金鑰：發票與台股現在就能免金鑰使用（不需啟用 rail）；免金鑰的公開網址即將推出。
 
 金鑰只放在本機設定，不要貼到對話裡。`;
 const result = ({ text, isError }: RailResult) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}) });

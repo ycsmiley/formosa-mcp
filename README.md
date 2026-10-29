@@ -1,16 +1,45 @@
 # formosa-mcp
 
-讓 Claude、Cursor 等 AI 助手查台灣發票對獎與台股盤後行情；高鐵／台鐵工具開發中。
+**繁體中文** · [English](README.en.md)
 
-<!-- 示範動畫：網址公開後錄製 -->
-示範動畫即將推出。
+[![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
+
+讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎與台股（上市＋上櫃）盤後行情，免金鑰；高鐵／台鐵可用自己的免費 TDX 金鑰在本機查詢。
+Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
 
 ## 開始使用
 
-- Claude 連接器：公開網址：即將公開。之後在 Claude 的自訂連接器貼上網址即可。
-- Cursor 一鍵安裝：即將推出。
+需要 Node.js 20 以上。
 
-開發者現在就能用，請看[開發者](#開發者)。
+在 Claude Desktop 的 `claude_desktop_config.json` 或 Cursor 的 `.cursor/mcp.json`（或 `~/.cursor/mcp.json`）加入以下設定，然後重新啟動應用程式：
+
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "command": "npx",
+      "args": ["-y", "formosa-mcp"]
+    }
+  }
+}
+```
+
+Claude Code：
+
+```sh
+claude mcp add formosa -- npx -y formosa-mcp
+```
+
+Claude Code plugin：
+
+```sh
+claude plugin marketplace add ycsmiley/formosa-mcp
+claude plugin install formosa@formosa-mcp
+```
+
+發票與台股免金鑰；高鐵／台鐵見[鐵路金鑰](#鐵路金鑰)。
+
+免金鑰的公開網址即將推出，屆時貼到 Claude 的自訂連接器即可使用。
 
 ## 可以問什麼
 
@@ -24,8 +53,8 @@
 
 - 發票：可用，查中獎號碼、領獎期間與對獎。
 - 台股：可用，涵蓋上市＋上櫃；盤後資料，非即時，行情顯示資料日期。
-- 高鐵／台鐵：開發中，須自備 TDX 金鑰並自行啟用。
-- 氣象：之後推出（公開網址上線後的第二波）。
+- 高鐵／台鐵：可用，須自備免費 TDX 金鑰並以 `--toolsets` 啟用，在本機查時刻與即時誤點。
+- 氣象：規劃中。
 
 工具：
 
@@ -59,7 +88,7 @@ MCP 客戶端設定：
 }
 ```
 
-從原始碼執行（需要 repository 存取權限）：
+從原始碼執行：
 
 ```sh
 git clone https://github.com/ycsmiley/formosa-mcp.git
@@ -122,7 +151,7 @@ claude plugin install formosa@formosa-mcp
 
 金鑰只放在本機設定，不要貼到對話裡，也不要提交到版本控制；`.env` 已列入 gitignore。以 `--toolsets=invoice,stock,rail` 或 `--toolsets=rail` 啟用；缺金鑰時，鐵路工具會顯示上述設定指引。
 
-使用自己的金鑰在本機執行，可查即時車次與誤點；未來公開網址只提供快取的時刻表與站點。已於 2026-10-29 以真實 TDX 回應驗證。成功回覆標示資料介接「交通部TDX平臺」；詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
+使用自己的金鑰在本機執行，可查即時車次與誤點。已於 2026-10-29 以真實 TDX 回應驗證。成功回覆標示資料介接「交通部TDX平臺」；詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
 
 ### 遠端版（Cloudflare Workers）
 
@@ -142,124 +171,17 @@ npm run remote-check
 
 驗證可執行 `npm run typecheck:worker`、`npm run test:worker`。`@modelcontextprotocol/sdk` 為配合 `agents` 固定於精確版本 `1.32.1`。
 
-## English
+## 資料來源與授權
 
-Let AI assistants such as Claude and Cursor check Taiwan invoice prizes and end-of-day stock prices. HSR and TRA tools are in development.
+- 本專案程式碼採 [MIT](LICENSE) 授權。
+- 資料依[政府資料開放授權條款第1版](https://data.gov.tw/license)使用，來源：財政部（統一發票中獎號碼）、臺灣證券交易所（TWSE OpenAPI）、證券櫃檯買賣中心（TPEx OpenAPI）、交通部 TDX 運輸資料流通服務平臺（資料介接「交通部TDX平臺」）。
+- 非官方專案，與上述機關無關；資料以官方公告為準，可能延遲或有誤。
+- 股票資料為盤後資料，僅供參考，不構成投資建議。
 
-Demo animation coming soon.
+## 參與貢獻
 
-### Get started
+請見 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [SECURITY.md](SECURITY.md)。
 
-- Claude connector: Public URL: coming soon. Once available, paste it into a custom connector in Claude.
-- Cursor one-click install: coming soon.
+## 授權
 
-Developers can use it now; see [Developers](#developers).
-
-### What can I ask?
-
-- “Did invoice 54348835 win in the July–August 2026 draw (ROC 115)?”
-- “What is this period's special prize number?”
-- “What was TSMC's closing price?”
-- “What is the P/E ratio for OTC stock GlobalWafers 6488?”
-- “When is TSMC's ex-dividend date?”
-
-### Features
-
-Invoices cover winning numbers, claim periods and number checks. Stocks cover TWSE and TPEx end-of-day data, not real-time; quotes show the data date. HSR / TRA are in development and require your own TDX key. Weather: later, in a second wave after the public URL launches.
-
-The tools are `invoice_get_winning_numbers`, `invoice_check`, `stock_quote`, `stock_dividends`, `thsr_timetable`, `tra_timetable` and `tra_live`; their arguments and details are listed [above](#功能).
-
-### Developers
-
-[![Daily live check](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
-
-Node.js 20+ is required. Run the npm package directly:
-
-```sh
-npx -y formosa-mcp --toolsets=invoice,stock
-```
-
-MCP client configuration:
-
-```json
-{
-  "mcpServers": {
-    "formosa": { "command": "npx", "args": ["-y", "formosa-mcp"] }
-  }
-}
-```
-
-From source (repository access required):
-
-```sh
-git clone https://github.com/ycsmiley/formosa-mcp.git
-cd formosa-mcp
-npm ci && npm run build
-node dist/stdio.js --toolsets=invoice,stock
-```
-
-From-source configuration (replace the path with your absolute path):
-
-```json
-{
-  "mcpServers": {
-    "formosa": {
-      "command": "node",
-      "args": ["/absolute/path/formosa-mcp/dist/stdio.js", "--toolsets=invoice,stock"]
-    }
-  }
-}
-```
-
-The committed bundle also runs without installing npm packages via `node plugin/server/formosa-mcp.mjs`. Install the Claude Code plugin with `claude plugin marketplace add ycsmiley/formosa-mcp`, then `claude plugin install formosa@formosa-mcp`.
-
-Invoice and stock toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
-
-### Railway keys
-
-1. Register as a free member at [TDX](https://tdx.transportdata.tw) and wait for approval. Free membership has monthly API call limits.
-2. Get your Client Id and Client Secret under 會員中心 → API 金鑰 (Member Center → API Keys).
-3. Add `env` to your Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`) MCP configuration, replacing the placeholders with your own keys:
-
-```json
-{
-  "mcpServers": {
-    "formosa": {
-      "command": "npx",
-      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,rail"],
-      "env": {
-        "TDX_CLIENT_ID": "你的 Client Id",
-        "TDX_CLIENT_SECRET": "你的 Client Secret"
-      }
-    }
-  }
-}
-```
-
-4. Save the configuration and restart Claude Desktop or Cursor.
-
-Keep keys in local configuration, never paste them into conversations or commit them; `.env` is gitignored. Enable rail with `--toolsets=invoice,stock,rail` or `--toolsets=rail`. Without a key, rail tools show this setup guide.
-
-Your own key enables local rail queries, including live train delays. The future public URL will serve cached timetables and stations only. Rail was verified against real TDX responses on 2026-10-29. Successful replies credit 資料介接「交通部TDX平臺」; see [TDX fixtures](test/fixtures/tdx/README.md).
-
-### Remote (Cloudflare Workers)
-
-Requests read KV snapshots only, never upstream. Worker cron refreshes TWSE and invoices; [GitHub Actions](.github/workflows/tpex-collect.yml) writes TPEx snapshots because TPEx blocks Cloudflare. The limit is 30 requests per IP per minute.
-
-Local development needs Node.js 22+; the two `kv key put --local` commands write TPEx snapshots only to local KV, leaving production untouched.
-
-```sh
-npm run dev:worker
-# another terminal
-npm run collect:tpex -- --out /tmp/tpex
-npx wrangler kv key put --binding SNAPSHOTS --local "stock:quotes:tpex:v1" --path /tmp/tpex/stock_quotes_tpex_v1.json
-npx wrangler kv key put --binding SNAPSHOTS --local "stock:dividends:tpex:v1" --path /tmp/tpex/stock_dividends_tpex_v1.json
-curl "http://localhost:8787/__scheduled"
-npm run remote-check
-```
-
-Verify with `npm run typecheck:worker` and `npm run test:worker`. `@modelcontextprotocol/sdk` is pinned exactly to `1.32.1` for `agents`.
-
-## License
-
-MIT
+[MIT](LICENSE)

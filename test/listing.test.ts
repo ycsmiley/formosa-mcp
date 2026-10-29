@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -84,4 +86,31 @@ it('pins both Docker stages and runs stdio as node', () => {
   for (const line of from) expect(line).toMatch(/^FROM\s+\S+@sha256:[a-f0-9]{64}(?:\s+AS\s+\S+)?$/i);
   expect(dockerfile).toMatch(/^USER node$/m);
   expect(dockerfile).toMatch(/^ENTRYPOINT \["node",\s*"dist\/stdio\.js"\]$/m);
+});
+
+
+it('never prints the unpublished remote host', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const filesUnder = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? filesUnder(path) : entry.isFile() ? [path] : [];
+  });
+  const paths = ['README.md', 'README.en.md', 'plugin/server/formosa-mcp.mjs', 'server.json'].map(path => join(root, path));
+  paths.push(...filesUnder(join(root, 'src')));
+  if (existsSync(join(root, 'dist'))) paths.push(...filesUnder(join(root, 'dist')));
+  for (const path of paths) expect(readFileSync(path, 'utf8').includes('workers.dev'), path).toBe(false);
+
+  const zh = read('README.md');
+  const en = read('README.en.md');
+  expect(zh).toContain('**繁體中文** · [English](README.en.md)');
+  expect(en).toContain('[繁體中文](README.md) · **English**');
+  for (const [name, content] of [['README.md', zh], ['README.en.md', en]]) {
+    const allowedSentence = 'A keyless public URL is coming soon; you will be able to paste it into a Claude custom connector.';
+    expect(content.replace(allowedSentence, ''), name).not.toMatch(/存取權限|access required|即將公開|coming soon/i);
+    for (const match of content.matchAll(/\]\(([^)]+)\)/g)) {
+      const target = match[1].split('#')[0];
+      if (!target || /^(?:https?:|mailto:)/i.test(target)) continue;
+      expect(existsSync(resolve(dirname(join(root, name)), target)), `${name}: ${target}`).toBe(true);
+    }
+  }
 });
