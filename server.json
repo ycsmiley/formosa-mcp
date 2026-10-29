@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ycsmiley/formosa-mcp",
   "title": "formosa-mcp",
-  "description": "Taiwan e-invoice lottery, TWSE/TPEx stock quotes and dividends, and rail timetables",
+  "description": "Taiwan e-invoice lottery and TWSE/TPEx stock quotes and dividends; rail (TDX key) in development",
   "version": "0.1.0",
   "repository": {
     "url": "https://github.com/ycsmiley/formosa-mcp",
