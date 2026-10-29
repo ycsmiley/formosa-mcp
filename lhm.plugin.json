@@ -5,22 +5,21 @@
   "author": "ycsmiley",
   "authorUrl": "https://github.com/ycsmiley",
   "homepage": "https://github.com/ycsmiley/formosa-mcp",
-  "description": "Taiwan e-invoice lottery, TWSE/TPEx stock quotes and dividends, and rail timetables",
+  "description": "Taiwan e-invoice lottery and TWSE/TPEx stock quotes and dividends; rail (TDX key) in development",
   "category": "tools",
   "tags": [
     "taiwan",
     "invoice",
     "stock",
     "twse",
-    "tpex",
-    "rail"
+    "tpex"
   ],
   "icon": "🇹🇼",
   "localizations": [
     {
       "locale": "zh-TW",
       "name": "formosa-mcp",
-      "description": "讓 AI agent 懂台灣：統一發票對獎、台股上市櫃盤後行情與除權息、台鐵高鐵時刻表"
+      "description": "讓 AI agent 懂台灣：統一發票對獎、台股上市櫃盤後行情與除權息；高鐵／台鐵開發中，須自備 TDX 金鑰"
     }
   ],
   "tools": [
