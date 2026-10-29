@@ -8,8 +8,12 @@ import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
 import { collectKeys, keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
+import { FixedWindowCounter, hitCounter } from './counter.js';
+export { FixedWindowCounter } from './counter.js';
 export { keys, metaKeys } from './snapshot-keys.js';
-export interface Env { SNAPSHOTS: KVNamespace; RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> } }
+export interface Env { SNAPSHOTS: KVNamespace; MCP_RATE_LIMIT: DurableObjectNamespace<FixedWindowCounter> }
+const MCP_RATE_LIMIT = 30;
+const MCP_RATE_WINDOW_MS = 60_000;
 export const cronJobs = {
   '0,30 * * * MON-FRI': 'twse',
   '0 */6 * * SAT,SUN': 'twse',
@@ -43,7 +47,9 @@ export default {
       if (path === '/' && request.method === 'GET') return plain('formosa-mcp：讓 AI agent 懂台灣的 MCP server。MCP 端點：/mcp');
       if (path !== '/mcp') return plain('找不到這個頁面。', 404);
       if (!['POST', 'GET', 'OPTIONS'].includes(request.method)) return plain('不支援這個請求方法。', 405, { Allow: 'GET, POST, OPTIONS' });
-      if (!(await env.RATE_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'unknown' })).success) return plain('請求太頻繁，請稍後再試。', 429, { 'Retry-After': '60' });
+      const ip = request.headers.get('CF-Connecting-IP')?.trim() || 'unknown';
+      const { allowed, retryAfter } = await hitCounter(env.MCP_RATE_LIMIT, `mcp-ip:${ip}`, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
+      if (!allowed) return plain('請求太頻繁，請稍後再試。', 429, { 'Retry-After': String(retryAfter) });
       if (Number(request.headers.get('Content-Length')) > 65536) return plain('請求內容太大。', 413);
       if (request.body) {
         const reader = request.body.getReader(); const chunks: Uint8Array[] = []; let length = 0;

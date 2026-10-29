@@ -46,15 +46,37 @@ const rpc = async (method: string, params = {}, ip = `test-${sequence++}`) => {
   expect(r.status, text).toBe(200);
   return JSON.parse(text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').find(l => l.startsWith('data:'))!.slice(5) : text).result;
 };
-it('routes, bounds actual bytes and declared lengths, and uses native rate limiting', async () => {
+it('routes, bounds actual bytes and declared lengths, and strictly limits each IP', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-29T08:00:15Z'));
   expect(await (await run('/')).text()).toContain('MCP 端點：/mcp');
   expect((await run('/nope')).status).toBe(404);
   expect((await run('/mcp', { method: 'DELETE' })).status).toBe(405);
-  expect((await run('/mcp', { method: 'POST', body: 'x'.repeat(65537) })).status).toBe(413);
-  expect((await run('/mcp', { method: 'POST', headers: { 'Content-Length': '65537' }, body: 'x' })).status).toBe(413);
-  let response: Response | undefined;
-  for (let i = 0; i < 40; i++) { response = await run('/mcp', { headers: { 'CF-Connecting-IP': 'burst' } }); if (response.status === 429) break; }
-  expect(response!.status).toBe(429); expect(response!.headers.get('Retry-After')).toBe('60');
+  expect((await run('/mcp', { method: 'POST', headers: { 'CF-Connecting-IP': 'bounds-bytes' }, body: 'x'.repeat(65537) })).status).toBe(413);
+  expect((await run('/mcp', { method: 'POST', headers: { 'CF-Connecting-IP': 'bounds-length', 'Content-Length': '65537' }, body: 'x' })).status).toBe(413);
+  const ip = `burst-${sequence++}`;
+  for (let i = 1; i <= 30; i++) {
+    expect((await run('/mcp', { headers: { 'CF-Connecting-IP': ip } })).status, `request ${i}`).not.toBe(429);
+  }
+  for (let i = 31; i <= 32; i++) {
+    const response = await run('/mcp', { headers: { 'CF-Connecting-IP': ` ${ip} ` } });
+    expect(response.status, `request ${i}`).toBe(429);
+    expect(await response.text()).toBe('請求太頻繁，請稍後再試。');
+    const retryAfter = response.headers.get('Retry-After');
+    expect(retryAfter).toMatch(/^\d+$/);
+    expect(Number(retryAfter)).toBeGreaterThanOrEqual(1);
+    expect(Number(retryAfter)).toBeLessThanOrEqual(60);
+  }
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': `other-${sequence++}` } })).status).not.toBe(429);
+});
+it('shares one unknown bucket for missing or empty IPs, independently of real IPs', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-29T08:00:15Z'));
+  for (let i = 1; i <= 30; i++) expect((await run('/mcp')).status, `request ${i}`).not.toBe(429);
+  expect((await run('/mcp')).status).toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '' } })).status).toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': '   ' } })).status).toBe(429);
+  expect((await run('/mcp', { headers: { 'CF-Connecting-IP': `real-${sequence++}` } })).status).not.toBe(429);
 });
 it('lists exactly four tools (rail excluded) and serves seeded snapshots without upstream fetch', async () => {
   await seed();
@@ -101,8 +123,12 @@ it('returns updating for empty KV and hides malformed data errors', async () => 
   await bindings.SNAPSHOTS.put(keys.twseQuotes, 'private error');
   expect((await rpc('tools/call', { name: 'stock_quote', arguments: { query: '2330' } })).content[0].text).toBe('暫時無法取得資料，請稍後再試。');
 });
-it('matches the four configured cron strings', () => {
-  expect(JSON.parse(config.replace(/\/\/[^\n]*/g, '')).triggers.crons).toEqual(Object.keys(cronJobs));
+it('matches the configured crons and SQLite counter binding and migration', () => {
+  const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
+  expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs));
+  expect(parsed).not.toHaveProperty('ratelimits');
+  expect(parsed.durable_objects.bindings).toContainEqual({ name: 'MCP_RATE_LIMIT', class_name: 'FixedWindowCounter' });
+  expect(parsed.migrations).toContainEqual({ tag: 'v1', new_sqlite_classes: ['FixedWindowCounter'] });
 });
 it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warnings and no upstream fetch', async missing => {
   await seed();
@@ -206,7 +232,7 @@ const withValidators = () => vi.spyOn(globalThis, 'fetch').mockImplementation(as
   const [key] = Object.entries(stockUrls).find(([, url]) => url === String(input))!;
   return Response.json(await fixtureFetch(String(input)), { headers: { ETag: validators(key).etag, 'Last-Modified': modified } });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 it.each(['twse'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and performs no parsing or writes', async market => {
   await reset();

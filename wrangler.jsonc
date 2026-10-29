@@ -8,7 +8,9 @@
   "compatibility_date": "2026-08-15",
   // KV namespace "SNAPSHOTS" (production). Not a secret; local dev/tests use local storage.
   "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "e92149e1efec4434835310d434b69f7d" }],
-  "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }],
+  // SQLite-backed Durable Objects are available on Workers Free.
+  "durable_objects": { "bindings": [{ "name": "MCP_RATE_LIMIT", "class_name": "FixedWindowCounter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FixedWindowCounter"] }],
   "triggers": { "crons": [
     // TWSE: UTC Mon–Fri :00/:30 = Taipei Mon 08:00–Sat 07:30, every 30m.
     "0,30 * * * MON-FRI",
