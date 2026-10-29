@@ -7,7 +7,7 @@
 
 ## 開始使用
 
-- Claude 連接器：公開網址：即將公開。之後在 Claude「設定 → 連接器 → 新增自訂連接器」貼上網址即可。
+- Claude 連接器：公開網址：即將公開。之後在 Claude 的自訂連接器貼上網址即可。
 - Cursor 一鍵安裝：即將推出。
 
 開發者現在就能用，請看[開發者](#開發者)。
@@ -40,6 +40,8 @@
 行情資料日期遇假日可能落後；除權息以公司公告為準。
 
 ## 開發者
+
+[![每日即時檢查](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
 
 尚未上架 npm。需要 Node.js 20 以上及 repository 存取權限：
 
@@ -111,7 +113,7 @@ Demo animation coming soon.
 
 ### Get started
 
-- Claude connector: Public URL: coming soon. Once available, paste it under Settings → Connectors → Add custom connector in Claude.
+- Claude connector: Public URL: coming soon. Once available, paste it into a custom connector in Claude.
 - Cursor one-click install: coming soon.
 
 Developers can use it now; see [Developers](#developers).
@@ -131,6 +133,8 @@ Invoices cover winning numbers, claim periods and number checks. Stocks cover TW
 The tools are `invoice_get_winning_numbers`, `invoice_check`, `stock_quote`, `stock_dividends`, `thsr_timetable`, `tra_timetable` and `tra_live`; their arguments and details are listed [above](#功能).
 
 ### Developers
+
+[![Daily live check](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)
 
 Not on npm yet. Node.js 20+ and repository access are required:
 
