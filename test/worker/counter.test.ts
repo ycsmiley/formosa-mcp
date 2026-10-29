@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:test';
+import { env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { hitCounter } from '../../src/worker/counter.js';
 import type { Env } from '../../src/worker/index.js';
@@ -47,9 +47,79 @@ it('rounds Retry-After up to whole seconds', async () => {
   expect(await stub.hit(1, 60_000)).toEqual({ allowed: false, count: 1, retryAfter: 1 });
 });
 
+it('schedules an alarm at the window end only when starting a new window', async () => {
+  vi.useRealTimers();
+  const stub = counter();
+  await runInDurableObject(stub, async (instance, ctx) => {
+    const setAlarm = vi.spyOn(ctx.storage, 'setAlarm');
+    try {
+      await instance.hit(2, 60_000);
+      const expected = Math.floor(Date.now() / 60_000) * 60_000 + 60_000;
+      const stored = await ctx.storage.get<{ start: number; end: number; count: number }>('window');
+      expect(stored).toBeDefined();
+      // The clock may cross a minute boundary after hit() stores the window.
+      expect([expected - 60_000, expected]).toContain(stored!.end);
+      expect(stored!.end).toBe(stored!.start + 60_000);
+      expect(await ctx.storage.getAlarm()).toBe(stored!.end);
+      await instance.hit(2, 60_000);
+      expect(await ctx.storage.getAlarm()).toBe(stored!.end);
+      expect(setAlarm).toHaveBeenCalledTimes(1);
+    } finally {
+      setAlarm.mockRestore();
+    }
+  });
+});
+
+it('clears expired state when the alarm runs', async () => {
+  vi.useRealTimers();
+  const stub = counter();
+  await runInDurableObject(stub, async (_instance, ctx) => {
+    await ctx.storage.put('window', { start: 0, end: 1000, count: 5 });
+    await ctx.storage.setAlarm(Date.now() + 60_000);
+  });
+  expect(await runDurableObjectAlarm(stub)).toBe(true);
+  await runInDurableObject(stub, async (_instance, ctx) => {
+    expect(await ctx.storage.get('window')).toBeUndefined();
+    expect(await ctx.storage.getAlarm()).toBeNull();
+  });
+});
+
+it('preserves an active window and re-arms its alarm at the stored end', async () => {
+  vi.useRealTimers();
+  const stub = counter();
+  const state = await runInDurableObject(stub, async (_instance, ctx) => {
+    const now = Date.now();
+    const state = { start: now, end: now + 3_600_000, count: 5 };
+    await ctx.storage.put('window', state);
+    await ctx.storage.setAlarm(now + 60_000);
+    return state;
+  });
+  expect(await runDurableObjectAlarm(stub)).toBe(true);
+  await runInDurableObject(stub, async (_instance, ctx) => {
+    expect(await ctx.storage.get('window')).toEqual(state);
+    expect(await ctx.storage.getAlarm()).toBe(state.end);
+  });
+});
+
+it('clears storage and the alarm when window state is missing', async () => {
+  vi.useRealTimers();
+  const stub = counter();
+  await runInDurableObject(stub, async (_instance, ctx) => {
+    await ctx.storage.put('orphan', true);
+    await ctx.storage.setAlarm(Date.now() + 60_000);
+  });
+  expect(await runDurableObjectAlarm(stub)).toBe(true);
+  await runInDurableObject(stub, async (_instance, ctx) => {
+    expect((await ctx.storage.list()).size).toBe(0);
+    expect(await ctx.storage.getAlarm()).toBeNull();
+  });
+});
+
 it.each([0, -1, 1.5, NaN, Infinity, -Infinity].flatMap(value => [[value, 1000], [1, value]]))(
   'rejects invalid limit %s or windowMs %s', async (limit, windowMs) => {
-    await expect(counter().hit(limit, windowMs)).rejects.toThrow('positive integers');
+    await runInDurableObject(counter(), async instance => {
+      await expect(instance.hit(limit, windowMs)).rejects.toThrow('positive integers');
+    });
   },
 );
 
