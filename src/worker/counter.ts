@@ -1,10 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
 
 export class FixedWindowCounter extends DurableObject<unknown> {
+  private prunedStart = -1;
+
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env);
     this.ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS counters (key TEXT PRIMARY KEY, start INTEGER NOT NULL, count INTEGER NOT NULL)');
-    // No start index: save write quota; pruning scans only the shard's window-bounded keys.
+    // No start index: save write quota; scan at most once per window per object instance.
   }
 
   async hit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; count: number; retryAfter: number }> {
@@ -18,7 +20,10 @@ export class FixedWindowCounter extends DurableObject<unknown> {
     const start = Math.floor(now / windowMs) * windowMs;
     const sql = this.ctx.storage.sql;
     // All keys in one object must use the same windowMs so this prunes only expired rows.
-    sql.exec('DELETE FROM counters WHERE start < ?', start);
+    if (start !== this.prunedStart) {
+      sql.exec('DELETE FROM counters WHERE start < ?', start);
+      this.prunedStart = start;
+    }
     const [state] = sql.exec<{ start: number; count: number }>('SELECT start, count FROM counters WHERE key = ?', key).toArray();
     const count = state?.start === start ? state.count : 0;
     if (count >= limit) {

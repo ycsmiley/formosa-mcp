@@ -47,7 +47,7 @@ it('rounds Retry-After up to whole seconds', async () => {
   expect(await stub.hit('key', 1, 60_000)).toEqual({ allowed: false, count: 1, retryAfter: 1 });
 });
 
-it('prunes expired rows of other keys on the next hit in a later window', async () => {
+it('prunes expired rows only on the first hit of each window per object instance', async () => {
   const stub = counter();
   await stub.hit('expired-a', 2, 1000);
   await stub.hit('expired-b', 2, 1000);
@@ -57,8 +57,16 @@ it('prunes expired rows of other keys on the next hit in a later window', async 
   vi.setSystemTime(2000);
   await stub.hit('current', 2, 1000);
   expect(await storedKeys()).toEqual(['current']);
+  await runInDurableObject(stub, (_instance, ctx) => {
+    ctx.storage.sql.exec('INSERT INTO counters (key, start, count) VALUES (?, ?, ?)', 'late-expired', 1000, 1);
+  });
   await stub.hit('also-current', 2, 1000);
-  expect(await storedKeys()).toEqual(['also-current', 'current']);
+  expect(await storedKeys()).toEqual(['also-current', 'current', 'late-expired']);
+  await stub.hit('current', 2, 1000);
+  expect(await storedKeys()).toEqual(['also-current', 'current', 'late-expired']);
+  vi.setSystemTime(3000);
+  await stub.hit('next-window', 2, 1000);
+  expect(await storedKeys()).toEqual(['next-window']);
 });
 
 it('never sets an alarm for allowed, rejected, or new-window hits', async () => {
