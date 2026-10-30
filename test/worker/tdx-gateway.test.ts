@@ -42,7 +42,7 @@ it('admits exactly four total calls in a concurrent burst of twenty distinct pat
   expect(http).toHaveBeenCalledTimes(4);
   expect(results.filter(r => r.ok)).toHaveLength(3);
   expect(results.filter(r => !r.ok && r.reason === 'minute')).toHaveLength(17);
-  expect(await target.usage()).toMatchObject({ monthUsed: 4, todayUsed: 4, last60s: 4, byPurpose: { token: 1, live: 3, snapshot: 0 } });
+  expect(await target.usage()).toMatchObject({ monthUsed: 4, todayUsed: 4, last60s: 4, byPurpose: { token: 1, live: 3 } });
 });
 it('starts and counts a distinct live miss while the first data fetch is unresolved', async () => {
   const target = await setup();
@@ -61,7 +61,7 @@ it('starts and counts a distinct live miss while the first data fetch is unresol
     try {
       await vi.waitFor(() => expect(http.mock.calls.some(([url]) => new URL(String(url)).pathname.endsWith(path(2)))).toBe(true));
       expect(await second).toMatchObject({ ok: true });
-      expect(await instance.usage()).toMatchObject({ monthUsed: 3, todayUsed: 3, last60s: 3, byPurpose: { token: 1, live: 2, snapshot: 0 } });
+      expect(await instance.usage()).toMatchObject({ monthUsed: 3, todayUsed: 3, last60s: 3, byPurpose: { token: 1, live: 2 } });
     } finally { release(); await Promise.all([first, second]); }
     expect(await first).toMatchObject({ ok: true }); expect(http).toHaveBeenCalledTimes(3);
   });
@@ -90,49 +90,63 @@ it('persists the token in SQLite and reuses it in a later minute and a fresh ins
 });
 it('invalidates only the matching token and counts its replacement', async () => {
   const target = await setup(), http = mockHttp();
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'project-token-SENTINEL' });
+  expect(await target.live(path(1), 'ip')).toMatchObject({ ok: true });
   await target.invalidate('stale-token');
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'project-token-SENTINEL' });
+  expect(await target.live(path(2), 'ip')).toMatchObject({ ok: true });
   vi.setSystemTime(Date.now() + 60000);
   await target.invalidate('project-token-SENTINEL');
-  // Create the response in the calling Durable Object's I/O context.
-  http.mockImplementation(async () => Response.json({ access_token: 'replacement-token', expires_in: 3600 }));
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'replacement-token' });
-  await target.invalidate('project-token-SENTINEL');
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'replacement-token' });
-  expect(http).toHaveBeenCalledTimes(2);
-  expect(await target.usage()).toMatchObject({ monthUsed: 6, byPurpose: { token: 2, snapshot: 4 } });
+  expect(await target.live(path(3), 'ip')).toMatchObject({ ok: true });
+  expect(http.mock.calls.filter(([url]) => String(url).endsWith('/token'))).toHaveLength(2);
+  expect(await target.usage()).toMatchObject({ monthUsed: 5, byPurpose: { token: 2, live: 3 } });
 });
 async function seed(target: ReturnType<typeof stub>, day: string, purpose: string, count: number) {
   await runInDurableObject(target, (_instance, ctx) => {
     ctx.storage.sql.exec('INSERT OR REPLACE INTO tdx_days(day,purpose,count) VALUES(?,?,?)', day, purpose, count);
   });
 }
-it('enforces daily budget, but lets snapshots bypass it', async () => {
+it('enforces the daily live budget', async () => {
   const target = await setup(), http = mockHttp();
-  await seed(target, '2026-10-01', 'live', 130);
+  await seed(target, '2026-10-01', 'live', 124);
   expect(await target.live(path(1), 'ip')).toMatchObject({ ok: false, reason: 'daily' });
   expect(http).not.toHaveBeenCalled();
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'project-token-SENTINEL' });
-  expect(http).toHaveBeenCalledTimes(1); // Cron owns the already-accounted data call.
-  expect((await target.usage()).monthUsed).toBe(132);
 });
-it('stops live at ninety percent and snapshots at one hundred percent', async () => {
+it('stops live at ninety percent minus the snapshot reserve', async () => {
   const target = await setup(), http = mockHttp();
   vi.setSystemTime(new Date('2026-10-30T00:00:00Z'));
-  await seed(target, '2026-10-01', 'live', 4050);
+  await seed(target, '2026-10-01', 'live', 3850);
   expect(await target.live(path(1), 'ip')).toMatchObject({ ok: false, reason: 'monthly' });
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: true });
-  expect(http).toHaveBeenCalledTimes(1);
-  await seed(target, '2026-10-01', 'live', 4498);
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: false, reason: 'monthly' });
-  expect(http).toHaveBeenCalledTimes(1);
+  expect((await target.usage()).liveCeiling).toBe(3850);
+  expect(http).not.toHaveBeenCalled();
 });
-it('applies the snapshot twenty-call day guard and lower demo quota', async () => {
-  const target = await setup({ TDX_MONTHLY_QUOTA: '100' }), http = mockHttp();
-  await seed(target, '2026-10-01', 'snapshot', 19);
-  expect(await target.acquire('snapshot')).toMatchObject({ ok: false, reason: 'daily' });
-  expect((await target.usage()).liveCeiling).toBe(90); expect(http).not.toHaveBeenCalled();
+it('supports a small quota with an explicit reserve', async () => {
+  const target = await setup({ TDX_MONTHLY_QUOTA: '20', TDX_SNAPSHOT_RESERVE: '2' }), http = mockHttp();
+  vi.setSystemTime(new Date('2026-10-31T00:00:00Z'));
+  expect(await target.live(path(1), 'ip')).toMatchObject({ ok: true });
+  expect((await target.usage()).liveCeiling).toBe(16); expect(http).toHaveBeenCalledTimes(2);
+});
+it('reads collector usage outside admission and memoizes it for five minutes per month', async () => {
+  const target = await setup();
+  let total: unknown = 240, reads = 0;
+  await runInDurableObject(target, instance => {
+    const state = instance as unknown as { env: TdxEnv };
+    state.env = { ...state.env, SNAPSHOTS: {
+      async get(key: string) { reads++; expect(key).toMatch(/^tdx:snapshot-usage:2026-(10|11)$/); return JSON.stringify({ total }); },
+      async put() {},
+    } as unknown as KVNamespace };
+  });
+  mockHttp();
+  expect(await target.usage()).toMatchObject({ snapshotReserve: 200, snapshotReported: 240, liveCeiling: 3810 });
+  total = 300;
+  await Promise.all(Array.from({ length: 8 }, (_, i) => target.live(path(i), `ip-${i}`)));
+  expect(reads).toBe(1);
+  expect((await target.usage()).snapshotReported).toBe(240);
+  vi.setSystemTime(Date.now() + 300000);
+  expect(await target.usage()).toMatchObject({ snapshotReported: 300, liveCeiling: 3750 });
+  expect(reads).toBe(2);
+  vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
+  total = 'invalid';
+  expect(await target.usage()).toMatchObject({ snapshotReported: 0, liveCeiling: 3850 });
+  expect(reads).toBe(3);
 });
 it('allows six upstream-triggering misses per IP per hour, with free hits and independent IPs', async () => {
   const target = await setup(), http = mockHttp();
@@ -198,7 +212,7 @@ it('publishes secret-free monitoring at most once per fifteen minutes when count
   const target = await setup(), http = mockHttp(), writes: string[] = [];
   await runInDurableObject(target, instance => {
     const state = instance as unknown as { env: TdxEnv }, kv = state.env.SNAPSHOTS;
-    state.env = { ...state.env, SNAPSHOTS: { async put(key: string, value: string) {
+    state.env = { ...state.env, SNAPSHOTS: { get: kv.get.bind(kv), async put(key: string, value: string) {
       if (key === 'tdx:usage:v1') writes.push(value);
       await kv.put(key, value);
     } } as KVNamespace };
@@ -236,13 +250,13 @@ it('resets Taipei month/day totals while preserving the sliding minute and persi
   expect(await target.live(path(4), 'ip')).toMatchObject({ ok: false, reason: 'minute' });
   vi.setSystemTime(Date.now() + 60000);
   expect(await target.live(path(4), 'ip')).toMatchObject({ ok: true });
-  expect(await target.usage()).toMatchObject({ monthUsed: 1, todayUsed: 1, byPurpose: { token: 0, live: 1, snapshot: 0 } });
+  expect(await target.usage()).toMatchObject({ monthUsed: 1, todayUsed: 1, byPurpose: { token: 0, live: 1 } });
   expect(http).toHaveBeenCalledTimes(5);
 });
 it('prunes old day and minute rows without losing current-month counts', async () => {
   const target = await setup(); mockHttp();
   await seed(target, '2026-07-01', 'live', 20);
-  await seed(target, '2026-09-30', 'snapshot', 5);
+  await seed(target, '2026-09-30', 'live', 5);
   await target.live(path(1), 'ip');
   vi.setSystemTime(Date.now() + 61000);
   expect((await target.usage()).last60s).toBe(0);

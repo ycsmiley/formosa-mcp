@@ -154,5 +154,5 @@ jobs:
             last60s: after.last60s - before.last60s,
           }));
           // KV can lag 15 minutes; these are observations, not an exact request ledger.
-          if (after.todayUsed > after.dailyBudget + 20 || after.last60s > 4) process.exitCode = 1;
+          if (after.todayUsed > after.dailyBudget || after.last60s > 4) process.exitCode = 1;
           NODE

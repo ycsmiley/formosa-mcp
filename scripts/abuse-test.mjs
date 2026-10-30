@@ -16,7 +16,10 @@ const help = `Usage: node scripts/abuse-test.mjs --url <MCP endpoint> [options]
 URL may also be supplied via env URL. CLI options override environment values.
 Cloudflare overwrites CF-Connecting-IP in production; --fake-ip is only meaningful
 against local wrangler dev. Separate workflow runners provide real egress IPs.
-Mock statistics cover the mock's entire lifetime, including snapshot bootstrap.
+Bootstrap local rail with node scripts/dist/publish-rail.mjs --out <dir>
+  --wrangler-bulk <file>, then seed local KV (see docs/remote-rail.md).
+Mock statistics cover the mock's entire lifetime, including collector bootstrap.
+After --interval-ms 0 bootstrap, restart the mock before measuring live pacing.
 `;
 
 function positive(value, name, max = Number.MAX_SAFE_INTEGER) {

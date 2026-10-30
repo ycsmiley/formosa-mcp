@@ -155,11 +155,11 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所、發票與鐵路由 Worker cron 更新，上櫃快照由 [GitHub Actions](.github/workflows/tpex-collect.yml) 寫入，因櫃買中心阻擋 Cloudflare。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 
-- **A：專案金鑰。** 時刻表使用共用快照，cron 於臺北時間 00:23、04:23 補齊今天與明天，車站每七天更新；時刻表查詢不呼叫 TDX。臺鐵即時資料按需取得，共用兩分鐘快取。四道上限為每分鐘四次、依剩餘天數分配的每日額度、每月 4,500 次（即時在 90% 停止）、每 IP 每小時六次即時快取未命中；達上限或上游失敗就回覆表訂班次並附原因。
+- **A：專案金鑰。** 時刻表使用共用快照，GitHub Actions collector 於臺北時間 00:23、04:23 補齊今天與明天，車站每七天更新；時刻表查詢不呼叫 TDX。臺鐵即時資料按需取得，共用兩分鐘快取。四道上限為每分鐘四次、依剩餘天數分配的每日額度、每月 4,500 次（即時上限為 90% 減去快照保留額；預設保留 200，即時上限 3,850）、每 IP 每小時六次即時快取未命中；達上限或上游失敗就回覆表訂班次並附原因。
 - **B：自備金鑰。** 在 Claude Code 的 `.mcp.json` 或 Cursor 的 `.cursor/mcp.json` 遠端連線設定加入以下 `headers`（合併到既有端點設定）：
 
 ```json
@@ -176,6 +176,10 @@ claude plugin install formosa@formosa-mcp
 ```
 
 自備金鑰可查其他日期與即時資料，不使用專案額度；每 IP 每分鐘 30 次的 MCP 限制仍適用。金鑰只用於該次請求，不儲存、不寫日誌；只放在用戶端私密設定，絕不可放進 URL、貼到對話或提交到版本控制。兩個 header 須一起提供，值去除前後空白後各為 1～256 個可列印 ASCII 字元。
+
+完整專案功能須同時設定 repo secrets `TDX_CLIENT_ID`／`TDX_CLIENT_SECRET`（collector）與同名 Worker secrets（即時查詢）；collector 另需 repo secret `CLOUDFLARE_KV_WRITE_TOKEN` 與 repo variable `CLOUDFLARE_ACCOUNT_ID`。缺 TDX repo secrets 時工作流程會成功略過。
+
+鐵路本機 bootstrap 使用 `node scripts/dist/publish-rail.mjs --out /tmp/rail --wrangler-bulk /tmp/rail-bulk.json`，再匯入本機 KV；mock 設定與完整指令見下方文件。`npm run build:collectors` 重建兩個 collector bundle。
 
 額度公式、監控、維護者 secrets 設定及離線壓力測試見[遠端鐵路設計](docs/remote-rail.md)。
 

@@ -162,6 +162,7 @@ it('returns updating for empty KV and hides malformed data errors', async () => 
 it('matches configured crons and both SQLite bindings and migrations', () => {
   const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
   expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs));
+  expect(Object.values(cronJobs)).toEqual(['twse', 'twse', 'invoice', 'invoice']);
   expect(parsed).not.toHaveProperty('ratelimits');
   expect(parsed.durable_objects.bindings).toContainEqual({ name: 'MCP_RATE_LIMIT', class_name: 'FixedWindowCounter' });
   expect(parsed.migrations).toContainEqual({ tag: 'v1', new_sqlite_classes: ['FixedWindowCounter'] });
@@ -181,7 +182,7 @@ it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warn
     expect(spy).not.toHaveBeenCalled();
   } finally { spy.mockRestore(); }
 });
-const schedules = Object.entries(cronJobs).filter(([, job]) => job !== 'rail').map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
+const schedules = Object.entries(cronJobs).map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
 it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cron, job, scheduledTime }) => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
@@ -193,7 +194,7 @@ it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cr
     for (const key of allKeys) expect(await bindings.SNAPSHOTS.get(key) !== null).toBe(written.includes(key));
   } finally { spy.mockRestore(); }
 });
-it('unknown local cron bootstraps invoice, TWSE and rail, roundtrips payloads and skips all unchanged puts', async () => {
+it('unknown local cron bootstraps invoice and TWSE, roundtrips payloads and skips all unchanged puts', async () => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
   try {

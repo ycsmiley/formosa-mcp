@@ -11,3 +11,5 @@ export function encodeStoredSnapshot(key: string, snapshot: { updatedAt: string 
   const stable = { ...snapshot, updatedAt: '' };
   return isQuotes(key) ? encodeQuotesSnapshot(stable as MarketSnapshot<StockQuote>) : encodeSnapshot(stable);
 }
+
+export const snapshotUsageKey = (month: string) => `tdx:snapshot-usage:${month}`;

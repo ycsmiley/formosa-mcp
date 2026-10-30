@@ -1,12 +1,11 @@
-import { env, createExecutionContext, createScheduledController, runInDurableObject } from 'cloudflare:test';
+import { env, createExecutionContext } from 'cloudflare:test';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { buildInvoiceSnapshot, encodeSnapshot } from '../../src/core/snapshot.js';
 import xml from '../fixtures/invoice.xml?raw';
 import worker, { keys, type Env } from '../../src/worker/index.js';
 import { compactStations, compactTimetable, stationKey, timetableKey } from '../../src/core/rail/snapshot.js';
 import { truncatedNote } from '../../src/core/rail/client.js';
-import { refreshRail, userCredentials } from '../../src/worker/rail.js';
-import { TdxGateway, type TdxEnv } from '../../src/worker/tdx-gateway.js';
+import { userCredentials } from '../../src/worker/rail.js';
 import thsrStations from '../fixtures/tdx/real/thsr-stations.json';
 import traStations from '../fixtures/tdx/real/tra-stations.json';
 import thsrOD from '../fixtures/tdx/real/thsr-od-1000-1070.json';
@@ -174,6 +173,7 @@ it('isolates user keys, never calls the gateway or KV, and obtains a fresh token
   const get = vi.spyOn(bindings.SNAPSHOTS, 'get'), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   const project = bindings.TDX_GATEWAY.get(bindings.TDX_GATEWAY.idFromName('tdx'));
   const before = await project.usage();
+  get.mockClear();
   const forbidden = vi.fn(() => { throw new Error('user mode must not access project gateway'); });
   const fake = { idFromName: forbidden, get: forbidden } as unknown as Env['TDX_GATEWAY'];
   const http = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -209,123 +209,6 @@ it('isolates user keys, never calls the gateway or KV, and obtains a fresh token
   const ip = nextIp();
   for (let i = 0; i < 30; i++) expect((await rpc('tra_live', { train_no: '2037' }, { headers: user, ip, env: { ...bindings, TDX_GATEWAY: fake } })).status).toBe(200);
   expect((await rpc('tra_live', { train_no: '2037' }, { headers: user, ip })).status).toBe(429);
-});
-
-// The cron's RPC stub accounts each admission; HTTP bodies stay in the cron.
-function cronEnv(acquire = vi.fn(async () => ({ ok: true as const, token: 'cron-token-SENTINEL' }))) {
-  const usage = vi.fn(async () => ({ month: '2026-10', monthUsed: 10, monthlyQuota: 4500, liveCeiling: 4050, pct: 0.22, today: date, todayUsed: 10, dailyBudget: 100, byPurpose: { token: 1, live: 0, snapshot: 9 }, last60s: 2, updatedAt: new Date().toISOString() }));
-  const namespace = { idFromName: vi.fn(() => 'tdx'), get: () => ({ acquire, usage }) };
-  return { env: { ...bindings, ...credentials, TDX_GATEWAY: namespace as unknown as Env['TDX_GATEWAY'] }, acquire, usage };
-}
-const cronHttp = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
-  const path = new URL(String(input)).pathname;
-  if (path.endsWith('/Station')) return Response.json(path.includes('/THSR/') ? thsrStations : traStations);
-  return Response.json(path.includes('/THSR/') ? thsrDaily : traOD);
-});
-it('rail cron writes six compact snapshots with TTLs; steady state fetches nothing', async () => {
-  const scenario = cronEnv(), http = cronHttp(), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
-  await worker.scheduled(createScheduledController({ cron: '23 16,20 * * *' }), scenario.env, createExecutionContext());
-  const expected = ['THSR', 'TRA'].flatMap(r => [stationKey(r as 'TRA'), timetableKey(r as 'TRA', date), timetableKey(r as 'TRA', '2026-10-30')]);
-  for (const key of expected) {
-    const snapshot = JSON.parse((await bindings.SNAPSHOTS.get(key))!);
-    expect(snapshot).toMatchObject({ v: 1, truncated: false });
-    if (key.includes(':timetable:')) expect(put.mock.calls.find(([written]) => written === key)?.[2]).toEqual({ expirationTtl: 259200 });
-  }
-  expect(http).toHaveBeenCalledTimes(6); expect(scenario.acquire).toHaveBeenCalledTimes(6);
-  expect(await bindings.SNAPSHOTS.get('tdx:usage:v1')).not.toBeNull();
-  http.mockClear(); scenario.acquire.mockClear();
-  await refreshRail(scenario.env);
-  expect(http).not.toHaveBeenCalled(); expect(scenario.acquire).not.toHaveBeenCalled();
-  // Following day: yesterday's tomorrow exists, so only the next day's pair is fetched.
-  vi.setSystemTime(new Date('2026-10-30T00:00:00Z'));
-  await refreshRail(scenario.env);
-  expect(http).toHaveBeenCalledTimes(2);
-  expect(http.mock.calls.every(([url]) => String(url).includes('/TrainDate/2026-10-31'))).toBe(true);
-});
-it('skips missing project keys once, with zero HTTP or gateway calls', async () => {
-  const http = cronHttp(), warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  await refreshRail(bindings);
-  expect(http).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledExactlyOnceWith('rail snapshot skipped: no project TDX key');
-});
-it('refetches stations only after seven days', async () => {
-  await seed(); const scenario = cronEnv(), http = cronHttp();
-  await refreshRail(scenario.env); expect(http).not.toHaveBeenCalled();
-  const old = compactStations('TRA', traStations, '2026-10-20T00:00:00Z');
-  await bindings.SNAPSHOTS.put(stationKey('TRA'), JSON.stringify(old));
-  await refreshRail(scenario.env); expect(http).toHaveBeenCalledTimes(1);
-  expect(String(http.mock.calls[0][0])).toContain('/TRA/Station?');
-});
-it.each([false, true])('invalidates a snapshot 401 and retries once, counting token and data calls (repeat=%s)', async repeat => {
-  await seed();
-  await bindings.SNAPSHOTS.delete(timetableKey('TRA', date));
-  const target = bindings.TDX_GATEWAY.get(bindings.TDX_GATEWAY.idFromName(crypto.randomUUID()));
-  await runInDurableObject(target, (instance, ctx) => {
-    vi.spyOn(ctx.storage, 'setAlarm').mockResolvedValue();
-    const state = instance as unknown as { env: TdxEnv };
-    state.env = { ...state.env, ...credentials };
-  });
-  // RPC methods must remain on the prototype, not become instance properties.
-  const invalidate = vi.spyOn(TdxGateway.prototype, 'invalidate');
-  const namespace = { idFromName: () => target.id, get: () => target };
-  let tokens = 0, calls = 0;
-  const http = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    if (String(input).endsWith('/token')) return Response.json({ access_token: `token-${++tokens}`, expires_in: 3600 });
-    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer token-${++calls}`);
-    return calls === 1 || repeat ? new Response(null, { status: 401 }) : Response.json(traOD);
-  });
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-  await refreshRail({ ...bindings, ...credentials, TDX_GATEWAY: namespace as unknown as Env['TDX_GATEWAY'] });
-  expect(invalidate).toHaveBeenCalledTimes(repeat ? 2 : 1);
-  expect(invalidate).toHaveBeenNthCalledWith(1, 'token-1');
-  if (repeat) expect(invalidate).toHaveBeenNthCalledWith(2, 'token-2');
-  expect(tokens).toBe(2); expect(calls).toBe(2); expect(http).toHaveBeenCalledTimes(4);
-  expect(await target.usage()).toMatchObject({ monthUsed: 4, byPurpose: { token: 2, snapshot: 2 } });
-  expect(await bindings.SNAPSHOTS.get(timetableKey('TRA', date)) === null).toBe(repeat);
-});
-it.each([2, 3])('paginates TRA in pages of one thousand with cap %i', async pages => {
-  await seed(); const scenario = cronEnv(), http = cronHttp();
-  await bindings.SNAPSHOTS.delete(timetableKey('TRA', date));
-  const train = traOD.TrainTimetables[0];
-  http.mockImplementation(async input => {
-    const url = new URL(String(input)), page = Number(url.searchParams.get('$skip') ?? 0) / 1000;
-    return Response.json({ TrainTimetables: Array.from({ length: pages === 2 && page === 1 ? 1 : 1000 }, () => train) });
-  });
-  await refreshRail(scenario.env);
-  expect(http).toHaveBeenCalledTimes(pages);
-  expect(http.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('$skip'))).toEqual(pages === 2 ? [null, '1000'] : [null, '1000', '2000']);
-  const snapshot = JSON.parse((await bindings.SNAPSHOTS.get(timetableKey('TRA', date)))!);
-  expect(snapshot.trains).toHaveLength(pages === 2 ? 1001 : 3000); expect(snapshot.truncated).toBe(pages === 3);
-});
-it.each(['empty', 'invalid', 'upstream'])('keeps previous stations and writes no invalid %s timetable', async failure => {
-  await seed(); const scenario = cronEnv(), http = cronHttp(), warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  await bindings.SNAPSHOTS.delete(timetableKey('TRA', date));
-  const before = await bindings.SNAPSHOTS.get(stationKey('TRA'));
-  http.mockImplementation(async () => failure === 'upstream' ? new Response('private diagnostic', { status: 500 }) : Response.json(failure === 'empty' ? { TrainTimetables: [] } : { invalid: true }));
-  await refreshRail(scenario.env);
-  expect(await bindings.SNAPSHOTS.get(timetableKey('TRA', date))).toBeNull();
-  expect(await bindings.SNAPSHOTS.get(stationKey('TRA'))).toBe(before);
-  expect(warn).toHaveBeenCalledWith(`rail snapshot skipped: TRA ${date} unavailable`);
-});
-it('waits and retries minute-limited snapshot admissions, capped at three waits per step', async () => {
-  await seed();
-  await bindings.SNAPSHOTS.delete(timetableKey('TRA', date));
-  vi.useFakeTimers();
-  const scenario = cronEnv(), http = cronHttp();
-  scenario.acquire.mockImplementation(async () => ({ ok: false, reason: 'minute', retryAfterMs: 1000 }) as any);
-  const work = refreshRail(scenario.env);
-  await vi.advanceTimersByTimeAsync(3000); await work;
-  expect(scenario.acquire).toHaveBeenCalledTimes(4); expect(http).not.toHaveBeenCalled();
-  scenario.acquire.mockReset();
-  scenario.acquire.mockResolvedValueOnce({ ok: false, reason: 'minute', retryAfterMs: 1 } as any).mockResolvedValue({ ok: true, token: 'cron-token-SENTINEL' });
-  const retry = refreshRail(scenario.env);
-  await vi.advanceTimersByTimeAsync(1); await retry;
-  expect(http).toHaveBeenCalledTimes(1);
-});
-it('logs monitoring and warns when usage is at least seventy percent', async () => {
-  await seed(); const scenario = cronEnv(), log = vi.spyOn(console, 'log').mockImplementation(() => {}), warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  scenario.usage.mockResolvedValue({ ...(await scenario.usage()), pct: 70 });
-  await refreshRail(scenario.env);
-  expect(log).toHaveBeenCalledWith(expect.stringMatching(/^tdx usage /)); expect(warn).toHaveBeenCalledWith('tdx usage at least 70%');
 });
 
 it.each([{}, { 'X-TDX-Client-Id': 'user-id-SENTINEL', 'X-TDX-Client-Secret': 'user-secret-SENTINEL' }, { 'X-TDX-Client-Id': 'only-one-SENTINEL' }])('keeps invoice responses independent of rail credentials %j', async headers => {

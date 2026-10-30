@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { allowance, calendar, decide, quota, type BudgetReason, type Counts, type Purpose } from '../core/rail/budget.js';
+import { snapshotUsageKey } from './snapshot-keys.js';
+import { allowance, calendar, decide, quota, snapshotReserve, type BudgetReason, type Counts } from '../core/rail/budget.js';
 import { object, string, tdxApiUrl, tdxBase, tokenBody, tokenPath } from '../core/rail/client.js';
 
 export interface TdxEnv {
@@ -7,13 +8,15 @@ export interface TdxEnv {
   TDX_CLIENT_ID?: string;
   TDX_CLIENT_SECRET?: string;
   TDX_MONTHLY_QUOTA?: string;
+  TDX_SNAPSHOT_RESERVE?: string;
   TDX_BASE_URL?: string;
 }
 export type GatewayReason = BudgetReason | 'auth' | 'upstream';
-export type Denied = { ok: false; reason: GatewayReason; retryAfterMs?: number };
+export type Denied = { ok: false; reason: GatewayReason };
 export type LiveResult = { ok: true; data: object; fetchedAt: string } | Denied;
 export interface Usage {
   month: string; monthUsed: number; monthlyQuota: number; liveCeiling: number; pct: number;
+  snapshotReserve: number; snapshotReported: number;
   today: string; todayUsed: number; dailyBudget: number; byPurpose: Record<string, number>; last60s: number; updatedAt: string;
 }
 const livePath = /^\/v3\/Rail\/TRA\/(?:TrainLiveBoard\/TrainNo\/\d{1,10}|StationLiveBoard\/Station\/[A-Za-z0-9_-]{1,50})$/;
@@ -23,6 +26,26 @@ export class TdxGateway extends DurableObject<TdxEnv> {
   private queue: Promise<unknown> = Promise.resolve();
   private cache = new Map<string, { data: object; fetchedAt: string; until: number }>();
   private pending = new Map<string, Promise<LiveResult>>();
+
+  private collectorMemo?: { month: string; total: number; until: number };
+  private collectorPending?: { month: string; work: Promise<number> };
+
+  private async collectorUsed(): Promise<number> {
+    const { month } = calendar(new Date());
+    if (this.collectorMemo?.month === month && this.collectorMemo.until > Date.now()) return this.collectorMemo.total;
+    if (this.collectorPending?.month === month) return this.collectorPending.work;
+    const work = (async () => {
+      let total = 0;
+      try {
+        const data = JSON.parse(await this.env.SNAPSHOTS.get(snapshotUsageKey(month)) ?? 'null');
+        if (Number.isSafeInteger(data?.total) && data.total >= 0) total = data.total;
+      } catch { /* Unknown collector use is covered by the reserve. */ }
+      this.collectorMemo = { month, total, until: Date.now() + 300_000 };
+      return total;
+    })();
+    this.collectorPending = { month, work };
+    try { return await work; } finally { if (this.collectorPending?.work === work) this.collectorPending = undefined; }
+  }
 
   constructor(ctx: DurableObjectState, env: TdxEnv) {
     super(ctx, env);
@@ -44,31 +67,28 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     sql.exec('DELETE FROM tdx_ip_misses WHERE at <= ?', ms - 3600_000);
     sql.exec('DELETE FROM tdx_days WHERE day < ?', calendar(new Date(ms - 62 * 86400_000)).today);
     const rows = sql.exec<{ day: string; purpose: string; count: number }>('SELECT day, purpose, count FROM tdx_days WHERE day >= ? AND day <= ?', `${month}-01`, today).toArray();
-    const byPurpose: Record<string, number> = { token: 0, live: 0, snapshot: 0 };
-    let monthUsed = 0, todayUsed = 0, snapshotToday = 0;
+    const byPurpose: Record<string, number> = { token: 0, live: 0 };
+    let monthUsed = 0, todayUsed = 0;
     for (const row of rows) {
+      if (row.purpose !== 'token' && row.purpose !== 'live') continue;
       monthUsed += row.count;
       byPurpose[row.purpose] = (byPurpose[row.purpose] ?? 0) + row.count;
       if (row.day === today) {
         todayUsed += row.count;
-        if (row.purpose !== 'live') snapshotToday += row.count;
       }
     }
-    return { monthUsed, todayUsed, snapshotToday, byPurpose,
+    return { monthUsed, todayUsed, byPurpose,
+      snapshotReserve: snapshotReserve(this.env.TDX_SNAPSHOT_RESERVE, quota(this.env.TDX_MONTHLY_QUOTA)),
       last60s: sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM tdx_calls').one().n,
       monthlyQuota: quota(this.env.TDX_MONTHLY_QUOTA), hasKey: !!(this.env.TDX_CLIENT_ID?.trim() && this.env.TDX_CLIENT_SECRET?.trim()) };
   }
-  private check(n: number, purpose: Purpose, ipKey?: string): { ok: true } | Denied {
+  private check(n: number, collectorUsed: number, ipKey?: string): { ok: true } | Denied {
     const now = new Date(), counts = this.counts(now);
     counts.ipMisses = ipKey === undefined ? 0 : this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM tdx_ip_misses WHERE ip = ? AND at > ?', ipKey, now.getTime() - 3600_000).one().n;
-    const result = decide(n, purpose, counts, now);
-    if (!result.ok && result.reason === 'minute') {
-      const first = this.ctx.storage.sql.exec<{ at: number }>('SELECT at FROM tdx_calls ORDER BY at LIMIT 1').toArray()[0];
-      return { ...result, retryAfterMs: Math.min(60_000, Math.max(1, (first?.at ?? now.getTime()) + 60_000 - now.getTime())) };
-    }
-    return result;
+    counts.collectorUsed = collectorUsed;
+    return decide(n, counts, now);
   }
-  private record(purpose: 'token' | Purpose) {
+  private record(purpose: 'token' | 'live') {
     // No await between checking, recording and initiating the upstream call.
     const now = new Date(), sql = this.ctx.storage.sql;
     sql.exec('INSERT INTO tdx_days(day,purpose,count) VALUES(?,?,1) ON CONFLICT(day,purpose) DO UPDATE SET count=count+1', calendar(now).today, purpose);
@@ -77,11 +97,11 @@ export class TdxGateway extends DurableObject<TdxEnv> {
   private cachedToken() {
     return this.ctx.storage.sql.exec<{ token: string; until: number }>('SELECT token, until FROM tdx_token WHERE id=1 AND until > ?', Date.now()).toArray()[0];
   }
-  private async admit(purpose: Purpose, ipKey?: string): Promise<{ ok: true; token: string } | Denied> {
+  private async admit(collectorUsed: number, ipKey: string): Promise<{ ok: true; token: string } | Denied> {
     let token = this.cachedToken()?.token;
-    const decision = this.check(token ? 1 : 2, purpose, ipKey);
+    const decision = this.check(token ? 1 : 2, collectorUsed, ipKey);
     if (!decision.ok) return decision;
-    if (purpose === 'live' && ipKey !== undefined) this.ctx.storage.sql.exec('INSERT INTO tdx_ip_misses(ip,at) VALUES(?,?)', ipKey, Date.now());
+    this.ctx.storage.sql.exec('INSERT INTO tdx_ip_misses(ip,at) VALUES(?,?)', ipKey, Date.now());
     if (!token) {
       this.record('token');
       try {
@@ -98,10 +118,10 @@ export class TdxGateway extends DurableObject<TdxEnv> {
         this.ctx.storage.sql.exec('INSERT OR REPLACE INTO tdx_token(id,token,until) VALUES(1,?,?)', token, Date.now() + Math.max(0, expiry - Math.min(60, expiry / 10)) * 1000);
       } catch { return { ok: false, reason: 'upstream' }; }
       // Token fetch may cross a Taipei day/month boundary. Recheck before data.
-      const next = this.check(1, purpose);
+      const next = this.check(1, collectorUsed);
       if (!next.ok) return next;
     }
-    this.record(purpose);
+    this.record('live');
     return { ok: true, token };
   }
   async live(path: string, ipKey: string): Promise<LiveResult> {
@@ -114,7 +134,8 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     if (pending) return pending;
     const work = (async (): Promise<LiveResult> => {
       try {
-        const admitted = await this.serial(() => this.admit('live', ipKey));
+        const collectorUsed = await this.collectorUsed();
+        const admitted = await this.serial(() => this.admit(collectorUsed, ipKey));
         if (!admitted.ok) return admitted;
         try {
           const response = await fetch(tdxApiUrl(path, tdxBase(this.env.TDX_BASE_URL)), {
@@ -136,16 +157,12 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     this.pending.set(path, work);
     return work;
   }
-  async acquire(purpose: 'snapshot'): Promise<{ ok: true; token: string } | Denied> {
-    if (purpose !== 'snapshot') return { ok: false, reason: 'upstream' };
-    try { return await this.serial(() => this.admit('snapshot')); }
-    finally { this.monitor(); }
-  }
   async invalidate(token: string) {
     this.ctx.storage.sql.exec('DELETE FROM tdx_token WHERE token = ?', token);
   }
   async usage(): Promise<Usage> {
-    const now = new Date(), counts = this.counts(now);
+    const collectorUsed = await this.collectorUsed();
+    const now = new Date(), counts = { ...this.counts(now), collectorUsed };
     return { ...calendarUsage(now), monthUsed: counts.monthUsed, ...allowance(counts, now),
       pct: Math.round(counts.monthUsed / quota(this.env.TDX_MONTHLY_QUOTA) * 10000) / 100,
       todayUsed: counts.todayUsed, byPurpose: counts.byPurpose, last60s: counts.last60s, updatedAt: now.toISOString() };
@@ -154,7 +171,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     this.ctx.waitUntil(this.publish().catch(() => {}));
   }
   private async publish() {
-    const record = await this.usage(), fingerprint = JSON.stringify([record.month, record.today, record.monthUsed, record.todayUsed, record.byPurpose]);
+    const record = await this.usage(), fingerprint = JSON.stringify([record.month, record.today, record.monthUsed, record.todayUsed, record.byPurpose, record.snapshotReserve, record.snapshotReported]);
     const sql = this.ctx.storage.sql;
     const previous = sql.exec<{ at: number; fingerprint: string }>('SELECT at,fingerprint FROM tdx_monitor WHERE id=1').toArray()[0];
     if (previous?.fingerprint === fingerprint) return;

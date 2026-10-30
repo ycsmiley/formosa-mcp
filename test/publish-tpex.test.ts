@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { main, publishTpex } from '../scripts/publish-tpex.js';
 import { buildStockSnapshot, decodeQuotesSnapshot } from '../src/core/snapshot.js';
 import { collectKeys, encodeStoredSnapshot, keys, minimumRows } from '../src/worker/snapshot-keys.js';
+import { buildCollector } from '../scripts/build-collectors.mjs';
 import { stockUrls } from '../src/core/stock/source.js';
 import { fixture } from './stock-fixtures.js';
 
@@ -192,7 +193,7 @@ it('CLI rejects bad arguments without fetching', async () => {
 
 it('committed publisher bundle equals a fresh build and empty-env execution runs only publisher main', async () => {
   const output = join(outDir, 'publish-tpex.mjs');
-  execFileSync(process.execPath, ['scripts/build-tpex.mjs', output]);
+  await buildCollector('tpex', output);
   expect((await readFile(output)).equals(await readFile('scripts/dist/publish-tpex.mjs'))).toBe(true);
   // Any accidental network access fails locally; empty env must stop before collect or fetch.
   const preload = join(outDir, 'no-network.mjs');

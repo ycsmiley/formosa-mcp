@@ -9,7 +9,7 @@ import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
 import { collectKeys, keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
 import { FixedWindowCounter, hitCounter, ipShard, rateLimitKey } from './counter.js';
-import { refreshRail, userCredentials, workerRail, type RailEnv } from './rail.js';
+import { userCredentials, workerRail, type RailEnv } from './rail.js';
 export { TdxGateway } from './tdx-gateway.js';
 export { FixedWindowCounter } from './counter.js';
 export { keys, metaKeys } from './snapshot-keys.js';
@@ -21,7 +21,6 @@ export const cronJobs = {
   '0 */6 * * SAT,SUN': 'twse',
   '0 */3 * * *': 'invoice',
   '*/10 5-15 25 1,3,5,7,9,11 *': 'invoice',
-  '23 16,20 * * *': 'rail',
 } as const;
 async function read<T>(env: Env, key: string): Promise<T | null> {
   const { value, metadata } = await env.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(key);
@@ -89,9 +88,8 @@ export default {
     }
     const job = Object.hasOwn(cronJobs, controller.cron) ? cronJobs[controller.cron as keyof typeof cronJobs] : undefined;
     // Production only sends configured crons. Unknown cron is local bootstrap.
-    const jobs = job ? [job] : ['invoice', 'twse', 'rail'] as const;
+    const jobs = job ? [job] : ['invoice', 'twse'] as const;
     await Promise.all(jobs.map(async job => {
-      if (job === 'rail') { await refreshRail(env); return; }
       if (job === 'invoice') {
         try {
           const snapshot = await buildInvoiceSnapshot(fetchInvoiceFeed);

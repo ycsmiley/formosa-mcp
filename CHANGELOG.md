@@ -6,13 +6,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Remote rail: project-key KV timetables, cron refreshes, shared live cache and quota gateway with timetable fallback; optional per-request TDX key headers.
+- Remote rail: project-key KV timetables, GitHub Actions snapshot collection, shared live cache and quota gateway with timetable fallback; optional per-request TDX key headers.
 - Dependency-free offline TDX mock and rail abuse harness, manual multi-runner abuse workflow with optional KV usage comparison, and bilingual remote rail documentation.
 - Rail (opt-in `--toolsets rail`, own TDX key): verified against real TDX responses (2026-10-29); a friendly Traditional Chinese setup guide replaces an error when `TDX_CLIENT_ID` or `TDX_CLIENT_SECRET` is missing, without network calls.
 - Remote Worker: strict per-IP rate limit (30 requests / 60 s, 429 with Retry-After) using a Durable Object fixed-window counter; IPv6 grouped by /64, IPv4-mapped IPv6 mapped to IPv4.
 - README split into `README.md` (繁體中文) and `README.en.md` (English), badges, data sources and licence section; CI workflow; `CONTRIBUTING.md`, `SECURITY.md`, and `CHANGELOG.md`.
 
 ### Changed
+
+- Move rail station/timetable fetching and TRA compaction from Worker cron to a bundled GitHub Actions collector, preserving Workers Free; add local directory/bulk export, paced lazy token calls, monthly usage reporting and a default 200-call snapshot reserve (3,850 live ceiling at quota 4,500).
 
 - TRA station live board sorted by scheduled time, including across midnight.
 - Remote rail developer guides document project-key and bring-your-own-key modes; local rail remains opt-in.

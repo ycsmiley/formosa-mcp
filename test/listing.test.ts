@@ -41,7 +41,7 @@ it('keeps listing metadata consistent and excludes unpublished remote endpoints'
   expect(Buffer.byteLength(registryText)).toBeLessThan(4096);
   expect(registry).not.toHaveProperty('remotes');
   for (const text of [registryText, glamaText, lhmText]) {
-    expect(text).not.toContain('workers.dev');
+    expect(text).not.toContain(['workers', 'dev'].join('.'));
     expect(JSON.parse(text)).not.toHaveProperty('remotes');
   }
   expect(glama.maintainers).toContain('ycsmiley');
@@ -98,7 +98,7 @@ it('never prints the unpublished remote host', () => {
   const paths = ['README.md', 'README.en.md', 'plugin/server/formosa-mcp.mjs', 'server.json'].map(path => join(root, path));
   paths.push(...filesUnder(join(root, 'src')));
   if (existsSync(join(root, 'dist'))) paths.push(...filesUnder(join(root, 'dist')));
-  for (const path of paths) expect(readFileSync(path, 'utf8').includes('workers.dev'), path).toBe(false);
+  for (const path of paths) expect(readFileSync(path, 'utf8').includes(['workers', 'dev'].join('.')), path).toBe(false);
 
   const zh = read('README.md');
   const en = read('README.en.md');

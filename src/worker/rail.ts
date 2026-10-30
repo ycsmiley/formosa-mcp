@@ -1,6 +1,6 @@
-import { object, RailError, tdxApiUrl, tdxBase, truncatedNote } from '../core/rail/client.js';
+import { RailError, truncatedNote } from '../core/rail/client.js';
 import { attribution, createRailService, type LiveArgs, type RailResult, type TimetableArgs } from '../core/rail/service.js';
-import { compactStations, compactTimetable, deriveOD, expandStations, liveAge, renderFallback, snapshotTime, stationKey, timetableKey, type StationsSnapshot, type TimetableSnapshot } from '../core/rail/snapshot.js';
+import { deriveOD, expandStations, liveAge, renderFallback, snapshotTime, stationKey, timetableKey, type StationsSnapshot, type TimetableSnapshot } from '../core/rail/snapshot.js';
 import type { Railway } from '../core/rail/stations.js';
 import { parseDate, taipeiNow } from '../core/rail/time.js';
 import type { TdxEnv, TdxGateway } from './tdx-gateway.js';
@@ -98,72 +98,4 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
       } catch { return fallback('upstream'); }
     },
   };
-}
-export async function refreshRail(env: RailEnv, now = new Date()) {
-  if (!env.TDX_CLIENT_ID?.trim() || !env.TDX_CLIENT_SECRET?.trim()) {
-    console.warn('rail snapshot skipped: no project TDX key');
-    return;
-  }
-  const stub = gateway(env);
-  async function get(path: string, query?: Record<string, string>): Promise<unknown> {
-    for (let waits = 0, retries = 0; ;) {
-      const admitted = await stub.acquire('snapshot');
-      if (!admitted.ok) {
-        if (admitted.reason === 'minute' && waits < 3) {
-          waits++;
-          await new Promise(resolve => setTimeout(resolve, Math.min(60_000, Math.max(1, admitted.retryAfterMs ?? 60_000))));
-          continue;
-        }
-        throw new RailError('snapshot unavailable');
-      }
-      const response = await fetch(tdxApiUrl(path, tdxBase(env.TDX_BASE_URL), query), {
-        headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(30_000),
-      });
-      if (response.status === 401) {
-        await stub.invalidate(admitted.token);
-        if (retries++ === 0) continue;
-      }
-      if (response.status !== 200) throw new RailError('snapshot unavailable');
-      return response.json();
-    }
-  }
-  const today = taipeiNow(now).date, tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
-  for (const railway of ['THSR', 'TRA'] as const) {
-    const key = stationKey(railway);
-    try {
-      const old = await read<StationsSnapshot>(env, key);
-      if (!old || now.getTime() - Date.parse(old.fetchedAt) > 7 * 86400_000) {
-        const body = await get(railway === 'THSR' ? '/v2/Rail/THSR/Station' : '/v3/Rail/TRA/Station');
-        await env.SNAPSHOTS.put(key, JSON.stringify(compactStations(railway, body, new Date().toISOString())));
-      }
-    } catch { console.warn(`rail snapshot skipped: ${railway} stations unavailable`); }
-    for (const date of [today, tomorrow]) {
-      const key = timetableKey(railway, date);
-      try {
-        if (await env.SNAPSHOTS.get(key) !== null) continue;
-        const path = railway === 'THSR' ? `/v2/Rail/THSR/DailyTimetable/TrainDate/${date}` : `/v3/Rail/TRA/DailyTrainTimetable/TrainDate/${date}`;
-        let body = await get(path), truncated = false;
-        if (railway === 'TRA') {
-          const trains: unknown[] = [];
-          for (let page = 0; page < 3; page++) {
-            if (page) body = await get(path, { '$skip': String(page * 1000) });
-            const rows = object(body).TrainTimetables;
-            if (!Array.isArray(rows)) throw new RailError('invalid timetable');
-            trains.push(...rows);
-            if (rows.length < 1000) break;
-            if (page === 2) truncated = true;
-          }
-          body = { TrainTimetables: trains };
-        }
-        const snapshot = compactTimetable(railway, body, date, new Date().toISOString(), truncated);
-        await env.SNAPSHOTS.put(key, JSON.stringify(snapshot), { expirationTtl: 3 * 86400 });
-      } catch { console.warn(`rail snapshot skipped: ${railway} ${date} unavailable`); }
-    }
-  }
-  try {
-    const usage = await stub.usage();
-    await env.SNAPSHOTS.put('tdx:usage:v1', JSON.stringify(usage));
-    console.log(`tdx usage ${JSON.stringify(usage)}`);
-    if (usage.pct >= 70) console.warn('tdx usage at least 70%');
-  } catch { console.warn('tdx usage unavailable'); }
 }
