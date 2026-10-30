@@ -46,6 +46,7 @@
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "typecheck:worker": "tsc -p tsconfig.worker.json",
     "remote-check": "tsx scripts/remote-check.ts",
+    "abuse-test": "node scripts/abuse-test.mjs",
     "build:plugin": "node scripts/build-plugin.mjs",
     "plugin-check": "tsx scripts/plugin-check.ts",
     "rail-demo": "npm run build && tsx scripts/rail-demo.ts",

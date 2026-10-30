@@ -2,6 +2,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { TdxGateway, type TdxEnv } from '../../src/worker/tdx-gateway.js';
 import type { Env } from '../../src/worker/index.js';
+import { workerRail } from '../../src/worker/rail.js';
 const bindings = env as unknown as Env;
 const credentials = { TDX_CLIENT_ID: 'project-id-SENTINEL', TDX_CLIENT_SECRET: 'project-secret-SENTINEL' };
 const path = (no: number) => `/v3/Rail/TRA/TrainLiveBoard/TrainNo/${no}`;
@@ -21,7 +22,20 @@ const mockHttp = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async in
   ? Response.json({ access_token: 'project-token-SENTINEL', expires_in: 86400, token_type: 'Bearer' })
   : Response.json({ TrainLiveBoards: [{ TrainNo: '123' }] }));
 beforeEach(() => { vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('HTTP must be mocked')); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-01T00:00:00Z')); });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => {
+  expect(vi.mocked(fetch).mock.calls.every(([, init]) => init?.redirect === 'manual')).toBe(true);
+  vi.useRealTimers(); vi.restoreAllMocks();
+});
+it('degrades a token redirect to non-error fallback text without following it', async () => {
+  const target = await setup();
+  const http = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 302, headers: { location: 'https://other.example/token' } }));
+  const namespace = { idFromName: () => target.id, get: () => target };
+  const result = await workerRail({ ...bindings, ...credentials, TDX_GATEWAY: namespace as unknown as Env['TDX_GATEWAY'] }, 'ip', undefined).live({ train_no: '123' });
+  expect(result.isError).not.toBe(true);
+  expect(result.text).toContain('即時誤點暫時無法提供');
+  expect(http).toHaveBeenCalledTimes(1);
+  expect(String(http.mock.calls[0][0])).toContain('https://tdx.transportdata.tw/');
+});
 it('admits exactly four total calls in a concurrent burst of twenty distinct paths, counting token', async () => {
   const target = await setup(), http = mockHttp();
   const results = await Promise.all(Array.from({ length: 20 }, (_, i) => target.live(path(100 + i), `ip-${i}`)));

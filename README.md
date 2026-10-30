@@ -153,17 +153,31 @@ claude plugin install formosa@formosa-mcp
 
 使用自己的金鑰在本機執行，可查即時車次與誤點。已於 2026-10-29 以真實 TDX 回應驗證。成功回覆標示資料介接「交通部TDX平臺」；詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
 
-### 鐵路進階用法
-
-遠端版預設不需使用者金鑰。專案 TDX 金鑰僅由 Worker 的 `TDX_CLIENT_ID`／`TDX_CLIENT_SECRET` secrets 提供；未設定仍可使用發票、台股及既有鐵路快照。鐵路 cron 於臺北時間 00:23、04:23 更新今天與明天的時刻表，車站資料每七天更新；時刻表請求不呼叫 TDX。
-
-查其他日期或以自己的額度取得即時資料，可在 MCP 用戶端的遠端連線設定同時加入 `X-TDX-Client-Id` 與 `X-TDX-Client-Secret` headers。值會先去除前後空白，須各為 1～256 個可列印 ASCII 字元。金鑰只用於該次請求的 TDX token 交換，不存入 KV、Durable Object 或日誌。每 IP 每分鐘 30 次的 MCP 限制仍適用；請將金鑰放在用戶端私密設定中，不要貼到對話或提交到版本控制。
-
-專案閘道將 token 與資料呼叫都計入每分鐘四次及每月 4,500 次上限；即時查詢在 90% 停止，並依臺北月份剩餘天數分配每日額度，每 IP 每小時最多六次觸發上游的即時查詢。成功即時資料共用兩分鐘快取。`tdx:usage:v1` 提供不含金鑰的使用量紀錄。僅供本機展示的 `TDX_MONTHLY_QUOTA` 可設為 1～4,500 的整數來降低額度；`TDX_BASE_URL` 只接受 HTTP 的 localhost 或 127.0.0.1 來源。
-
 ### 遠端版（Cloudflare Workers）
 
 發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所、發票與鐵路由 Worker cron 更新，上櫃快照由 [GitHub Actions](.github/workflows/tpex-collect.yml) 寫入，因櫃買中心阻擋 Cloudflare。每 IP 每分鐘限制 30 次請求。
+
+#### 遠端鐵路
+
+- **A：專案金鑰。** 時刻表使用共用快照，cron 於臺北時間 00:23、04:23 補齊今天與明天，車站每七天更新；時刻表查詢不呼叫 TDX。臺鐵即時資料按需取得，共用兩分鐘快取。四道上限為每分鐘四次、依剩餘天數分配的每日額度、每月 4,500 次（即時在 90% 停止）、每 IP 每小時六次即時快取未命中；達上限或上游失敗就回覆表訂班次並附原因。
+- **B：自備金鑰。** 在 Claude Code 的 `.mcp.json` 或 Cursor 的 `.cursor/mcp.json` 遠端連線設定加入以下 `headers`（合併到既有端點設定）：
+
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "headers": {
+        "X-TDX-Client-Id": "YOUR_CLIENT_ID",
+        "X-TDX-Client-Secret": "YOUR_CLIENT_SECRET"
+      }
+    }
+  }
+}
+```
+
+自備金鑰可查其他日期與即時資料，不使用專案額度；每 IP 每分鐘 30 次的 MCP 限制仍適用。金鑰只用於該次請求，不儲存、不寫日誌；只放在用戶端私密設定，絕不可放進 URL、貼到對話或提交到版本控制。兩個 header 須一起提供，值去除前後空白後各為 1～256 個可列印 ASCII 字元。
+
+額度公式、監控、維護者 secrets 設定及離線壓力測試見[遠端鐵路設計](docs/remote-rail.md)。
 
 本機開發需 Node.js 22 以上；以下兩個 `kv key put --local` 指令將上櫃快照只寫入本機 KV，不會動到正式環境。
 

@@ -142,7 +142,29 @@ Your own key enables local rail queries, including live train delays. Rail was v
 
 ### Remote (Cloudflare Workers)
 
-Requests read KV snapshots only, never upstream. Worker cron refreshes TWSE and invoices; [GitHub Actions](.github/workflows/tpex-collect.yml) writes TPEx snapshots because TPEx blocks Cloudflare. The limit is 30 requests per IP per minute.
+Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE, invoices, and rail; [GitHub Actions](.github/workflows/tpex-collect.yml) writes TPEx snapshots because TPEx blocks Cloudflare. The limit is 30 requests per IP per minute.
+
+#### Remote rail
+
+- **A: Project key.** Shared timetable snapshots cover today and tomorrow; cron fills missing snapshots at 00:23 and 04:23 Taipei time, with station refreshes every seven days. Timetable queries make no TDX calls. Live TRA queries fetch on demand with a shared two-minute cache. Four caps apply: four upstream calls per minute, a daily allowance divided over the remaining days, 4,500 calls per month (live stops at 90%), and six live cache misses per IP per hour. Caps or upstream failures return scheduled trains with a reason note.
+- **B: Bring your own key.** Add these `headers` to the existing remote endpoint entry in Claude Code's `.mcp.json` or Cursor's `.cursor/mcp.json` (merge this fragment with your endpoint configuration):
+
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "headers": {
+        "X-TDX-Client-Id": "YOUR_CLIENT_ID",
+        "X-TDX-Client-Secret": "YOUR_CLIENT_SECRET"
+      }
+    }
+  }
+}
+```
+
+Your own key enables other dates and live queries without using project quota. The MCP limit of 30 requests per IP per minute still applies. Keys are used only for that request and are never stored or logged. Keep them in private client settings; never put keys in the URL, paste them into conversations, or commit them. Supply both headers; each trimmed value must contain 1–256 printable ASCII characters.
+
+See the [remote rail design](docs/remote-rail.md) for budget formulas, monitoring, maintainer secrets setup, and offline abuse tests.
 
 Local development needs Node.js 22+; the two `kv key put --local` commands write TPEx snapshots only to local KV, leaving production untouched.
 

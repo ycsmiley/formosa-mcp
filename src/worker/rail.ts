@@ -45,7 +45,7 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
   if (credentials === 'invalid') return { timetable: async () => reply(keyHint), live: async () => reply(keyHint) };
   if (credentials) {
     // This service and its token cache belong exclusively to this HTTP request.
-    const service = createRailService({ credentials, http: (url, init) => fetch(url, { ...init, redirect: 'error' }) });
+    const service = createRailService({ credentials, http: (url, init) => fetch(url, { ...init, redirect: 'manual' }) });
     return {
       timetable: async (railway: Railway, args: TimetableArgs) => attributed(await service.timetable(railway, args)),
       live: async (args: LiveArgs) => attributed(await service.live(args)),
@@ -117,7 +117,7 @@ export async function refreshRail(env: RailEnv, now = new Date()) {
         throw new RailError('snapshot unavailable');
       }
       const response = await fetch(tdxApiUrl(path, tdxBase(env.TDX_BASE_URL), query), {
-        headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'error', signal: AbortSignal.timeout(30_000),
+        headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(30_000),
       });
       if (response.status !== 200) throw new RailError('snapshot unavailable');
       return response.json();

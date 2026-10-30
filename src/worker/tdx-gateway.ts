@@ -88,7 +88,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
       this.record('token');
       try {
         const response = await fetch(`${tdxBase(this.env.TDX_BASE_URL)}${tokenPath}`, {
-          method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+          method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(10_000),
           headers: { 'content-type': 'application/x-www-form-urlencoded' },
           body: tokenBody({ clientId: this.env.TDX_CLIENT_ID!.trim(), clientSecret: this.env.TDX_CLIENT_SECRET!.trim() }),
         });
@@ -121,7 +121,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
           if (!admitted.ok) return admitted;
           try {
             const response = await fetch(tdxApiUrl(path, tdxBase(this.env.TDX_BASE_URL)), {
-              headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'error', signal: AbortSignal.timeout(10_000),
+              headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
             });
             if (response.status !== 200) {
               if (response.status === 401) this.ctx.storage.sql.exec('DELETE FROM tdx_token');

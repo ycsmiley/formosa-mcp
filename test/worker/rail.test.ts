@@ -48,7 +48,10 @@ beforeEach(async () => {
   const listed = await bindings.SNAPSHOTS.list();
   await Promise.all(listed.keys.map(({ name }) => bindings.SNAPSHOTS.delete(name)));
 });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => {
+  expect(vi.mocked(fetch).mock.calls.every(([, init]) => init?.redirect === 'manual')).toBe(true);
+  vi.useRealTimers(); vi.restoreAllMocks();
+});
 it.each([
   ['thsr_timetable', { origin: '臺北', destination: '高雄' }, '0673 次｜高鐵'],
   ['tra_timetable', { origin: '臺北', destination: '高雄' }, '149 次'],
@@ -113,6 +116,16 @@ it('strips both headers before transport and trims sentinel credentials', () => 
   expect([...headers]).toEqual([]);
   const control = new Headers({ 'X-TDX-Client-Id': 'test\tbad', 'X-TDX-Client-Secret': 'test' });
   expect(userCredentials(control)).toBe('invalid'); expect([...control]).toEqual([]);
+});
+it.each(['token', 'live'])('maps a user-key %s redirect to the existing unavailable error without following it', async endpoint => {
+  const http = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => endpoint === 'live' && String(input).endsWith('/token')
+    ? Response.json({ access_token: 'user-token-SENTINEL', expires_in: 3600 })
+    : new Response(null, { status: 302, headers: { location: 'https://other.example/redirect' } }));
+  const response = await rpc('tra_live', { train_no: '2037' }, { headers: { 'X-TDX-Client-Id': 'user-id', 'X-TDX-Client-Secret': 'user-secret' } });
+  expect(response.result.isError).toBe(true);
+  expect(response.result.content[0].text).toContain('TDX 服務暫時無法使用，請稍後再試');
+  expect(http).toHaveBeenCalledTimes(endpoint === 'token' ? 1 : 2);
+  expect(http.mock.calls.every(([url]) => String(url).startsWith('https://tdx.transportdata.tw/'))).toBe(true);
 });
 it('isolates user keys, never calls the gateway or KV, and obtains a fresh token per request', async () => {
   const user = { 'X-TDX-Client-Id': 'user-id-SENTINEL-9f2c', 'X-TDX-Client-Secret': 'user-secret-SENTINEL-7a3d' };
