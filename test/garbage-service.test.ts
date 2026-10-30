@@ -14,7 +14,7 @@ describe('garbage schedule service', () => {
     expect(result.text).not.toMatch(/[{}]/);
   });
   it('explains no results and unsupported cities', async () => {
-    expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '文化路', time: '17:00' })).text).toContain('「文化路」有收運點，但不符合指定的星期或時間。');
+    expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '文化路', time: '17:00' })).text).toContain('新北市板橋區「文化路」：有收運點，但不符合指定的星期或時間。');
     expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '不存在' })).text).toContain('找不到');
     expect((await service.schedule({ city: '桃園' })).text).toContain('尚未支援');
   });
@@ -41,14 +41,16 @@ it('explains Taipei weekday rules and Kaohsiung capture day', async () => {
   const entry = index.cities.ntpc!;
   for (const [city, code, quirk] of [['台北', 'taipei', '部分回收日依站點名稱標示'], ['高雄', 'kaohsiung', '高雄市資料只含 10/25（星期日）當日班表']] as const) {
     const svc = createGarbageService({ index: async () => ({ ...index, cities: { [code]: { ...entry, capturedWeekday: 0 } } }), shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
-    expect((await svc.schedule({ city, district: '板橋', keyword: '文化' })).text).toContain(quirk);
+    const text = (await svc.schedule({ city, district: '板橋', keyword: '文化' })).text;
+    expect(text).toContain(quirk);
+    expect(text).toContain(code === 'taipei' ? '廚餘依環保局規則隨垃圾車收運' : '（非今日資料）');
   }
 });
 
 it('distinguishes thrown store errors and missing shards', async () => {
   const broken = createGarbageService({ index: async () => { throw Error('private detail'); }, shard: async () => null });
   expect(await broken.schedule({ city: '新北' })).toEqual({ text: '暫時無法取得垃圾車資料，請稍後再試。', isError: true });
-  const missing = createGarbageService({ index: async () => index, shard: async () => null });
+  const missing = createGarbageService({ index: async () => index, shard: async () => null }, () => new Date('2026-10-30T00:00:00Z'));
   expect(await missing.schedule({ city: '新北', district: '板橋', keyword: '文化' })).toEqual({ text: '資料更新中，請稍後再試', isError: true });
 });
 
@@ -85,4 +87,30 @@ it('infers only district prefixes or separate full district tokens', async () =>
   expect((await svc.schedule({ city: '台南', keyword: '和平東路' })).text).toContain('請指定行政區');
   for (const keyword of ['板橋文化路', '西屯 河南路', '東區和平路', '和平 東區 路']) await svc.schedule({ city: '台南', keyword });
   expect(calls).toEqual(['板橋區:文化路', '西屯區:河南路', '東區:和平路', '東區:和平  路']);
+});
+
+it('validates keywords before loading a shard', async () => {
+  let calls = 0;
+  const svc = createGarbageService({ index: async () => index, shard: async () => { calls++; return shard; } });
+  for (const keyword of ['路', '1', '123', '，。', '板橋區路', '板橋區123']) {
+    expect((await svc.schedule({ city: '新北', keyword: keyword.startsWith('板橋') ? keyword : `板橋區${keyword}` })).text).toContain('關鍵字太短或無效');
+  }
+  expect(calls).toBe(0);
+});
+
+it('returns Taipei closure days without reading a shard', async () => {
+  let calls = 0;
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { taipei: index.cities.ntpc! } }), shard: async () => { calls++; return shard; } }, () => new Date('2026-10-31T00:00:00Z'));
+  for (const weekday of ['週三', '週日', '明天']) expect((await svc.schedule({ city: '台北', district: '板橋', keyword: '文化', weekday })).text).toContain('週三、週日停收');
+  expect(calls).toBe(0);
+});
+
+it('reports stale missing shards and too many matches', async () => {
+  const missing = createGarbageService({ index: async () => index, shard: async () => null }, () => new Date('2026-11-10T00:00:00Z'));
+  expect((await missing.schedule({ city: '新北', district: '板橋', keyword: '文化' })).text).toBe('垃圾車資料已過時，請稍後再試。');
+  const many = createGarbageService({ index: async () => index, shard: async () => ({ ...shard, truncated: true }) });
+  const result = await many.schedule({ city: '新北', district: '板橋', keyword: '文化' });
+  expect(result.text).toContain('符合的收運點超過 200 筆');
+  expect(result.text).toContain('資料來源：');
+  expect(result.text).not.toContain('共 1 個收運點');
 });

@@ -25,6 +25,11 @@ it('selects Kaohsiung via the CLI and preserves other city entries', async () =>
     expect(index.cities.kaohsiung?.stops).toBe(1000);
   } finally { fetchMock.mockRestore(); await rm(dir, { recursive: true, force: true }); }
 });
+
+it('matches a keyword containing an escaped quote in a stop name', () => {
+  const raw = ['{"v":2}', JSON.stringify(['文化里', 'A', 'A"B路', [], [], []])].join('\n');
+  expect(decodeShard(raw, '板橋區', 'A"B').stops.map(stop => stop.name)).toEqual(['A"B路']);
+});
 it('prints usage for an unknown city', async () => {
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   try { expect(await main(['--city', 'unknown'], {})).toBe(2); expect(error).toHaveBeenCalledWith('Usage: publish-garbage [--out dir] [--city codes]'); } finally { error.mockRestore(); }
@@ -133,4 +138,16 @@ it('rejects invalid generation identifiers', () => {
   for (const gen of ['', 'ABC', 'a:b', 'a'.repeat(17)]) {
     expect(() => decodeIndex(JSON.stringify({ v: 2, generatedAt: '2026-10-30T00:00:00Z', cities: { ntpc: { gen, fetchedAt: '2026-10-30T00:00:00Z', updatedAt: '2026-10-30T00:00:00Z', stops: 0, districts: {} } } }))).toThrow();
   }
+});
+
+it('prefilters only decoded leading fields and caps matches', () => {
+  const row = JSON.stringify(['文化里', 'A', '文化路', [[1, '19:00', '']], [], []]);
+  const escaped = JSON.stringify(['文化里', 'A', '文化"路', [], [], []]);
+  const raw = ['{"v":2}', row, escaped].join('\n');
+  expect(decodeShard(raw, '板橋區', '19:').stops).toHaveLength(0);
+  expect(decodeShard(raw, '板橋區', '",').stops).toHaveLength(0);
+  expect(decodeShard(raw, '板橋區', '文化"路').stops).toHaveLength(1);
+  const many = ['{"v":2}', ...Array(201).fill(row)].join('\n');
+  expect(decodeShard(many, '板橋區', '文化')).toMatchObject({ truncated: true, stops: Array(200).fill(expect.any(Object)) });
+  expect(decodeShard(['{"v":2}', ...Array(200).fill(row)].join('\n'), '板橋區', '文化').truncated).toBeUndefined();
 });

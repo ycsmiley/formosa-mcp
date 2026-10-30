@@ -18,6 +18,7 @@ describe('garbage source normalization', () => {
     for (const csv of [fixture('taipei.csv'), fixture('taipei.csv').replace('每週二,五回收車', '每週二、五回收車')]) {
       const stop = normalize('taipei', csv, capture).find(s => s.name.includes('登山路25之1號'))!;
       expect(stop.garbage).toEqual([]);
+      expect(stop.food).toEqual([]);
       expect(stop.recycling[0].days).toBe((1 << 2) | (1 << 5));
       expect(stop.note).toBe('僅資源回收車收運');
     }
@@ -27,9 +28,15 @@ describe('garbage source normalization', () => {
     for (const tag of ['(回收車收運)', '(回收車)', '(由回收車收運)']) {
       const stop = stops.find(s => s.name.includes(tag))!;
       expect(stop.garbage).toEqual([]);
+      expect(stop.food).toEqual([]);
       expect(stop.recycling[0].days).toBe(118);
       expect(stop.note).toBe('僅資源回收車收運');
     }
+  });
+  it('assigns Taipei food waste to normal garbage slots', () => {
+    const stop = normalize('taipei', fixture('taipei.csv'), capture).find(s => s.garbage.length)!;
+    expect(stop.food).toEqual(stop.garbage);
+    expect(stop.food[0].days).toBe(118);
   });
   it('drops placeholder New Taipei memos', () => {
     const header = 'city,linename,name,village,time,memo,garbagemonday';

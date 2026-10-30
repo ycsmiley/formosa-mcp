@@ -38,9 +38,12 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       }
       if (!district) return { text: `${cities[city].name}請指定行政區：${districts.join('、')}。`, isError: false };
       if (!keyword) return { text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false };
-      const shard = await store.shard(city, info.gen, district, keyword); if (!shard) return { text: '資料更新中，請稍後再試', isError: true };
+      if ([...keyword].length < 2 || /^[\p{N}]+$/u.test(keyword) || /^[\p{P}\p{S}\s]+$/u.test(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
       const now = clock(), wantedDay = weekday(q.weekday, now);
       if (q.weekday && wantedDay === undefined) return { text: '請輸入今天、明天或星期一至星期日。', isError: true };
+      if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: '臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n實際收運以各地環保局公告為準（國定假日可能調整）', isError: false };
+      const shard = await store.shard(city, info.gen, district, keyword);
+      if (!shard) return { text: now.getTime() - Date.parse(info.fetchedAt) > 14 * 86400000 ? '垃圾車資料已過時，請稍後再試。' : '資料更新中，請稍後再試', isError: true };
       if (city === 'kaohsiung' && wantedDay !== undefined) {
         const capture = new Date(Date.parse(info.fetchedAt) + 8 * 3600000);
         const today = new Date(now.getTime() + 8 * 3600000);
@@ -54,19 +57,19 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       const matched = shard.stops.filter(s => [s.name, s.village, s.route].some(v => norm(v).includes(keyword)));
       const stops = matched.map(s => ({ ...s, garbage: s.garbage.filter(filter), recycling: s.recycling.filter(filter), food: s.food.filter(filter) })).filter(s => s.garbage.length + s.recycling.length + s.food.length);
       if (q.time) stops.sort((a, b) => [...a.garbage, ...a.recycling, ...a.food].map(s => s.start).sort()[0].localeCompare([...b.garbage, ...b.recycling, ...b.food].map(s => s.start).sort()[0]));
-      const lines = [`${cities[city].name}${district}${q.keyword ? `「${q.keyword}」` : ''}：共 ${stops.length} 個收運點`];
-      if (!stops.length) lines.push(matched.length ? `「${keyword}」有收運點，但不符合指定的星期或時間。` : '找不到符合的收運點，試試較短的關鍵字或里名。');
+      const prefix = `${cities[city].name}${district}${q.keyword ? `「${q.keyword}」` : ''}：`;
+      const lines = [shard.truncated ? `${prefix}符合的收運點超過 200 筆，請加上里名或路段縮小範圍。` : stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${matched.length ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
       const format = (slots: Slot[]) => slots.map(s => `週${[...dayNames].filter((_, i) => s.days & 1 << i).join('、')} ${s.start}${s.end && s.end !== s.start ? `–${s.end}` : ''}`).join('；');
-      for (const s of stops.slice(0, 15)) {
+      for (const s of (shard.truncated ? [] : stops.slice(0, 15))) {
         lines.push(`${s.name}（${s.village}，路線 ${s.route}）`);
         for (const [label, slots] of [['一般垃圾', s.garbage], ['資源回收', s.recycling], ['廚餘', s.food]] as const) if (slots.length) lines.push(`${label}：${format(slots)}`);
         if (s.note) lines.push(`備註：${s.note}`);
       }
-      if (stops.length > 15) lines.push('僅顯示前 15 筆，請用里名、關鍵字或時間縮小範圍。');
+      if (!shard.truncated && stops.length > 15) lines.push('僅顯示前 15 筆，請用里名、關鍵字或時間縮小範圍。');
       const local = new Date(Date.parse(info.fetchedAt) + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
       lines.push(`資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）`, `資料時間：${local}（台北時間）${now.getTime() - Date.parse(info.fetchedAt) > 3 * 86400000 ? '；資料可能已過時' : ''}`);
-      if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示，部分站點僅資源回收車收運。');
-      if (city === 'kaohsiung') { const d = new Date(Date.parse(info.fetchedAt) + 8 * 3600000); lines.push(`高雄市資料只含 ${d.getUTCMonth() + 1}/${d.getUTCDate()}（星期${dayNames[info.capturedWeekday ?? d.getUTCDay()]}）當日班表`); }
+      if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示，部分站點僅資源回收車收運；廚餘依環保局規則隨垃圾車收運。');
+      if (city === 'kaohsiung') { const d = new Date(Date.parse(info.fetchedAt) + 8 * 3600000); lines.push(`高雄市資料只含 ${d.getUTCMonth() + 1}/${d.getUTCDate()}（星期${dayNames[info.capturedWeekday ?? d.getUTCDay()]}）當日班表${d.toISOString().slice(0, 10) !== new Date(now.getTime() + 8 * 3600000).toISOString().slice(0, 10) ? '（非今日資料）' : ''}`); }
       lines.push('實際收運以各地環保局公告為準（國定假日可能調整）');
       return { text: lines.join('\n'), isError: false };
     } catch { return { text: '暫時無法取得垃圾車資料，請稍後再試。', isError: true }; }

@@ -518,35 +518,37 @@
   },
   {
     "id": "garbage-002",
-    "question": "台北大安區星期一垃圾車時間？",
+    "question": "台北大安區和平東路星期一垃圾車時間？",
     "toolset": "garbage",
     "expected_tool": "garbage_schedule",
     "expected_args": {
       "city": "台北",
       "district": "大安",
-      "weekday": "週一"
+      "weekday": "週一",
+      "keyword": "和平東路"
     },
     "expected_key_facts": [
-      "請提供里名、路名或地點關鍵字"
+      "週收五日"
     ],
-    "notes": "未提供地點關鍵字，應請使用者補充。",
+    "notes": "依資料時間與收運規則回答。",
     "daily_ci": false,
     "requires_key": null
   },
   {
     "id": "garbage-003",
-    "question": "高雄苓雅區今天垃圾車？",
+    "question": "高雄苓雅區四維一路今天垃圾車？",
     "toolset": "garbage",
     "expected_tool": "garbage_schedule",
     "expected_args": {
       "city": "高雄",
       "district": "苓雅",
-      "weekday": "今天"
+      "weekday": "今天",
+      "keyword": "四維一路"
     },
     "expected_key_facts": [
-      "請提供里名、路名或地點關鍵字"
+      "當日班表"
     ],
-    "notes": "未提供地點關鍵字，應請使用者補充。",
+    "notes": "依資料時間與收運規則回答。",
     "daily_ci": false,
     "requires_key": null
   }

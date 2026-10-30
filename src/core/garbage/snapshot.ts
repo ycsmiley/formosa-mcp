@@ -2,7 +2,7 @@ import type { City, Slot, Stop } from './normalize.js';
 import { norm } from './text.js';
 export interface CityIndex { gen: string; fetchedAt: string; updatedAt: string; capturedWeekday?: number; stops: number; districts: Record<string, { stops: number; sha256: string }> }
 export interface Index { v: 2; generatedAt: string; cities: Partial<Record<City, CityIndex>> }
-export interface Shard { v: 2; stops: Stop[] }
+export interface Shard { v: 2; stops: Stop[]; truncated?: boolean }
 export const indexKey = 'garbage:index:v2';
 export const shardKey = (city: City, gen: string, district: string) => `garbage:v2:${city}:${gen}:${district}`;
 const object = (x: unknown): x is Record<string, any> => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -29,11 +29,20 @@ export function decodeShard(text: string, district: string, keyword?: string): S
   const x: unknown = JSON.parse(header);
   if (!object(x) || x.v !== 2) throw new Error('Invalid garbage shard');
   const needle = keyword ? norm(keyword) : '';
-  return { v: 2, stops: lines.filter(line => !needle || norm(line).includes(needle)).map(line => {
+  const checkLine = !needle.includes('"') && !needle.includes('\\');
+  const stops: Stop[] = [];
+  for (const line of lines) {
+    if (needle) {
+      if (checkLine && !norm(line).includes(needle)) continue;
+      const fields = /^\["((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)"/.exec(line);
+      if (!fields || !fields.slice(1).some(field => norm(field.includes('\\') ? JSON.parse(`"${field}"`) : field).includes(needle))) continue;
+      if (stops.length === 200) return { v: 2, stops, truncated: true };
+    }
     const s: unknown = JSON.parse(line);
     if (!Array.isArray(s) || s.length < 6 || s.length > 7 || typeof s[0] !== 'string' || typeof s[1] !== 'string' || typeof s[2] !== 'string' || !s[2] || (s[6] !== undefined && typeof s[6] !== 'string') || !Array.isArray(s[3]) || !Array.isArray(s[4]) || !Array.isArray(s[5])) throw new Error('Invalid garbage stop');
-    return { district, village: s[0], route: s[1], name: s[2], garbage: s[3].map(decodeSlot), recycling: s[4].map(decodeSlot), food: s[5].map(decodeSlot), ...(s[6] === undefined ? {} : { note: s[6] }) };
-  }) };
+    stops.push({ district, village: s[0], route: s[1], name: s[2], garbage: s[3].map(decodeSlot), recycling: s[4].map(decodeSlot), food: s[5].map(decodeSlot), ...(s[6] === undefined ? {} : { note: s[6] }) });
+  }
+  return { v: 2, stops };
 }
 export function encodeIndex(index: Index): string { const s = JSON.stringify(index); decodeIndex(s); return s; }
 export function encodeShard(shard: Shard): string {

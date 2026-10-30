@@ -88,7 +88,7 @@ function normalize(city, input, capturedAt) {
       const start = time(r["\u62B5\u9054\u6642\u9593"]), end = time(r["\u96E2\u958B\u6642\u9593"]);
       const recyclingDays = /每週([一二三四五六日](?:[,、]?[一二三四五六日])*)回收/.exec(str(r["\u5730\u9EDE"]));
       const recyclingOnly = str(r["\u5730\u9EDE"]).includes("\u56DE\u6536\u8ECA");
-      stop = { district: str(r["\u884C\u653F\u5340"]), village: str(r["\u91CC\u5225"]), route: `${str(r["\u8DEF\u7DDA"])} ${str(r["\u8ECA\u6B21"])}`.trim(), name: str(r["\u5730\u9EDE"]), garbage: recyclingOnly ? [] : one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: [], ...recyclingOnly ? { note: "\u50C5\u8CC7\u6E90\u56DE\u6536\u8ECA\u6536\u904B" } : {} };
+      stop = { district: str(r["\u884C\u653F\u5340"]), village: str(r["\u91CC\u5225"]), route: `${str(r["\u8DEF\u7DDA"])} ${str(r["\u8ECA\u6B21"])}`.trim(), name: str(r["\u5730\u9EDE"]), garbage: recyclingOnly ? [] : one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: recyclingOnly ? [] : one(118, start, end), ...recyclingOnly ? { note: "\u50C5\u8CC7\u6E90\u56DE\u6536\u8ECA\u6536\u904B" } : {} };
     } else if (city === "taichung") {
       if (str(r.task_type) === "\u5F80\u5EE0") continue;
       stop = { district: str(r.area), village: str(r.village), route: str(r.car_licence), name: str(r.caption), garbage: daily(r, "g"), recycling: daily(r, "r"), food: [] };
@@ -143,11 +143,20 @@ function decodeShard(text, district, keyword) {
   const x = JSON.parse(header);
   if (!object(x) || x.v !== 2) throw new Error("Invalid garbage shard");
   const needle = keyword ? norm(keyword) : "";
-  return { v: 2, stops: lines.filter((line) => !needle || norm(line).includes(needle)).map((line) => {
+  const checkLine = !needle.includes('"') && !needle.includes("\\");
+  const stops = [];
+  for (const line of lines) {
+    if (needle) {
+      if (checkLine && !norm(line).includes(needle)) continue;
+      const fields = /^\["((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)"/.exec(line);
+      if (!fields || !fields.slice(1).some((field) => norm(field.includes("\\") ? JSON.parse(`"${field}"`) : field).includes(needle))) continue;
+      if (stops.length === 200) return { v: 2, stops, truncated: true };
+    }
     const s = JSON.parse(line);
     if (!Array.isArray(s) || s.length < 6 || s.length > 7 || typeof s[0] !== "string" || typeof s[1] !== "string" || typeof s[2] !== "string" || !s[2] || s[6] !== void 0 && typeof s[6] !== "string" || !Array.isArray(s[3]) || !Array.isArray(s[4]) || !Array.isArray(s[5])) throw new Error("Invalid garbage stop");
-    return { district, village: s[0], route: s[1], name: s[2], garbage: s[3].map(decodeSlot), recycling: s[4].map(decodeSlot), food: s[5].map(decodeSlot), ...s[6] === void 0 ? {} : { note: s[6] } };
-  }) };
+    stops.push({ district, village: s[0], route: s[1], name: s[2], garbage: s[3].map(decodeSlot), recycling: s[4].map(decodeSlot), food: s[5].map(decodeSlot), ...s[6] === void 0 ? {} : { note: s[6] } });
+  }
+  return { v: 2, stops };
 }
 function encodeIndex(index) {
   const s = JSON.stringify(index);

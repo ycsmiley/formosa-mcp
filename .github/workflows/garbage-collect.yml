@@ -2,7 +2,7 @@ name: Collect garbage snapshots
 on:
   schedule:
     - cron: '37 3 * * *' # 11:37 Taipei
-    - cron: '20 16 * * *' # 00:20 Taipei
+    - cron: '0 21 * * *' # 05:00 Taipei
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
           node-version: 22
       - run: test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID repo variable is empty"; exit 1; }
       - run: |
-          if [ "$COLLECT_SCHEDULE" = '20 16 * * *' ]; then
+          if [ "$COLLECT_SCHEDULE" = '0 21 * * *' ]; then
             node scripts/dist/publish-garbage.mjs --city kaohsiung
           else
             node scripts/dist/publish-garbage.mjs
