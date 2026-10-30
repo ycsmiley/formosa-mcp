@@ -2,6 +2,7 @@ import { env, createExecutionContext, createScheduledController } from 'cloudfla
 import { afterEach, beforeEach, expect, it, vi, type MockInstance } from 'vitest';
 import worker, { keys, metaKeys, type Env } from '../../src/worker/index.js';
 import { collectKeys } from '../../src/worker/snapshot-keys.js';
+import { tpexFallback } from '../../src/worker/tpex-fallback.js';
 import { stockUrls } from '../../src/core/stock/source.js';
 import xml from '../fixtures/invoice.xml?raw';
 const token = 'ghp_SENTINEL_DO_NOT_LOG_123';
@@ -61,6 +62,23 @@ it.each(['2026-10-30T11:00:00Z', '2026-10-30T12:30:00Z'])('skips a fresh heartbe
   expect(dispatches(fetch)).toHaveLength(0);
   expect(await bindings.SNAPSHOTS.get(capKey)).toBeNull();
   expect(logs.log).toHaveBeenCalledWith('tpex fallback fresh');
+});
+it.each(['2026-10-30T10:47:00Z', '2026-10-30T10:00:00Z'])('skips a market holiday checked at %s', async lastSuccessAt => {
+  await bindings.SNAPSHOTS.put(collectKeys.tpex, JSON.stringify({ ...heartbeat, lastSuccessAt }));
+  const fetch = mockFetch(), get = vi.spyOn(bindings.SNAPSHOTS, 'get'), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  await tpexFallback(bindings, Date.parse('2026-10-30T11:00:00Z'));
+  expect(fetch).not.toHaveBeenCalled();
+  expect(get).toHaveBeenCalledExactlyOnceWith(collectKeys.tpex);
+  expect(put).not.toHaveBeenCalled();
+  expect(await bindings.SNAPSHOTS.get(capKey)).toBeNull();
+  expect(logs.log).toHaveBeenCalledWith('tpex fallback holiday');
+});
+it('dispatches when the last successful check is before 18:00 Taipei today', async () => {
+  await bindings.SNAPSHOTS.put(collectKeys.tpex, JSON.stringify({ ...heartbeat, lastSuccessAt: '2026-10-30T09:59:00Z' }));
+  const fetch = mockFetch();
+  await run();
+  expect(dispatches(fetch)).toHaveLength(1);
+  expect(await bindings.SNAPSHOTS.get(capKey)).toBe('1');
 });
 it.each([null, 'invalid', JSON.stringify({ ...heartbeat, dataDate: '2026-02-30' }), JSON.stringify({ ...heartbeat, dataDate: '2026-10-30', lastSuccessAt: 'invalid' })])('dispatches with missing or invalid heartbeat %j', async value => {
   if (value !== null) await bindings.SNAPSHOTS.put(collectKeys.tpex, value);

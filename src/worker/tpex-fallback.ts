@@ -15,7 +15,9 @@ export async function tpexFallback(env: Env, scheduledTime: number): Promise<voi
   try {
     const { year, month, day } = taipeiParts(new Date(scheduledTime));
     const today = new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
-    if ((await readTpexCheck(env))?.dataDate === today) { console.log('tpex fallback fresh'); return; }
+    const heartbeat = await readTpexCheck(env);
+    if (heartbeat?.dataDate === today) { console.log('tpex fallback fresh'); return; }
+    if (heartbeat && Date.parse(heartbeat.lastSuccessAt) >= Date.UTC(year, month - 1, day) + 10 * 3600000) { console.log('tpex fallback holiday'); return; }
     const token = env.GH_DISPATCH_TOKEN;
     if (!token) { console.log('tpex fallback skip no token'); return; }
     const key = `tpex:fallback:${today}`, count = Number(await env.SNAPSHOTS.get(key) ?? '0');

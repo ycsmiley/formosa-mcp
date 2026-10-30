@@ -149,6 +149,13 @@ it('truncates after 1000 keyword matches even when few stops pass the filter', a
   }
 });
 
+it('keeps the location header when a truncated shard has no stops passing the filter', async () => {
+  const svc = createGarbageService({ index: async () => index, shard: async () => ({ ...shard, truncated: true }) });
+  const text = (await svc.schedule({ city: '新北', district: '板橋', keyword: '文化路', time: '17:00' })).text;
+  expect(text.startsWith('新北市板橋區「文化路」：有收運點，但不符合指定的星期或時間。')).toBe(true);
+  expect(text).toContain('符合的收運點太多，請加上里名、路段或時間縮小範圍。');
+});
+
 it('strips the supplied district from the keyword', async () => {
   for (const keyword of ['板橋文化路', '板橋區文化路']) {
     expect((await service.schedule({ city: '新北', district: '板橋', keyword })).text).toContain('文化路１號');

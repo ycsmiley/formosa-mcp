@@ -73,7 +73,7 @@ it('keeps the daily workflow restricted and pinned', () => {
   const uses = [...workflow.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)];
   expect(uses.length).toBeGreaterThan(0);
   for (const match of uses) expect(match[1]).toMatch(/@[0-9a-f]{40}$/);
-  expect(workflow).toContain('actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0\n        with:\n          node-version: 20\n          cache: npm');
+  expect(workflow).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version: 22\n          cache: npm');
   expect(workflow).toMatch(/persist-credentials:\s*false/);
   expect(workflow).toMatch(/permissions:\s*\n\s*contents:\s*read/);
   const timeout = workflow.match(/timeout-minutes:\s*(\d+)/);

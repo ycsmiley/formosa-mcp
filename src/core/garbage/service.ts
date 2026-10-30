@@ -71,7 +71,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       const stops = matched.map(s => ({ ...s, garbage: s.garbage.filter(filter), recycling: s.recycling.filter(filter), food: s.food.filter(filter) })).filter(s => s.garbage.length + s.recycling.length + s.food.length);
       if (q.time) stops.sort((a, b) => [...a.garbage, ...a.recycling, ...a.food].map(s => s.start).sort()[0].localeCompare([...b.garbage, ...b.recycling, ...b.food].map(s => s.start).sort()[0]));
       const prefix = `${cities[city].name}${district}${q.keyword ? `「${q.keyword}」` : ''}：`;
-      const lines = shard.truncated ? (stops.length ? [shard.stops.length >= 200 ? `${prefix}超過 200 個收運點，以下列出前 15 個` : `${prefix}符合太多收運點，以下列出部分結果`] : []) : [stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${(shard.matched ?? matched.length) ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
+      const lines = shard.truncated ? (stops.length ? [shard.stops.length >= 200 ? `${prefix}超過 200 個收運點，以下列出前 15 個` : `${prefix}符合太多收運點，以下列出部分結果`] : [`${prefix}有收運點，但不符合指定的星期或時間。`]) : [stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${(shard.matched ?? matched.length) ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
       const format = (slots: Slot[]) => slots.map(s => `週${[...dayNames].filter((_, i) => s.days & 1 << i).join('、')} ${s.start}${s.end && s.end !== s.start ? `–${s.end}` : ''}`).join('；');
       for (const s of stops.slice(0, 15)) {
         lines.push(`${s.name}（${s.village}，路線 ${s.route}）`);

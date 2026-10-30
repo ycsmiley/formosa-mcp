@@ -213,7 +213,7 @@ it('workflow keeps the token in step env, pins every action and limits permissio
   const actions = [...text.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map(match => match[1]);
   expect(actions.length).toBeGreaterThan(0);
   for (const action of actions) expect(action).toMatch(/@[a-f0-9]{40}$/);
-  expect(text).toContain('actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0\n        with:\n          node-version: 20');
+  expect(text).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version: 22');
   expect(text).not.toContain('cache:');
   expect(text).toContain('      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}');
   expect(text).not.toContain('3c676fc88af6a57ca934efd0627c9cde');
