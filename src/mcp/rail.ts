@@ -27,7 +27,7 @@ export const rail: Toolset = {
   name: 'rail', description: '高鐵／臺鐵時刻與臺鐵即時資訊 Taiwan THSR/TRA timetables and TRA live status',
   register(server, ctx) {
     const id = ctx.env?.TDX_CLIENT_ID?.trim(), secret = ctx.env?.TDX_CLIENT_SECRET?.trim();
-    const service = id && secret ? createRailService({ credentials: { clientId: id, clientSecret: secret }, http: ctx.railHttp ?? ((url, init) => fetch(url, init)), clock: ctx.clock }) : undefined;
+    const service = ctx.railService ?? (id && secret ? createRailService({ credentials: { clientId: id, clientSecret: secret }, http: ctx.railHttp ?? ((url, init) => fetch(url, init)), clock: ctx.clock }) : undefined);
     const schema = { origin: z.string().max(50), destination: z.string().max(50), date: z.string().optional(), time: z.string().optional().describe('時間 HH:mm；24:00–29:59 表示營運日隔日凌晨') };
     for (const [tool, railway, description] of [
       ['thsr_timetable', 'THSR', '查高鐵某日起迄站時刻；站名或代碼，日期預設臺北今天，時間 HH:mm；24:00–29:59 表示營運日隔日凌晨。THSR OD timetable; optional date and departure time.'],

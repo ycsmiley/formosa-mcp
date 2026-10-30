@@ -7,7 +7,7 @@ export const attribution = '資料介接「交通部TDX平臺」';
 export interface RailResult { text: string; isError?: boolean }
 export interface TimetableArgs { origin: string; destination: string; date?: string; time?: string }
 export interface LiveArgs { train_no?: string; station?: string }
-export interface RailServiceOptions { credentials: RailCredentials; http: RailHttp; clock?: Clock }
+export type RailServiceOptions = { clock?: Clock } & ({ credentials: RailCredentials; http: RailHttp } | { get: (path: string) => Promise<unknown> });
 const name = (value: unknown, fallback = '未提供') => string(object(value).Zh_tw) || fallback;
 const trainNo = (value: unknown) => { const s = string(value); if (!/^\d+$/.test(s)) throw new RailError(unavailable); return s; };
 function delay(value: unknown, status: unknown) {
@@ -20,7 +20,7 @@ const duration = (m: number) => `${Math.floor(m / 60) ? `${Math.floor(m / 60)} �
 const showTime = (m: number) => `${hhmm(m)}${m >= 1440 ? '（隔日）' : ''}`;
 export function createRailService(options: RailServiceOptions) {
   const clock = options.clock ?? (() => new Date());
-  const client = createTdxClient(options.credentials, options.http, clock);
+  const client = 'get' in options ? options : createTdxClient(options.credentials, options.http, clock);
   const resolve = createStations(client.get, clock);
   async function run(action: () => Promise<string>): Promise<RailResult> {
     try { return { text: `${await action()}\n${attribution}` }; }

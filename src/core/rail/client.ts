@@ -12,7 +12,22 @@ export const object = (value: unknown): Record<string, unknown> => value !== nul
 export const string = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 export const list = (value: unknown): unknown[] => { if (!Array.isArray(value)) throw new RailError(unavailable); return value; };
 
-export function createTdxClient(credentials: RailCredentials, http: RailHttp, clock: Clock) {
+export const defaultTdxBase = 'https://tdx.transportdata.tw';
+export const tokenPath = '/auth/realms/TDXConnect/protocol/openid-connect/token';
+export function tdxBase(value?: string): string {
+  try {
+    const url = new URL(value ?? '');
+    if (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname) && !url.username && !url.password) return url.origin;
+  } catch { /* Only loopback demos may override the production origin. */ }
+  return defaultTdxBase;
+}
+export function tdxApiUrl(path: string, base = defaultTdxBase, query: Record<string, string> = {}) {
+  return `${base}/api/basic${path}?$format=JSON&$top=${railRowLimit}${Object.entries(query).map(([key, value]) => `&${key}=${encodeURIComponent(value)}`).join('')}`;
+}
+export function tokenBody(credentials: RailCredentials) {
+  return new URLSearchParams({ grant_type: 'client_credentials', client_id: credentials.clientId, client_secret: credentials.clientSecret }).toString();
+}
+export function createTdxClient(credentials: RailCredentials, http: RailHttp, clock: Clock, options: { baseUrl?: string; query?: Record<string, string> } = {}) {
   let cached: { token: string; until: number } | undefined;
   let pending: Promise<string> | undefined;
   async function request(url: string, init: Parameters<RailHttp>[1]) {
@@ -25,9 +40,9 @@ export function createTdxClient(credentials: RailCredentials, http: RailHttp, cl
     if (cached && clock().getTime() < cached.until) return cached.token;
     if (pending) return pending;
     pending = (async () => {
-      const response = await request('https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token', {
+      const response = await request(`${tdxBase(options.baseUrl)}${tokenPath}`, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: 'client_credentials', client_id: credentials.clientId, client_secret: credentials.clientSecret }).toString(),
+        body: tokenBody(credentials),
       });
       if ([400, 401, 403].includes(response.status)) throw new RailError(rejected);
       if (response.status !== 200) throw new RailError(unavailable);
@@ -48,7 +63,7 @@ export function createTdxClient(credentials: RailCredentials, http: RailHttp, cl
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           const access = await token();
-          const response = await request(`https://tdx.transportdata.tw/api/basic${path}?$format=JSON&$top=${railRowLimit}`, { headers: { authorization: `Bearer ${access}` } });
+          const response = await request(tdxApiUrl(path, tdxBase(options.baseUrl), options.query), { headers: { authorization: `Bearer ${access}` } });
           if (response.status === 401 && attempt === 0) {
             // A concurrent 401 for an older token must not invalidate its replacement.
             if (cached?.token === access) cached = undefined;

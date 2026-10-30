@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type { StockSnapshotProvider } from '../core/stock/service.js';
 import type { InvoiceServiceOptions } from '../core/invoice/service.js';
 import { stock } from './stock.js';
+import type { createRailService } from '../core/rail/service.js';
 import type { RailHttp } from '../core/rail/client.js';
 import { rail } from './rail.js';
 import { invoice } from './invoice.js';
@@ -12,6 +13,7 @@ export interface ToolRegistrar {
 export interface ToolsetContext extends InvoiceServiceOptions {
   env?: Record<string, string | undefined>;
   railHttp?: RailHttp;
+  railService?: ReturnType<typeof createRailService>;
   snapshot?: StockSnapshotProvider;
   fetchJson?: (url: string) => Promise<unknown>;
   log?: (msg: string) => void;

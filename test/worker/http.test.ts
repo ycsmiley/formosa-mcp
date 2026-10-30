@@ -114,11 +114,11 @@ it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failu
     expect(warn).toHaveBeenCalledExactlyOnceWith('mcp rate limit unavailable');
   },
 );
-it('lists exactly four tools (rail excluded) and serves seeded snapshots without upstream fetch', async () => {
+it('lists exactly seven tools and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
   try {
-    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['invoice_check', 'invoice_get_winning_numbers', 'stock_dividends', 'stock_quote']);
+    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['invoice_check', 'invoice_get_winning_numbers', 'stock_dividends', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
     for (const [name, args, expected] of [ ['stock_quote', { query: '2330' }, '台積電'], ['stock_quote', { query: '6488' }, '環球晶'], ['stock_dividends', {}, '近期除權息'], ['invoice_get_winning_numbers', {}, '統一發票中獎號碼'], ['invoice_check', { number: '54348835' }, '頭獎'] ] as const) {
       const result = await rpc('tools/call', { name, arguments: args }); const text = result.content[0].text;
       expect(text).toContain(expected); expect(text).not.toMatch(/undefined|null|NaN|\[object/);
@@ -159,12 +159,14 @@ it('returns updating for empty KV and hides malformed data errors', async () => 
   await bindings.SNAPSHOTS.put(keys.twseQuotes, 'private error');
   expect((await rpc('tools/call', { name: 'stock_quote', arguments: { query: '2330' } })).content[0].text).toBe('暫時無法取得資料，請稍後再試。');
 });
-it('matches the configured crons and SQLite counter binding and migration', () => {
+it('matches configured crons and both SQLite bindings and migrations', () => {
   const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
   expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs));
   expect(parsed).not.toHaveProperty('ratelimits');
   expect(parsed.durable_objects.bindings).toContainEqual({ name: 'MCP_RATE_LIMIT', class_name: 'FixedWindowCounter' });
   expect(parsed.migrations).toContainEqual({ tag: 'v1', new_sqlite_classes: ['FixedWindowCounter'] });
+  expect(parsed.durable_objects.bindings).toContainEqual({ name: 'TDX_GATEWAY', class_name: 'TdxGateway' });
+  expect(parsed.migrations).toContainEqual({ tag: 'v2', new_sqlite_classes: ['TdxGateway'] });
 });
 it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warnings and no upstream fetch', async missing => {
   await seed();
@@ -179,7 +181,7 @@ it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warn
     expect(spy).not.toHaveBeenCalled();
   } finally { spy.mockRestore(); }
 });
-const schedules = Object.entries(cronJobs).map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
+const schedules = Object.entries(cronJobs).filter(([, job]) => job !== 'rail').map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
 it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cron, job, scheduledTime }) => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
@@ -191,7 +193,7 @@ it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cr
     for (const key of allKeys) expect(await bindings.SNAPSHOTS.get(key) !== null).toBe(written.includes(key));
   } finally { spy.mockRestore(); }
 });
-it('unknown local cron bootstraps invoice and TWSE, roundtrips payloads and skips all unchanged puts', async () => {
+it('unknown local cron bootstraps invoice, TWSE and rail, roundtrips payloads and skips all unchanged puts', async () => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
   try {

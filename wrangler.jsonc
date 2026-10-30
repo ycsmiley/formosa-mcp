@@ -9,8 +9,8 @@
   // KV namespace "SNAPSHOTS" (production). Not a secret; local dev/tests use local storage.
   "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "e92149e1efec4434835310d434b69f7d" }],
   // SQLite-backed Durable Objects are available on Workers Free.
-  "durable_objects": { "bindings": [{ "name": "MCP_RATE_LIMIT", "class_name": "FixedWindowCounter" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FixedWindowCounter"] }],
+  "durable_objects": { "bindings": [{ "name": "MCP_RATE_LIMIT", "class_name": "FixedWindowCounter" }, { "name": "TDX_GATEWAY", "class_name": "TdxGateway" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FixedWindowCounter"] }, { "tag": "v2", "new_sqlite_classes": ["TdxGateway"] }],
   "triggers": { "crons": [
     // TWSE: UTC Mon–Fri :00/:30 = Taipei Mon 08:00–Sat 07:30, every 30m.
     "0,30 * * * MON-FRI",
@@ -20,6 +20,8 @@
     // Invoice: every 3h UTC 00–21 = Taipei 08/11/14/17/20/23/02/05.
     "0 */3 * * *",
     // Invoice draw day: odd months, UTC 25th 05:00–15:50 = Taipei 13:00–23:50, every 10m.
-    "*/10 5-15 25 1,3,5,7,9,11 *"
+    "*/10 5-15 25 1,3,5,7,9,11 *",
+    // Rail: UTC 16:23/20:23 = Taipei 00:23/04:23; today and tomorrow snapshots.
+    "23 16,20 * * *"
   ] }
 }
