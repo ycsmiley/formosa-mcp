@@ -6,6 +6,7 @@ const number = (n: number | null, digits = 2) => n === null ? '—' : n.toLocale
 const decimal = (n: number, digits = 20) => Number.isFinite(n) ? Number(n.toFixed(digits)).toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: digits }) : '—';
 const signed = (n: number) => `${n > 0 ? '+' : ''}${number(n)}`;
 export const stockFooter = '資料來源：臺灣證券交易所、證券櫃檯買賣中心 OpenAPI；以公司公告為準。';
+const isoDate = (d: StockDate) => new Date(Date.UTC(d.year, d.month - 1, d.day)).toISOString().slice(0, 10);
 export const dateKey = (d: StockDate) => d.year * 10000 + d.month * 100 + d.day;
 export function formatStockLookup(query: string, result: Exclude<StockLookup<StockIdentity>, { kind: 'one' }>): string {
   if (result.kind === 'none') return `找不到「${query}」，請輸入股票代號（例如 2330）或名稱（例如 台積電）。`;
@@ -19,10 +20,18 @@ export function quoteStalenessNote(s: StockQuote, clock: Clock, tpexCheck?: Tpex
     const weekday = new Date(day).getUTCDay();
     if (weekday !== 0 && weekday !== 6 && ++weekdays >= 3) {
       const checked = tpexCheck ? new Date(tpexCheck.lastSuccessAt) : null, age = checked ? now.getTime() - checked.getTime() : NaN;
-      const quoteDate = `${String(s.date.year).padStart(4, '0')}-${String(s.date.month).padStart(2, '0')}-${String(s.date.day).padStart(2, '0')}`;
+      const quoteDate = isoDate(s.date);
       if (s.market === '上櫃' && age >= 0 && age <= 72 * 3600000 && tpexCheck?.dataDate === quoteDate) return `（注意：上櫃資料停在 ${rocDateLabel(s.date)}；${rocDateLabel(taipeiParts(checked!))} 已確認櫃買中心尚無更新資料，可能為休市）`;
       return `（注意：${s.market}資料停在 ${rocDateLabel(s.date)}，可能尚未更新）`;
     }
+  }
+  if (s.market === '上櫃' && tpexCheck) {
+    const expected = new Date(end), checkedAt = new Date(tpexCheck.lastSuccessAt), checked = taipeiParts(checkedAt);
+    if (today.hour < 18 || [0, 6].includes(expected.getUTCDay())) {
+      do { expected.setUTCDate(expected.getUTCDate() - 1); } while ([0, 6].includes(expected.getUTCDay()));
+    }
+    const date = expected.toISOString().slice(0, 10);
+    if (tpexCheck.dataDate < date && isoDate(checked) < date) return `⚠️ 櫃買資料可能延遲，最近一次更新：${isoDate(checked)} ${String(checked.hour).padStart(2, '0')}:${String(checkedAt.getUTCMinutes()).padStart(2, '0')}（台北時間）`;
   }
   return '';
 }

@@ -151,6 +151,19 @@ it.each([
     expect(fetch).not.toHaveBeenCalled();
   } finally { vi.useRealTimers(); }
 });
+it('serves the TPEx delay line through stock_quote with the collector heartbeat', async () => {
+  await seed();
+  const snapshot = decodeQuotesSnapshot((await bindings.SNAPSHOTS.get(keys.tpexQuotes))!);
+  snapshot.rows = snapshot.rows.map(row => ({ ...row, date: { year: 2026, month: 10, day: 29 } }));
+  await bindings.SNAPSHOTS.put(keys.tpexQuotes, encodeQuotesSnapshot(snapshot));
+  await bindings.SNAPSHOTS.put(collectKeys.tpex, JSON.stringify({ v: 1, dataDate: '2026-10-29', lastSuccessAt: '2026-10-29T10:47:00Z' }));
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-30T11:00:00Z'));
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
+  const text = (await rpc('tools/call', { name: 'stock_quote', arguments: { query: '6488' } })).content[0].text;
+  expect(text).toContain('⚠️ 櫃買資料可能延遲，最近一次更新：2026-10-29 18:47（台北時間）');
+  expect(fetch).not.toHaveBeenCalled();
+});
 it('returns updating for empty KV and hides malformed data errors', async () => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   for (const name of ['stock_quote', 'stock_dividends', 'invoice_get_winning_numbers', 'invoice_check']) {

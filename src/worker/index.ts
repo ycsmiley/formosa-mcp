@@ -4,17 +4,17 @@ import { createMcpHandler } from 'agents/mcp/server';
 import { registerToolsets, toolsets } from '../mcp/toolsets.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, decodeQuotesSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
 import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
-import type { TpexCheck } from '../core/stock/service.js';
+import { readTpexCheck, tpexFallback } from './tpex-fallback.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
-import { collectKeys, keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
+import { keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
 import { FixedWindowCounter, hitCounter, ipShard, rateLimitKey } from './counter.js';
 import { userCredentials, workerRail, type RailEnv } from './rail.js';
 export { TdxGateway } from './tdx-gateway.js';
 export { FixedWindowCounter } from './counter.js';
 export { keys, metaKeys } from './snapshot-keys.js';
-export interface Env extends RailEnv { SNAPSHOTS: KVNamespace; MCP_RATE_LIMIT: DurableObjectNamespace<FixedWindowCounter> }
+export interface Env extends RailEnv { SNAPSHOTS: KVNamespace; MCP_RATE_LIMIT: DurableObjectNamespace<FixedWindowCounter>; GH_DISPATCH_TOKEN?: string }
 const MCP_RATE_LIMIT = 30;
 const MCP_RATE_WINDOW_MS = 60_000;
 export const cronJobs = {
@@ -28,15 +28,6 @@ async function read<T>(env: Env, key: string): Promise<T | null> {
   if (value === null) return null;
   const data = isQuotes(key) ? decodeQuotesSnapshot(value) : decodeSnapshot<{ updatedAt: string }>(value);
   return { ...data, updatedAt: metadata?.updatedAt ?? data.updatedAt } as T;
-}
-async function readTpexCheck(env: Env): Promise<TpexCheck | undefined> {
-  try {
-    const data = JSON.parse(await env.SNAPSHOTS.get(collectKeys.tpex) ?? 'null');
-    if (data?.v !== 1 || typeof data.lastSuccessAt !== 'string' || typeof data.dataDate !== 'string') return;
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(data.lastSuccessAt) || !Number.isFinite(Date.parse(data.lastSuccessAt))) return;
-    if ([data.dataDate, data.lastSuccessAt.slice(0, 10)].some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date)) return;
-    return { lastSuccessAt: data.lastSuccessAt, dataDate: data.dataDate };
-  } catch { /* Missing or invalid collector state does not affect quotes. */ }
 }
 async function readMarkets<T>(env: Env, twseKey: string, tpexKey: string) {
   const [twse, tpex, tpexCheck] = await Promise.all([read<MarketSnapshot<T>>(env, twseKey), read<MarketSnapshot<T>>(env, tpexKey), isQuotes(tpexKey) ? readTpexCheck(env) : undefined]);
@@ -91,7 +82,8 @@ export default {
     const job = Object.hasOwn(cronJobs, controller.cron) ? cronJobs[controller.cron as keyof typeof cronJobs] : undefined;
     // Production only sends configured crons. Unknown cron is local bootstrap.
     const jobs = job ? [job] : ['invoice', 'twse'] as const;
-    await Promise.all(jobs.map(async job => {
+    const minute = Math.floor(controller.scheduledTime / 60000) % 1440;
+    await Promise.all([controller.cron === '0,30 * * * MON-FRI' && (minute === 660 || minute === 750) ? tpexFallback(env, controller.scheduledTime) : undefined, ...jobs.map(async job => {
       if (job === 'invoice') {
         try {
           const snapshot = await buildInvoiceSnapshot(fetchInvoiceFeed);
@@ -157,6 +149,6 @@ export default {
           else await env.SNAPSHOTS.delete(metaKeys[job]);
         }
       } catch (error) { console.warn(`stock:${job} fail ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`); }
-    }));
+    })]);
   },
 };

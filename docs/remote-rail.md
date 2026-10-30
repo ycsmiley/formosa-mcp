@@ -6,7 +6,7 @@ Clients may instead send both `X-TDX-Client-Id` and `X-TDX-Client-Secret`. The W
 
 ## Storage and collection
 
-Workers Free stays at 10 ms CPU per invocation. Rail snapshot fetching and TRA compaction run in the [GitHub Actions collector](../.github/workflows/rail-snapshot.yml), using the committed `scripts/dist/publish-rail.mjs` bundle. Worker cron handles invoices and TWSE only.
+Workers Free stays at 10 ms CPU per invocation. Rail snapshot fetching and TRA compaction run in the [GitHub Actions collector](../.github/workflows/rail-snapshot.yml), using the committed `scripts/dist/publish-rail.mjs` bundle. Worker cron handles invoices and TWSE, with a [TPEx workflow dispatch fallback](tpex-fallback.md).
 
 | KV key | Contents / lifetime |
 | --- | --- |

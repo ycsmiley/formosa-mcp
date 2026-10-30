@@ -13,6 +13,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FixedWindowCounter"] }, { "tag": "v2", "new_sqlite_classes": ["TdxGateway"] }],
   "triggers": { "crons": [
     // TWSE: UTC Mon–Fri :00/:30 = Taipei Mon 08:00–Sat 07:30, every 30m.
+    // Also checks TPEx fallback at 11:00/12:30 UTC (Taipei 19:00/20:30).
     "0,30 * * * MON-FRI",
     // TPEx snapshots are written by .github/workflows/tpex-collect.yml.
     // Weekend TWSE only: UTC Sat/Sun 00/06/12/18 :00 = Taipei 08/14/20/02 :00.
