@@ -281,7 +281,7 @@ it('workflow pins actions, guards every subsequent step and keeps secrets out of
   expect(text).toContain('workflow_dispatch:');
   expect(text).toContain('permissions:\n  contents: read');
   expect(text).toContain('group: rail-snapshot\n  cancel-in-progress: false');
-  expect(text).toContain('runs-on: ubuntu-latest\n    timeout-minutes: 15');
+  expect(text).toContain('runs-on: ubuntu-latest\n    timeout-minutes: 20');
   expect(text).toContain('CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}');
   expect(text).toContain('KV_NAMESPACE_ID: e92149e1efec4434835310d434b69f7d');
   expect(text.slice(text.indexOf('run: node scripts/dist/publish-rail.mjs'))).toContain('          TDX_SNAPSHOT_RESERVE: ${{ vars.TDX_SNAPSHOT_RESERVE }}');
