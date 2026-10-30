@@ -138,25 +138,30 @@ function decodeSlot(x) {
   if (!Array.isArray(x) || x.length !== 3 || !Number.isInteger(x[0]) || x[0] < 1 || x[0] > 127 || !validTime(x[1]) || !(x[2] === "" || validTime(x[2]))) throw new Error("Invalid garbage slot");
   return { days: x[0], start: x[1], end: x[2] };
 }
-function decodeShard(text, district, keyword) {
+function decodeShard(text, district, keyword, filter) {
   const [header, ...lines] = text.split("\n");
   const x = JSON.parse(header);
   if (!object(x) || x.v !== 2) throw new Error("Invalid garbage shard");
   const needle = keyword ? norm(keyword) : "";
   const checkLine = !needle.includes('"') && !needle.includes("\\");
   const stops = [];
+  let matched = 0;
   for (const line of lines) {
     if (needle) {
       if (checkLine && !norm(line).includes(needle)) continue;
       const fields = /^\["((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)"/.exec(line);
       if (!fields || !fields.slice(1).some((field) => norm(field.includes("\\") ? JSON.parse(`"${field}"`) : field).includes(needle))) continue;
-      if (stops.length === 200) return { v: 2, stops, truncated: true };
+      matched++;
+      if (matched > 1e3) return { v: 2, stops, truncated: true, matched };
     }
     const s = JSON.parse(line);
     if (!Array.isArray(s) || s.length < 6 || s.length > 7 || typeof s[0] !== "string" || typeof s[1] !== "string" || typeof s[2] !== "string" || !s[2] || s[6] !== void 0 && typeof s[6] !== "string" || !Array.isArray(s[3]) || !Array.isArray(s[4]) || !Array.isArray(s[5])) throw new Error("Invalid garbage stop");
-    stops.push({ district, village: s[0], route: s[1], name: s[2], garbage: s[3].map(decodeSlot), recycling: s[4].map(decodeSlot), food: s[5].map(decodeSlot), ...s[6] === void 0 ? {} : { note: s[6] } });
+    const stop = { district, village: s[0], route: s[1], name: s[2], garbage: s[3].map(decodeSlot), recycling: s[4].map(decodeSlot), food: s[5].map(decodeSlot), ...s[6] === void 0 ? {} : { note: s[6] } };
+    if (filter && ![...stop.garbage, ...stop.recycling, ...stop.food].some(filter)) continue;
+    if (needle && stops.length === 200) return { v: 2, stops, truncated: true, matched };
+    stops.push(stop);
   }
-  return { v: 2, stops };
+  return { v: 2, stops, ...needle ? { matched } : {} };
 }
 function encodeIndex(index) {
   const s = JSON.stringify(index);

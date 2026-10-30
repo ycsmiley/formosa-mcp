@@ -1,7 +1,7 @@
 import type { City, Slot } from './normalize.js';
 import type { Index, Shard } from './snapshot.js';
 import { norm } from './text.js';
-export interface GarbageStore { index(city?: City): Promise<Index | null>; shard(city: City, gen: string, district: string, keyword: string): Promise<Shard | null> }
+export interface GarbageStore { index(city?: City): Promise<Index | null>; shard(city: City, gen: string, district: string, keyword: string, filter?: (slot: Slot) => boolean): Promise<Shard | null> }
 export interface Query { city: string; district?: string; keyword?: string; weekday?: string; time?: string }
 const cities: Record<City, { name: string; source: string }> = {
   ntpc: { name: '新北市', source: '新北市政府環境保護局「新北市垃圾車路線」' },
@@ -37,13 +37,16 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
         }
       }
       if (!district) return { text: `${cities[city].name}請指定行政區：${districts.join('、')}。`, isError: false };
+      if (q.district) {
+        const full = norm(district), short = full.replace(/區$/, '');
+        if (keyword.startsWith(full)) keyword = keyword.slice(full.length).trim();
+        else if (short.length >= 2 && keyword.startsWith(short)) keyword = keyword.slice(short.length).trim();
+      }
       if (!keyword) return { text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false };
       if ([...keyword].length < 2 || /^[\p{N}]+$/u.test(keyword) || /^[\p{P}\p{S}\s]+$/u.test(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
       const now = clock(), wantedDay = weekday(q.weekday, now);
       if (q.weekday && wantedDay === undefined) return { text: '請輸入今天、明天或星期一至星期日。', isError: true };
       if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: '臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n實際收運以各地環保局公告為準（國定假日可能調整）', isError: false };
-      const shard = await store.shard(city, info.gen, district, keyword);
-      if (!shard) return { text: now.getTime() - Date.parse(info.fetchedAt) > 14 * 86400000 ? '垃圾車資料已過時，請稍後再試。' : '資料更新中，請稍後再試', isError: true };
       if (city === 'kaohsiung' && wantedDay !== undefined) {
         const capture = new Date(Date.parse(info.fetchedAt) + 8 * 3600000);
         const today = new Date(now.getTime() + 8 * 3600000);
@@ -54,11 +57,13 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       }
       if (q.time && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(norm(q.time))) return { text: '時間請使用 HH:MM 格式。', isError: true };
       const filter = (s: Slot) => (wantedDay === undefined || !!(s.days & (1 << wantedDay))) && (!q.time || s.start >= norm(q.time));
+      const shard = await store.shard(city, info.gen, district, keyword, filter);
+      if (!shard) return { text: now.getTime() - Date.parse(info.fetchedAt) > 14 * 86400000 ? '垃圾車資料已過時，請稍後再試。' : '資料更新中，請稍後再試', isError: true };
       const matched = shard.stops.filter(s => [s.name, s.village, s.route].some(v => norm(v).includes(keyword)));
       const stops = matched.map(s => ({ ...s, garbage: s.garbage.filter(filter), recycling: s.recycling.filter(filter), food: s.food.filter(filter) })).filter(s => s.garbage.length + s.recycling.length + s.food.length);
       if (q.time) stops.sort((a, b) => [...a.garbage, ...a.recycling, ...a.food].map(s => s.start).sort()[0].localeCompare([...b.garbage, ...b.recycling, ...b.food].map(s => s.start).sort()[0]));
       const prefix = `${cities[city].name}${district}${q.keyword ? `「${q.keyword}」` : ''}：`;
-      const lines = [shard.truncated ? `${prefix}符合的收運點超過 200 筆，請加上里名或路段縮小範圍。` : stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${matched.length ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
+      const lines = [shard.truncated ? `${prefix}符合的收運點超過 200 筆，請加上里名或路段縮小範圍。` : stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${(shard.matched ?? matched.length) ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
       const format = (slots: Slot[]) => slots.map(s => `週${[...dayNames].filter((_, i) => s.days & 1 << i).join('、')} ${s.start}${s.end && s.end !== s.start ? `–${s.end}` : ''}`).join('；');
       for (const s of (shard.truncated ? [] : stops.slice(0, 15))) {
         lines.push(`${s.name}（${s.village}，路線 ${s.route}）`);

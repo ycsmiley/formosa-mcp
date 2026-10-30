@@ -45,5 +45,10 @@ it('refreshes the Kaohsiung cache at Taipei midnight while retaining other citie
     vi.setSystemTime(new Date('2026-10-30T16:01:00Z'));
     await store.index('kaohsiung'); await store.index('ntpc');
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    await store.index('kaohsiung');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    vi.setSystemTime(new Date('2026-10-31T16:01:00Z'));
+    await store.index('kaohsiung');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   } finally { fetchMock.mockRestore(); vi.useRealTimers(); }
 });

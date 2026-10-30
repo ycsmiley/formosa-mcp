@@ -69,7 +69,7 @@ export default {
       const handler = createMcpHandler(() => {
         const server = new McpServer({ name: 'formosa-mcp', version: '0.1.0' });
         registerToolsets(server, toolsets, {}, {
-          garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword) : null; } },
+          garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword, filter) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword, filter) : null; } },
           railService,
           loadDraws: async () => (await read<InvoiceSnapshot>(env, keys.invoice))?.draws ?? null,
           snapshot: { quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },

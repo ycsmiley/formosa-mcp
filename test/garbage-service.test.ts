@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createGarbageService } from '../src/core/garbage/service.js';
 import { readFileSync } from 'node:fs';
 import { normalize } from '../src/core/garbage/normalize.js';
-import type { Index, Shard } from '../src/core/garbage/snapshot.js';
+import { decodeShard, encodeShard, type Index, type Shard } from '../src/core/garbage/snapshot.js';
 const index: Index = { v: 2, generatedAt: '2026-10-30T00:00:00Z', cities: { ntpc: { gen: 'abc', fetchedAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:00Z', stops: 1, districts: { 板橋區: { stops: 1, sha256: 'a'.repeat(64) } } } } };
 const shard: Shard = { v: 2, stops: [{ district: '板橋區', village: '文化里', route: 'A1', name: '文化路１號', garbage: [{ days: 1 << 5, start: '16:30', end: '' }], recycling: [], food: [] }] };
 const service = createGarbageService({ index: async () => index, shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
@@ -55,8 +55,10 @@ it('distinguishes thrown store errors and missing shards', async () => {
 });
 
 it('explains when a requested weekday differs from the Kaohsiung capture', async () => {
-  const svc = createGarbageService({ index: async () => ({ ...index, cities: { kaohsiung: { ...index.cities.ntpc!, capturedWeekday: 0 } } }), shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
+  let calls = 0;
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { kaohsiung: { ...index.cities.ntpc!, capturedWeekday: 0 } } }), shard: async () => { calls++; return shard; } }, () => new Date('2026-10-30T00:00:00Z'));
   expect(await svc.schedule({ city: '高雄', district: '板橋', keyword: '文化', weekday: '週一' })).toEqual({ text: '高雄市資料只含 10/25（星期日）當日班表，無法查詢 11/2（星期一）。', isError: false });
+  expect(calls).toBe(0);
 });
 
 it('asks for a keyword without loading a shard', async () => {
@@ -113,4 +115,31 @@ it('reports stale missing shards and too many matches', async () => {
   expect(result.text).toContain('符合的收運點超過 200 筆');
   expect(result.text).toContain('資料來源：');
   expect(result.text).not.toContain('共 1 個收運點');
+});
+
+
+it('filters slots before applying the shard limit and retains keyword match information', async () => {
+  const stops = Array.from({ length: 250 }, (_, i) => ({ ...shard.stops[0], name: `文化路${i}號`, garbage: [{ days: 1 << (i >= 245 ? 5 : 1), start: i >= 245 ? '19:05' : '16:30', end: '' }] }));
+  const raw = encodeShard({ v: 2, stops });
+  const svc = createGarbageService({ index: async () => index, shard: async (_c, _g, d, k, filter) => decodeShard(raw, d, k, filter) });
+  const query = { city: '新北', district: '板橋', keyword: '文化路' };
+  const result = await svc.schedule({ ...query, weekday: '週五', time: '19:05' });
+  expect(result.text).toContain('共 5 個收運點');
+  expect(result.text).toContain('文化路249號');
+  expect(result.text).not.toContain('超過 200 筆');
+  expect((await svc.schedule({ ...query, time: '20:00' })).text).toContain('有收運點，但不符合指定的星期或時間');
+  expect((await svc.schedule(query)).text).toContain('超過 200 筆');
+});
+
+it('truncates after 1000 keyword matches even when no stops pass the filter', () => {
+  const stops = Array.from({ length: 1100 }, (_, i) => ({ ...shard.stops[0], name: `文化路${i}號` }));
+  const raw = encodeShard({ v: 2, stops });
+  expect(decodeShard(raw, '板橋區', '文化路', () => false)).toEqual({ v: 2, stops: [], truncated: true, matched: 1001 });
+  expect(decodeShard(encodeShard({ v: 2, stops: stops.slice(0, 1000) }), '板橋區', '文化路', () => false)).toEqual({ v: 2, stops: [], matched: 1000 });
+});
+
+it('strips the supplied district from the keyword', async () => {
+  for (const keyword of ['板橋文化路', '板橋區文化路']) {
+    expect((await service.schedule({ city: '新北', district: '板橋', keyword })).text).toContain('文化路１號');
+  }
 });
