@@ -1,0 +1,16 @@
+﻿city,lineid,linename,rank,name,village,longitude,latitude,time,memo,garbagesunday,garbagemonday,garbagetuesday,garbagewednesday,garbagethursday,garbagefriday,garbagesaturday,recyclingsunday,recyclingmonday,recyclingtuesday,recyclingwednesday,recyclingthursday,recyclingfriday,recyclingsaturday,foodscrapssunday,foodscrapsmonday,foodscrapstuesday,foodscrapswednesday,foodscrapsthursday,foodscrapsfriday,foodscrapssaturday
+萬里區,207001,A路線下午,1,獅頭路15-1號(海巡),萬里里,121.6945286,25.17950406,12:40,,,Y,Y,,Y,Y,Y,,Y,,,Y,,,,Y,Y,,Y,Y,Y
+萬里區,207001,A路線下午,2,瑪鋉下街60-2號(海水浴場),萬里里,121.691376,25.179964,12:45,,,Y,Y,,Y,Y,Y,,Y,,,Y,,,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,1,民生路二段80號,玉光里,121.471703,25.018269,13:45,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,2,永豐街55巷38號,玉光里,121.472313,25.018391,13:45,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,3,永豐街75巷46號,玉光里,121.472755,25.018576,13:46,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,4,永豐街75巷18號,玉光里,121.472969,25.018822,13:47,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,5,成功路39號,光仁里,121.475082,25.017645,13:48,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,6,成功路23號,光仁里,121.47525,25.017334,13:49,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,7,成功路8號,光仁里,121.475441,25.016998,13:50,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,8,中山路二段89巷16號,玉光里,121.473938,25.016396,13:51,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,9,中山路二段89巷42號,玉光里,121.473763,25.017006,13:52,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+板橋區,220001,A01路線下午,10,中山路二段89巷58號,玉光里,121.473686,25.017321,13:53,,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y,,Y,Y,,Y,Y,Y
+新莊區,242035,南3路線上午,86,"中正,路453號",海山里,121.442847376651,25.0339845231501,09:30,國定假日、連假隔天會加收,,Y,,,Y,,,,,,,,,,,Y,,,Y,,
+新莊區,242036,南3路線晚上1,87,"中正,路453號",海山里,121.442847376651,25.0339845231501,20:35,國定假日、連假隔天會加收,,,Y,,Y,,Y,,Y,,,Y,,Y,,Y,,,Y,,Y
+新莊區,242001,北1路線上午,1,新莊路150號(三山國王廟前),文德里,121.455286676092,25.0354895743462,08:00,國定假日、連假隔天會加收,,Y,,,Y,,,,,,,,,,,Y,,,Y,,

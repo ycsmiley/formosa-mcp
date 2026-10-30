@@ -498,5 +498,56 @@
     "notes": "以 test/fixtures/tdx/synthetic 測試資料為準（非即時資料）；待 TDX 金鑰",
     "daily_ci": false,
     "requires_key": "TDX"
+  },
+  {
+    "id": "garbage-001",
+    "question": "板橋文化路垃圾車幾點來？",
+    "toolset": "garbage",
+    "expected_tool": "garbage_schedule",
+    "expected_args": {
+      "city": "新北",
+      "keyword": "板橋文化路"
+    },
+    "expected_key_facts": [
+      "資料來源",
+      "收運點"
+    ],
+    "notes": "依資料時間與當日班表回答。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "garbage-002",
+    "question": "台北大安區星期一垃圾車時間？",
+    "toolset": "garbage",
+    "expected_tool": "garbage_schedule",
+    "expected_args": {
+      "city": "台北",
+      "district": "大安",
+      "weekday": "週一"
+    },
+    "expected_key_facts": [
+      "請提供里名、路名或地點關鍵字"
+    ],
+    "notes": "未提供地點關鍵字，應請使用者補充。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "garbage-003",
+    "question": "高雄苓雅區今天垃圾車？",
+    "toolset": "garbage",
+    "expected_tool": "garbage_schedule",
+    "expected_args": {
+      "city": "高雄",
+      "district": "苓雅",
+      "weekday": "今天"
+    },
+    "expected_key_facts": [
+      "請提供里名、路名或地點關鍵字"
+    ],
+    "notes": "未提供地點關鍵字，應請使用者補充。",
+    "daily_ci": false,
+    "requires_key": null
   }
 ]

@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎與台股（上市＋上櫃）盤後行情，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
+讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與五都垃圾車時刻，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
 Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
 
 ## 開始使用
@@ -48,12 +48,14 @@ claude plugin install formosa@formosa-mcp
 - 「台積電收盤多少？」
 - 「上櫃環球晶 6488 本益比多少？」
 - 「台積電什麼時候除息？」
+- 「板橋文化路垃圾車幾點來？」
 
 ## 功能
 
 - 發票：可用，查中獎號碼、領獎期間與對獎。
 - 台股：可用，涵蓋上市＋上櫃；盤後資料，非即時，行情顯示資料日期。
 - 高鐵／台鐵：遠端版預設提供今天與明天的時刻表、額度內的臺鐵即時資料；本機版見[鐵路說明](#鐵路金鑰)。
+- 垃圾車：查詢新北、臺北、臺中、臺南、高雄定點收運時刻；請提供行政區與里名、路名或地點。
 - 氣象：規劃中。
 
 工具：
@@ -201,6 +203,7 @@ npm run remote-check
 
 - 本專案程式碼採 [MIT](LICENSE) 授權。
 - 資料依[政府資料開放授權條款第1版](https://data.gov.tw/license)使用，來源：財政部（統一發票中獎號碼）、臺灣證券交易所（TWSE OpenAPI）、證券櫃檯買賣中心（TPEx OpenAPI）、交通部 TDX 運輸資料流通服務平臺（資料介接「交通部TDX平臺」）。
+- 垃圾車時刻資料來自[新北](https://data.gov.tw/dataset/125664)、[臺北](https://data.gov.tw/dataset/136515)、[臺中](https://data.gov.tw/dataset/84004)、[臺南](https://data.tainan.gov.tw/)、[高雄](https://data.gov.tw/dataset/117726)市環保局開放資料（OGDL-1）；臺北收運日依環保局公告，高雄僅提供當日班表。
 - 非官方專案，與上述機關無關；資料以官方公告為準，可能延遲或有誤。
 - 股票資料為盤後資料，僅供參考，不構成投資建議。
 

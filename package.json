@@ -51,7 +51,8 @@
     "plugin-check": "tsx scripts/plugin-check.ts",
     "rail-demo": "npm run build && tsx scripts/rail-demo.ts",
     "eval:live": "tsx scripts/eval-live.ts",
-    "build:collectors": "node scripts/build-collectors.mjs"
+    "build:collectors": "node scripts/build-collectors.mjs",
+    "collect:garbage": "tsx scripts/collect-garbage.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

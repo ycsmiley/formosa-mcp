@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Garbage collection schedules (`garbage_schedule`, toolset `garbage`) for New Taipei, Taipei, Taichung, Tainan and Kaohsiung: daily GitHub Actions collector writes per-district KV shards (`garbage:v2:${city}:${gen}:${district}`, 14-day TTL, index `garbage:index:v2` last); the Worker reads KV only and local stdio fetches live with a 12-hour cache.
 - Remote rail: project-key KV timetables, GitHub Actions snapshot collection, shared live cache and quota gateway with timetable fallback; optional per-request TDX key headers.
 - Dependency-free offline TDX mock and rail abuse harness, manual multi-runner abuse workflow with optional KV usage comparison, and bilingual remote rail documentation.
 - Rail (opt-in `--toolsets rail`, own TDX key): verified against real TDX responses (2026-10-29); a friendly Traditional Chinese setup guide replaces an error when `TDX_CLIENT_ID` or `TDX_CLIENT_SECRET` is missing, without network calls.
@@ -15,7 +16,6 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - Move rail station/timetable fetching and TRA compaction from Worker cron to a bundled GitHub Actions collector, preserving Workers Free; add local directory/bulk export, paced lazy token calls, monthly usage reporting and a default 300-call snapshot reserve (3,750 live ceiling at quota 4,500).
-
 - TRA station live board sorted by scheduled time, including across midnight.
 - Remote rail developer guides document project-key and bring-your-own-key modes; local rail remains opt-in.
 

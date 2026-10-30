@@ -11,3 +11,5 @@ description: Use Taiwan invoice lottery and end-of-day stock tools for 發票, �
 - 台股盤後行情與除權息：讀取 [台股指引](references/stock.md)。
 
 高鐵／台鐵工具開發中。
+
+For garbage collection schedules in New Taipei, Taipei, Taichung, Tainan and Kaohsiung, use `garbage_schedule` with a city and district or keyword.

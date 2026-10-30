@@ -1,6 +1,6 @@
 # 台灣日常問題評估種子
 
-比較 agent 有／沒有 formosa-mcp 時回答台灣日常問題的準確率。共有 30 題：發票 13 題、台股 13 題、鐵路 4 題。
+比較 agent 有／沒有 formosa-mcp 時回答台灣日常問題的準確率。共有 33 題：發票 13 題、台股 13 題、鐵路 4 題、垃圾車 3 題。
 
 JSON 是物件陣列，每題欄位如下：
 - `id`：唯一題號。
@@ -22,7 +22,7 @@ JSON 是物件陣列，每題欄位如下：
 
 ## English
 
-The 30 questions cover 13 invoice, 13 stock, and 4 rail cases. JSON fields: `id` (unique ID), `question` (zh-TW question), `toolset` and `expected_tool` (expected tools), `expected_args` (equivalent period formats may be normalized), `expected_key_facts` (semantic facts, not verbatim text), `notes` (conditions and exceptions), `daily_ci` (daily selection), optional `expires` (`YYYY-MM-DD`, the date after which the expected answer is no longer valid and the question must be updated; eval-live warns for daily questions within 30 days and fails after expiry), and `requires_key` (`TDX` for rail, otherwise `null`).
+The 33 questions cover 13 invoice, 13 stock, 4 rail, and 3 garbage cases. JSON fields: `id` (unique ID), `question` (zh-TW question), `toolset` and `expected_tool` (expected tools), `expected_args` (equivalent period formats may be normalized), `expected_key_facts` (semantic facts, not verbatim text), `notes` (conditions and exceptions), `daily_ci` (daily selection), optional `expires` (`YYYY-MM-DD`, the date after which the expected answer is no longer valid and the question must be updated; eval-live warns for daily questions within 30 days and fails after expiry), and `requires_key` (`TDX` for rail, otherwise `null`).
 
 Fixed invoice answers use ROC 115 May–June and July–August; the MOF RSS retains six draws, so refresh them roughly a year later. The undrawn `invoice-008` uses evaluation date 2026-10-26 and must be updated after the draw; `invoice-013` is valid through ROC 116 March 25. Stock answers follow source data dates, not live prices; ex-dividend dates are filtered using the evaluation date in Taipei time.
 

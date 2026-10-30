@@ -83,6 +83,45 @@
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
+    },
+    {
+      "name": "garbage_schedule",
+      "description": "查詢新北市、臺北市、臺中市、臺南市、高雄市垃圾車定點收運時刻。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "description": "城市名稱"
+          },
+          "district": {
+            "description": "行政區；關鍵字包含行政區時可省略",
+            "type": "string",
+            "maxLength": 30
+          },
+          "keyword": {
+            "description": "里、路名或地點",
+            "type": "string",
+            "maxLength": 100
+          },
+          "weekday": {
+            "description": "今天、明天或週一至週日",
+            "type": "string",
+            "maxLength": 10
+          },
+          "time": {
+            "description": "HH:MM，只顯示此時間及之後的收運點",
+            "type": "string",
+            "maxLength": 10
+          }
+        },
+        "required": [
+          "city"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
     }
   ]
 }

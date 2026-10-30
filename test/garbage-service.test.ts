@@ -1,0 +1,73 @@
+import { describe, expect, it } from 'vitest';
+import { createGarbageService } from '../src/core/garbage/service.js';
+import type { Index, Shard } from '../src/core/garbage/snapshot.js';
+const index: Index = { v: 2, generatedAt: '2026-10-30T00:00:00Z', cities: { ntpc: { gen: 'abc', fetchedAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:00Z', stops: 1, districts: { 板橋區: { stops: 1, sha256: 'a'.repeat(64) } } } } };
+const shard: Shard = { v: 2, stops: [{ district: '板橋區', village: '文化里', route: 'A1', name: '文化路１號', garbage: [{ days: 1 << 5, start: '16:30', end: '' }], recycling: [], food: [] }] };
+const service = createGarbageService({ index: async () => index, shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
+describe('garbage schedule service', () => {
+  it('resolves district from keyword, normalizes digits, filters and warns about stale data', async () => {
+    const result = await service.schedule({ city: '新北', keyword: '板橋 文化路1號', weekday: '週五', time: '16:00' });
+    expect(result.text).toContain('文化路１號');
+    expect(result.text).toContain('資料可能已過時');
+    expect(result.text).not.toMatch(/[{}]/);
+  });
+  it('explains no results and unsupported cities', async () => {
+    expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '文化路', time: '17:00' })).text).toContain('「文化路」有收運點，但不符合指定的星期或時間。');
+    expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '不存在' })).text).toContain('找不到');
+    expect((await service.schedule({ city: '桃園' })).text).toContain('尚未支援');
+  });
+  it('reports missing snapshots', async () => {
+    const empty = createGarbageService({ index: async () => null, shard: async () => null });
+    expect(await empty.schedule({ city: '新北' })).toEqual({ text: '資料更新中，請稍後再試', isError: true });
+  });
+});
+
+it('explains Taipei weekday rules and Kaohsiung capture day', async () => {
+  const entry = index.cities.ntpc!;
+  for (const [city, code, quirk] of [['台北', 'taipei', '部分回收日依站點名稱標示'], ['高雄', 'kaohsiung', '高雄市資料只含 10/25（星期日）當日班表']] as const) {
+    const svc = createGarbageService({ index: async () => ({ ...index, cities: { [code]: { ...entry, capturedWeekday: 0 } } }), shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
+    expect((await svc.schedule({ city, district: '板橋', keyword: '文化' })).text).toContain(quirk);
+  }
+});
+
+it('distinguishes thrown store errors and missing shards', async () => {
+  const broken = createGarbageService({ index: async () => { throw Error('private detail'); }, shard: async () => null });
+  expect(await broken.schedule({ city: '新北' })).toEqual({ text: '暫時無法取得垃圾車資料，請稍後再試。', isError: true });
+  const missing = createGarbageService({ index: async () => index, shard: async () => null });
+  expect(await missing.schedule({ city: '新北', district: '板橋', keyword: '文化' })).toEqual({ text: '資料更新中，請稍後再試', isError: true });
+});
+
+it('explains when a requested weekday differs from the Kaohsiung capture', async () => {
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { kaohsiung: { ...index.cities.ntpc!, capturedWeekday: 0 } } }), shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
+  expect(await svc.schedule({ city: '高雄', district: '板橋', keyword: '文化', weekday: '週一' })).toEqual({ text: '高雄市資料只含 10/25（星期日）當日班表，無法查詢 11/2（星期一）。', isError: false });
+});
+
+it('asks for a keyword without loading a shard', async () => {
+  let calls = 0;
+  const svc = createGarbageService({ index: async () => index, shard: async () => { calls++; return shard; } });
+  for (const query of [{ city: '新北', district: '板橋' }, { city: '新北', keyword: '板橋區' }]) {
+    expect(await svc.schedule(query)).toEqual({ text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false });
+  }
+  expect(calls).toBe(0);
+});
+
+it('compares Kaohsiung calendar dates and formats identical slot endpoints', async () => {
+  const entry = { ...index.cities.ntpc!, fetchedAt: '2026-10-23T00:00:00Z', capturedWeekday: 5 };
+  const point = { ...shard, stops: [{ ...shard.stops[0], garbage: [{ days: 1 << 5, start: '18:01', end: '18:01' }] }] };
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { kaohsiung: entry } }), shard: async () => point }, () => new Date('2026-10-30T00:00:00Z'));
+  const query = { city: '高雄', district: '板橋', keyword: '文化', weekday: '今天' };
+  expect((await svc.schedule(query)).text).toContain('無法查詢 10/30（星期五）');
+  entry.fetchedAt = '2026-10-30T00:00:00Z';
+  const result = await svc.schedule(query);
+  expect(result.text).toContain('週五 18:01');
+  expect(result.text).not.toContain('18:01–18:01');
+});
+
+it('infers only district prefixes or separate full district tokens', async () => {
+  const entry = { ...index.cities.ntpc!, districts: { 東區: { stops: 1, sha256: 'a'.repeat(64) }, 西屯區: { stops: 1, sha256: 'b'.repeat(64) }, 板橋區: { stops: 1, sha256: 'c'.repeat(64) } } };
+  const calls: string[] = [];
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { tainan: entry } }), shard: async (_c, _g, d, k) => { calls.push(`${d}:${k}`); return shard; } });
+  expect((await svc.schedule({ city: '台南', keyword: '和平東路' })).text).toContain('請指定行政區');
+  for (const keyword of ['板橋文化路', '西屯 河南路', '東區和平路', '和平 東區 路']) await svc.schedule({ city: '台南', keyword });
+  expect(calls).toEqual(['板橋區:文化路', '西屯區:河南路', '東區:和平路', '東區:和平  路']);
+});

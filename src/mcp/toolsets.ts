@@ -1,3 +1,5 @@
+import { garbage } from './garbage.js';
+import type { GarbageStore } from '../core/garbage/service.js';
 import type { z } from 'zod';
 import type { StockSnapshotProvider } from '../core/stock/service.js';
 import type { InvoiceServiceOptions } from '../core/invoice/service.js';
@@ -11,6 +13,7 @@ export interface ToolRegistrar {
   registerTool(name: string, config: { description: string; inputSchema: z.ZodRawShape }, cb: (args: any) => Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }>): unknown;
 }
 export interface ToolsetContext extends InvoiceServiceOptions {
+  garbageStore?: GarbageStore;
   env?: Record<string, string | undefined>;
   railHttp?: RailHttp;
   railService?: ReturnType<typeof createRailService>;
@@ -24,7 +27,7 @@ export interface Toolset {
   requiredEnv?: string[];
   register(server: ToolRegistrar, ctx: ToolsetContext): void;
 }
-export const toolsets: Toolset[] = [invoice, stock, rail];
+export const toolsets: Toolset[] = [invoice, stock, garbage, rail];
 export function registerToolsets(server: ToolRegistrar, selected: Toolset[], env: Record<string, string | undefined>, ctx: ToolsetContext = {}): void {
   const log = ctx.log ?? console.error;
   for (const toolset of selected) {
