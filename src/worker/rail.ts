@@ -56,11 +56,9 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
       try {
         const now = new Date(), date = parseDate(args.date, now);
         const today = taipeiNow(now).date, tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
-        const snapshot = [today, tomorrow].includes(date) ? await read<TimetableSnapshot>(env, timetableKey(railway, date)) : null;
-        if (!snapshot) {
-          const any = await env.SNAPSHOTS.list({ prefix: 'rail:timetable:', limit: 1 });
-          return reply(any.keys.length ? outsideCoverage : unavailableSnapshot);
-        }
+        if (![today, tomorrow].includes(date)) return reply(outsideCoverage);
+        const snapshot = await read<TimetableSnapshot>(env, timetableKey(railway, date));
+        if (!snapshot) return reply(unavailableSnapshot);
         const stations = await read<StationsSnapshot>(env, stationKey(railway));
         if (!stations) return reply(`${unavailableSnapshot}\n${snapshotTime(snapshot.fetchedAt)}`);
         const service = createRailService({ get: async path => {
@@ -75,8 +73,9 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
     },
     async live(args: LiveArgs): Promise<RailResult> {
       const now = new Date(), date = taipeiNow(now).date;
-      const [snapshot, stations] = await Promise.all([read<TimetableSnapshot>(env, timetableKey('TRA', date)), read<StationsSnapshot>(env, stationKey('TRA'))]);
-      const fallback = async (reason: string) => ({ text: await renderFallback(args, reason, snapshot, stations, now) });
+      const yesterday = new Date(Date.parse(`${date}T00:00:00Z`) - 86400_000).toISOString().slice(0, 10);
+      const [snapshot, stations, previous] = await Promise.all([read<TimetableSnapshot>(env, timetableKey('TRA', date)), read<StationsSnapshot>(env, stationKey('TRA')), read<TimetableSnapshot>(env, timetableKey('TRA', yesterday))]);
+      const fallback = async (reason: string) => ({ text: await renderFallback(args, reason, snapshot, stations, now, previous) });
       if ((args.train_no !== undefined) === (args.station !== undefined)) return reply('請擇一提供 train_no（車次）或 station（車站）');
       const no = args.train_no?.normalize('NFKC').trim();
       if (no !== undefined && !/^\d{1,10}$/.test(no)) return reply('請輸入有效的數字車次');
@@ -107,10 +106,11 @@ export async function refreshRail(env: RailEnv, now = new Date()) {
   }
   const stub = gateway(env);
   async function get(path: string, query?: Record<string, string>): Promise<unknown> {
-    for (let waits = 0; ; waits++) {
+    for (let waits = 0, retries = 0; ;) {
       const admitted = await stub.acquire('snapshot');
       if (!admitted.ok) {
         if (admitted.reason === 'minute' && waits < 3) {
+          waits++;
           await new Promise(resolve => setTimeout(resolve, Math.min(60_000, Math.max(1, admitted.retryAfterMs ?? 60_000))));
           continue;
         }
@@ -119,6 +119,10 @@ export async function refreshRail(env: RailEnv, now = new Date()) {
       const response = await fetch(tdxApiUrl(path, tdxBase(env.TDX_BASE_URL), query), {
         headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(30_000),
       });
+      if (response.status === 401) {
+        await stub.invalidate(admitted.token);
+        if (retries++ === 0) continue;
+      }
       if (response.status !== 200) throw new RailError('snapshot unavailable');
       return response.json();
     }

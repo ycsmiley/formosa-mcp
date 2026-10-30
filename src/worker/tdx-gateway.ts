@@ -23,12 +23,13 @@ export class TdxGateway extends DurableObject<TdxEnv> {
   private queue: Promise<unknown> = Promise.resolve();
   private cache = new Map<string, { data: object; fetchedAt: string; until: number }>();
   private pending = new Map<string, Promise<LiveResult>>();
-  private ips = new Map<string, number[]>();
 
   constructor(ctx: DurableObjectState, env: TdxEnv) {
     super(ctx, env);
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS tdx_days (day TEXT NOT NULL, purpose TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(day, purpose));
       CREATE TABLE IF NOT EXISTS tdx_calls (at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS tdx_ip_misses (ip TEXT NOT NULL, at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS tdx_ip_misses_ip ON tdx_ip_misses(ip);
       CREATE TABLE IF NOT EXISTS tdx_token (id INTEGER PRIMARY KEY CHECK(id=1), token TEXT NOT NULL, until INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS tdx_monitor (id INTEGER PRIMARY KEY CHECK(id=1), at INTEGER NOT NULL, fingerprint TEXT NOT NULL);`);
   }
@@ -40,6 +41,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
   private counts(now: Date): Counts & { byPurpose: Record<string, number> } {
     const sql = this.ctx.storage.sql, { today, month } = calendar(now), ms = now.getTime();
     sql.exec('DELETE FROM tdx_calls WHERE at <= ?', ms - 60_000);
+    sql.exec('DELETE FROM tdx_ip_misses WHERE at <= ?', ms - 3600_000);
     sql.exec('DELETE FROM tdx_days WHERE day < ?', calendar(new Date(ms - 62 * 86400_000)).today);
     const rows = sql.exec<{ day: string; purpose: string; count: number }>('SELECT day, purpose, count FROM tdx_days WHERE day >= ? AND day <= ?', `${month}-01`, today).toArray();
     const byPurpose: Record<string, number> = { token: 0, live: 0, snapshot: 0 };
@@ -58,11 +60,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
   }
   private check(n: number, purpose: Purpose, ipKey?: string): { ok: true } | Denied {
     const now = new Date(), counts = this.counts(now);
-    for (const [key, timestamps] of this.ips) {
-      const recent = timestamps.filter(at => at > now.getTime() - 3600_000);
-      if (recent.length) this.ips.set(key, recent); else this.ips.delete(key);
-    }
-    counts.ipMisses = ipKey === undefined ? 0 : (this.ips.get(ipKey)?.length ?? 0);
+    counts.ipMisses = ipKey === undefined ? 0 : this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM tdx_ip_misses WHERE ip = ? AND at > ?', ipKey, now.getTime() - 3600_000).one().n;
     const result = decide(n, purpose, counts, now);
     if (!result.ok && result.reason === 'minute') {
       const first = this.ctx.storage.sql.exec<{ at: number }>('SELECT at FROM tdx_calls ORDER BY at LIMIT 1').toArray()[0];
@@ -83,7 +81,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     let token = this.cachedToken()?.token;
     const decision = this.check(token ? 1 : 2, purpose, ipKey);
     if (!decision.ok) return decision;
-    if (purpose === 'live' && ipKey !== undefined) this.ips.set(ipKey, [...(this.ips.get(ipKey) ?? []), Date.now()]);
+    if (purpose === 'live' && ipKey !== undefined) this.ctx.storage.sql.exec('INSERT INTO tdx_ip_misses(ip,at) VALUES(?,?)', ipKey, Date.now());
     if (!token) {
       this.record('token');
       try {
@@ -124,7 +122,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
               headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
             });
             if (response.status !== 200) {
-              if (response.status === 401) this.ctx.storage.sql.exec('DELETE FROM tdx_token');
+              if (response.status === 401) await this.invalidate(admitted.token);
               return { ok: false, reason: 'upstream' };
             }
             const data = await response.json() as object, fetchedAt = new Date().toISOString();
@@ -144,6 +142,9 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     if (purpose !== 'snapshot') return { ok: false, reason: 'upstream' };
     try { return await this.serial(() => this.admit('snapshot')); }
     finally { this.monitor(); }
+  }
+  async invalidate(token: string) {
+    this.ctx.storage.sql.exec('DELETE FROM tdx_token WHERE token = ?', token);
   }
   async usage(): Promise<Usage> {
     const now = new Date(), counts = this.counts(now);

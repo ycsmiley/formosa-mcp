@@ -66,6 +66,21 @@ it('persists the token in SQLite and reuses it in a later minute and a fresh ins
   expect(http).toHaveBeenCalledTimes(3);
   expect((await target.usage()).byPurpose.token).toBe(1);
 });
+it('invalidates only the matching token and counts its replacement', async () => {
+  const target = await setup(), http = mockHttp();
+  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'project-token-SENTINEL' });
+  await target.invalidate('stale-token');
+  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'project-token-SENTINEL' });
+  vi.setSystemTime(Date.now() + 60000);
+  await target.invalidate('project-token-SENTINEL');
+  // Create the response in the calling Durable Object's I/O context.
+  http.mockImplementation(async () => Response.json({ access_token: 'replacement-token', expires_in: 3600 }));
+  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'replacement-token' });
+  await target.invalidate('project-token-SENTINEL');
+  expect(await target.acquire('snapshot')).toMatchObject({ ok: true, token: 'replacement-token' });
+  expect(http).toHaveBeenCalledTimes(2);
+  expect(await target.usage()).toMatchObject({ monthUsed: 6, byPurpose: { token: 2, snapshot: 4 } });
+});
 async function seed(target: ReturnType<typeof stub>, day: string, purpose: string, count: number) {
   await runInDurableObject(target, (_instance, ctx) => {
     ctx.storage.sql.exec('INSERT OR REPLACE INTO tdx_days(day,purpose,count) VALUES(?,?,?)', day, purpose, count);
@@ -109,6 +124,23 @@ it('allows six upstream-triggering misses per IP per hour, with free hits and in
   expect(http).toHaveBeenCalledTimes(8);
   vi.setSystemTime(Date.now() + 3600_000);
   expect(await target.live(path(8), 'same-ip')).toMatchObject({ ok: true });
+});
+it('persists hourly IP misses across a fresh instance and prunes expired rows', async () => {
+  const target = await setup(), http = mockHttp(), ip = '2001:db8:1234:5678::/64';
+  for (let i = 0; i < 6; i++) {
+    vi.setSystemTime(Date.now() + 61000);
+    expect(await target.live(path(i), ip)).toMatchObject({ ok: true });
+  }
+  await runInDurableObject(target, async (_instance, ctx) => {
+    expect(ctx.storage.sql.exec('SELECT DISTINCT ip FROM tdx_ip_misses').toArray()).toEqual([{ ip }]);
+    const restarted = new TdxGateway(ctx, { ...bindings, ...credentials });
+    expect(await restarted.live(path(7), ip)).toMatchObject({ ok: false, reason: 'ip' });
+    expect(await restarted.live(path(7), '192.0.2.1')).toMatchObject({ ok: true });
+    vi.setSystemTime(Date.now() + 3600_000);
+    expect(await restarted.live(path(8), ip)).toMatchObject({ ok: true });
+    expect(ctx.storage.sql.exec('SELECT ip, at FROM tdx_ip_misses').toArray()).toEqual([{ ip, at: Date.now() }]);
+  });
+  expect(http).toHaveBeenCalledTimes(9);
 });
 it.each([400, 401, 403])('counts token authentication failure %i without logging secrets', async status => {
   const target = await setup();

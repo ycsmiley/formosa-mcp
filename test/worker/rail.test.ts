@@ -1,10 +1,11 @@
-import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
+import { env, createExecutionContext, createScheduledController, runInDurableObject } from 'cloudflare:test';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { buildInvoiceSnapshot, encodeSnapshot } from '../../src/core/snapshot.js';
 import xml from '../fixtures/invoice.xml?raw';
 import worker, { keys, type Env } from '../../src/worker/index.js';
 import { compactStations, compactTimetable, stationKey, timetableKey } from '../../src/core/rail/snapshot.js';
 import { refreshRail, userCredentials } from '../../src/worker/rail.js';
+import { TdxGateway, type TdxEnv } from '../../src/worker/tdx-gateway.js';
 import thsrStations from '../fixtures/tdx/real/thsr-stations.json';
 import traStations from '../fixtures/tdx/real/tra-stations.json';
 import thsrOD from '../fixtures/tdx/real/thsr-od-1000-1070.json';
@@ -64,14 +65,35 @@ it.each([
 });
 it('explains missing snapshots and date coverage without errors or fetching', async () => {
   const http = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+  const list = vi.spyOn(bindings.SNAPSHOTS, 'list');
   const args = { origin: '臺北', destination: '高雄', date: '後天' };
-  expect(textOf(await rpc('tra_timetable', args))).toContain('時刻表資料尚未準備好，請稍後再試；也可帶自己的 TDX 金鑰查詢。');
+  expect(textOf(await rpc('tra_timetable', args))).toContain('只涵蓋今天與明天');
+  expect(textOf(await rpc('tra_timetable', { ...args, date: '今天' }))).toContain('時刻表資料尚未準備好');
   await seed();
   expect(textOf(await rpc('tra_timetable', args))).toContain('公開網址的時刻表只涵蓋今天與明天（臺北時間）');
   // Old KV keys survive for three days but are outside the public date window.
   await bindings.SNAPSHOTS.put(timetableKey('TRA', '2026-10-28'), JSON.stringify(compactTimetable('TRA', traOD, '2026-10-28', fetchedAt)));
   expect(textOf(await rpc('tra_timetable', { ...args, date: '2026-10-28' }))).toContain('只涵蓋今天與明天');
   expect(http).not.toHaveBeenCalled();
+  expect(list).not.toHaveBeenCalled();
+});
+it.each([date, '2026-10-30'])('reports a missing covered snapshot for %s even when other timetables exist', async day => {
+  await seed();
+  await bindings.SNAPSHOTS.delete(timetableKey('TRA', day));
+  const list = vi.spyOn(bindings.SNAPSHOTS, 'list');
+  const text = textOf(await rpc('tra_timetable', { origin: '臺北', destination: '高雄', date: day }));
+  expect(text).toContain('時刻表資料尚未準備好'); expect(text).not.toContain('只涵蓋今天與明天');
+  expect(list).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+});
+it.each([{ train_no: '999' }, { station: '高雄' }])('reads yesterday for overnight fallback %j', async args => {
+  await seed();
+  vi.setSystemTime(new Date('2026-10-29T00:05:00+08:00'));
+  const previous = compactTimetable('TRA', traOD, '2026-10-28', '2026-10-27T16:23:00Z');
+  previous.trains = [{ ...previous.trains[0], no: '999', overnight: true, stops: [['1000', '23:00', '23:01', 0], ['4400', '00:20', '00:21', 0]] }];
+  await bindings.SNAPSHOTS.put(timetableKey('TRA', previous.date), JSON.stringify(previous));
+  const text = textOf(await rpc('tra_live', args));
+  expect(text).toContain('999 次'); expect(text).toContain('00:21');
+  expect(fetch).not.toHaveBeenCalled();
 });
 it.each([{ train_no: '149' }, { station: '臺北' }])('degrades tra_live without a project key for %j', async args => {
   await seed();
@@ -214,6 +236,33 @@ it('refetches stations only after seven days', async () => {
   await bindings.SNAPSHOTS.put(stationKey('TRA'), JSON.stringify(old));
   await refreshRail(scenario.env); expect(http).toHaveBeenCalledTimes(1);
   expect(String(http.mock.calls[0][0])).toContain('/TRA/Station?');
+});
+it.each([false, true])('invalidates a snapshot 401 and retries once, counting token and data calls (repeat=%s)', async repeat => {
+  await seed();
+  await bindings.SNAPSHOTS.delete(timetableKey('TRA', date));
+  const target = bindings.TDX_GATEWAY.get(bindings.TDX_GATEWAY.idFromName(crypto.randomUUID()));
+  await runInDurableObject(target, (instance, ctx) => {
+    vi.spyOn(ctx.storage, 'setAlarm').mockResolvedValue();
+    const state = instance as unknown as { env: TdxEnv };
+    state.env = { ...state.env, ...credentials };
+  });
+  // RPC methods must remain on the prototype, not become instance properties.
+  const invalidate = vi.spyOn(TdxGateway.prototype, 'invalidate');
+  const namespace = { idFromName: () => target.id, get: () => target };
+  let tokens = 0, calls = 0;
+  const http = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (String(input).endsWith('/token')) return Response.json({ access_token: `token-${++tokens}`, expires_in: 3600 });
+    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer token-${++calls}`);
+    return calls === 1 || repeat ? new Response(null, { status: 401 }) : Response.json(traOD);
+  });
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await refreshRail({ ...bindings, ...credentials, TDX_GATEWAY: namespace as unknown as Env['TDX_GATEWAY'] });
+  expect(invalidate).toHaveBeenCalledTimes(repeat ? 2 : 1);
+  expect(invalidate).toHaveBeenNthCalledWith(1, 'token-1');
+  if (repeat) expect(invalidate).toHaveBeenNthCalledWith(2, 'token-2');
+  expect(tokens).toBe(2); expect(calls).toBe(2); expect(http).toHaveBeenCalledTimes(4);
+  expect(await target.usage()).toMatchObject({ monthUsed: 4, byPurpose: { token: 2, snapshot: 2 } });
+  expect(await bindings.SNAPSHOTS.get(timetableKey('TRA', date)) === null).toBe(repeat);
 });
 it.each([2, 3])('paginates TRA in pages of one thousand with cap %i', async pages => {
   await seed(); const scenario = cronEnv(), http = cronHttp();

@@ -68,22 +68,28 @@ export const fallbackReasons: Record<string, string> = {
   minute: '目前查詢人數較多（每分鐘上限）', daily: '今日即時查詢額度已用完', monthly: '本月即時查詢額度已用完',
   ip: '你的即時查詢太頻繁', nokey: '伺服器尚未設定 TDX 金鑰', upstream: 'TDX 即時服務暫時無法使用', auth: 'TDX 即時服務暫時無法使用',
 };
-export async function renderFallback(args: LiveArgs, reason: string, snapshot: TimetableSnapshot | null, stations: StationsSnapshot | null, now: Date) {
+export async function renderFallback(args: LiveArgs, reason: string, snapshot: TimetableSnapshot | null, stations: StationsSnapshot | null, now: Date, yesterday: TimetableSnapshot | null = null) {
   const lines = [fallbackReasons[reason] ?? fallbackReasons.upstream, '即時誤點暫時無法提供，可帶自己的 TDX 金鑰查即時資料'];
+  let source = snapshot ?? yesterday;
   try {
-    if (!snapshot || !stations) lines.push('時刻表資料尚未準備好，請稍後再試');
+    if (!source || !stations) lines.push('時刻表資料尚未準備好，請稍後再試');
     else {
       const stationName = (id: string) => stations.stations.find(s => s[0] === id)?.[1] ?? id;
       if (args.train_no !== undefined) {
-        const no = args.train_no.normalize('NFKC').trim(), train = snapshot.trains.find(t => t.no === no);
+        const no = args.train_no.normalize('NFKC').trim();
+        let train = snapshot?.trains.find(t => t.no === no);
+        if (!train) {
+          train = yesterday?.trains.find(t => t.no === no && (t.overnight || t.cross));
+          if (train) source = yesterday;
+        }
         if (!train) lines.push(`時刻表中查無 ${no} 次列車`);
-        else lines.push(`臺鐵表訂停靠站｜${no} 次｜${train.type || '車種未提供'}｜往 ${train.end || '未提供'}`,
-          ...train.stops.map(([id, arr, dep]) => `${stationName(id)}｜表訂時間 到站 ${arr || '未提供'}／離站 ${dep || '未提供'}`));
+        else lines.push(`臺鐵表訂停靠站｜${no} 次｜${train.type || '車種未提供'}｜往 ${train.end || '未提供'}${train.suspended !== 0 ? '（停駛）' : ''}`,
+          ...train.stops.map(([id, arr, dep, suspended]) => `${stationName(id)}｜表訂時間 到站 ${arr || '未提供'}／離站 ${dep || '未提供'}${suspended !== 0 ? '（停駛）' : ''}`));
       } else {
         const station = await createStations(async () => expandStations('TRA', stations), () => now)('TRA', args.station ?? '');
-        const rows = snapshot.trains.flatMap(train => {
+        const rows = [snapshot, yesterday].flatMap((day, index) => day?.trains.flatMap(train => {
           const stop = train.stops.find(s => s[0] === station.id);
-          if (!stop) return [];
+          if (!stop || train.suspended !== 0 || stop[3] !== 0) return [];
           const time = minutes(stop[2]) ?? minutes(stop[1]);
           // Full-route stop order preserves the operating day's midnight rollover.
           let offset = 0, previous = -1;
@@ -94,13 +100,14 @@ export async function renderFallback(args: LiveArgs, reason: string, snapshot: T
             previous = t;
             if (item === stop) break;
           }
-          return time === undefined || time + offset < taipeiNow(now).minutes ? [] : [{ train, time: time + offset }];
-        }).sort((a, b) => a.time - b.time || a.train.no.localeCompare(b.train.no, 'en', { numeric: true }));
+          if (index === 1 && offset < 1440) return [];
+          return time === undefined || time + offset - index * 1440 < taipeiNow(now).minutes ? [] : [{ train, time: time + offset - index * 1440 }];
+        }) ?? []).sort((a, b) => a.time - b.time || a.train.no.localeCompare(b.train.no, 'en', { numeric: true }));
         lines.push(`臺鐵表訂看板｜${station.name}`, ...rows.slice(0, 10).map(({ train, time }) => `${train.no} 次｜${train.type || '車種未提供'}｜往 ${train.end || '未提供'}｜表訂時間 ${hhmm(time)}${time >= 1440 ? '（隔日）' : ''}`));
         if (!rows.length) lines.push('時刻表中查無此站接下來的班次');
       }
-      if (snapshot.truncated) lines.push(truncatedNote);
+      if (source?.truncated || (args.train_no === undefined && yesterday?.truncated)) lines.push(truncatedNote);
     }
   } catch { lines.push('時刻表中查無此車站'); }
-  return [...lines, snapshotTime(snapshot?.fetchedAt), attribution].join('\n');
+  return [...lines, snapshotTime(source?.fetchedAt), attribution].join('\n');
 }
