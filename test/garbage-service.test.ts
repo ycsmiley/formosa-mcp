@@ -5,7 +5,7 @@ import { normalize } from '../src/core/garbage/normalize.js';
 import { decodeShard, encodeShard, type Index, type Shard } from '../src/core/garbage/snapshot.js';
 const index: Index = { v: 2, generatedAt: '2026-10-30T00:00:00Z', cities: { ntpc: { gen: 'abc', fetchedAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:00Z', stops: 1, districts: { 板橋區: { stops: 1, sha256: 'a'.repeat(64) } } } } };
 const shard: Shard = { v: 2, stops: [{ district: '板橋區', village: '文化里', route: 'A1', name: '文化路１號', garbage: [{ days: 1 << 5, start: '16:30', end: '' }], recycling: [], food: [] }] };
-const service = createGarbageService({ index: async () => index, shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
+const service = createGarbageService({ index: async () => index, shard: async (_c, _g, d, k, filter) => decodeShard(encodeShard(shard), d, k, filter) }, () => new Date('2026-10-30T00:00:00Z'));
 describe('garbage schedule service', () => {
   it('resolves district from keyword, normalizes digits, filters and warns about stale data', async () => {
     const result = await service.schedule({ city: '新北', keyword: '板橋 文化路1號', weekday: '週五', time: '16:00' });
@@ -85,10 +85,10 @@ it('compares Kaohsiung calendar dates and formats identical slot endpoints', asy
 it('infers only district prefixes or separate full district tokens', async () => {
   const entry = { ...index.cities.ntpc!, districts: { 東區: { stops: 1, sha256: 'a'.repeat(64) }, 西屯區: { stops: 1, sha256: 'b'.repeat(64) }, 板橋區: { stops: 1, sha256: 'c'.repeat(64) } } };
   const calls: string[] = [];
-  const svc = createGarbageService({ index: async () => ({ ...index, cities: { tainan: entry } }), shard: async (_c, _g, d, k) => { calls.push(`${d}:${k}`); return shard; } });
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { tainan: entry } }), shard: async (_c, _g, d, k) => { calls.push(`${d}:${k}`); return { v: 2, stops: [] }; } });
   expect((await svc.schedule({ city: '台南', keyword: '和平東路' })).text).toContain('請指定行政區');
   for (const keyword of ['板橋文化路', '西屯 河南路', '東區和平路', '和平 東區 路']) await svc.schedule({ city: '台南', keyword });
-  expect(calls).toEqual(['板橋區:文化路', '西屯區:河南路', '東區:和平路', '東區:和平  路']);
+  expect(calls).toEqual(['板橋區:板橋文化路', '板橋區:文化路', '西屯區:西屯 河南路', '西屯區:河南路', '東區:和平路', '東區:和平  路']);
 });
 
 it('validates keywords before loading a shard', async () => {
@@ -153,4 +153,24 @@ it('strips the supplied district from the keyword', async () => {
   for (const keyword of ['板橋文化路', '板橋區文化路']) {
     expect((await service.schedule({ city: '新北', district: '板橋', keyword })).text).toContain('文化路１號');
   }
+});
+
+
+it('preserves road names beginning with a short district name and falls back to stripped keywords', async () => {
+  const entry = { ...index.cities.ntpc!, districts: { 中山區: { stops: 1, sha256: 'a'.repeat(64) } } };
+  const road: Shard = { v: 2, stops: [{ ...shard.stops[0], district: '中山區', name: '中山北路2段1號' }] };
+  const calls: string[] = [];
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { taipei: entry } }), shard: async (_c, _g, d, k, filter) => { calls.push(k); return decodeShard(encodeShard(road), d, k, filter); } });
+  for (const keyword of ['中山路', '中山北路']) {
+    const result = await svc.schedule({ city: '台北', district: '中山', keyword });
+    if (keyword === '中山北路') expect(result.text).toContain('中山北路2段1號');
+    else expect(result.text).not.toContain('關鍵字太短或無效');
+  }
+  expect((await svc.schedule({ city: '台北', keyword: '中山北路' })).text).toContain('中山北路2段1號');
+  expect(calls).toEqual(['中山路', '中山北路', '中山北路']);
+
+  const bridgeCalls: string[] = [];
+  const bridge = createGarbageService({ index: async () => index, shard: async (_c, _g, d, k, filter) => { bridgeCalls.push(k); return decodeShard(encodeShard(shard), d, k, filter); } });
+  expect((await bridge.schedule({ city: '新北', district: '板橋', keyword: '板橋文化路' })).text).toContain('文化路１號');
+  expect(bridgeCalls).toEqual(['板橋文化路', '文化路']);
 });

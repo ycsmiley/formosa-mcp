@@ -27,23 +27,26 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       const index = await store.index(city); const info = index?.cities[city];
       if (!info) return { text: '資料更新中，請稍後再試', isError: true };
       const districts = Object.keys(info.districts); let keyword = norm(q.keyword ?? '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+      let fallback: string | undefined;
       let district = q.district ? districts.find(d => norm(d).replace(/區$/, '') === norm(q.district!).replace(/區$/, '')) : undefined;
       if (!q.district) {
         for (const d of [...districts].sort((a, b) => b.length - a.length)) {
           const full = norm(d), short = full.replace(/區$/, '');
           const pos = keyword.indexOf(full);
           if (pos === 0 || (pos > 0 && /[\s\p{P}]/u.test(keyword[pos - 1]) && (pos + full.length === keyword.length || /[\s\p{P}]/u.test(keyword[pos + full.length])))) { district = d; keyword = (keyword.slice(0, pos) + keyword.slice(pos + full.length)).trim(); break; }
-          if (short.length >= 2 && keyword.startsWith(short)) { district = d; keyword = keyword.slice(short.length).trim(); break; }
+          if (short.length >= 2 && keyword.startsWith(short)) { district = d; fallback = keyword; keyword = keyword.slice(short.length).trim(); break; }
         }
       }
       if (!district) return { text: `${cities[city].name}請指定行政區：${districts.join('、')}。`, isError: false };
       if (q.district) {
         const full = norm(district), short = full.replace(/區$/, '');
         if (keyword.startsWith(full)) keyword = keyword.slice(full.length).trim();
-        else if (short.length >= 2 && keyword.startsWith(short)) keyword = keyword.slice(short.length).trim();
+        else if (short.length >= 2 && keyword.startsWith(short)) { fallback = keyword; keyword = keyword.slice(short.length).trim(); }
       }
+      const valid = (value: string) => [...value].length >= 2 && !/["\\]/.test(value) && !/^[\p{N}]+$/u.test(value) && !/^[\p{P}\p{S}\s]+$/u.test(value);
+      if (!valid(keyword) && fallback && valid(fallback)) { keyword = fallback; fallback = undefined; }
       if (!keyword) return { text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false };
-      if ([...keyword].length < 2 || /["\\]/.test(keyword) || /^[\p{N}]+$/u.test(keyword) || /^[\p{P}\p{S}\s]+$/u.test(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
+      if (!valid(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
       const now = clock(), wantedDay = weekday(q.weekday, now);
       if (q.weekday && wantedDay === undefined) return { text: '請輸入今天、明天或星期一至星期日。', isError: true };
       if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: `臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）\n實際收運以各地環保局公告為準（國定假日可能調整）`, isError: false };
@@ -57,9 +60,14 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       }
       if (q.time && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(norm(q.time))) return { text: '時間請使用 HH:MM 格式。', isError: true };
       const filter = (s: Slot) => (wantedDay === undefined || !!(s.days & (1 << wantedDay))) && (!q.time || s.start >= norm(q.time));
-      const shard = await store.shard(city, info.gen, district, keyword, filter);
+      let searchKeyword = fallback && valid(fallback) ? fallback : keyword;
+      let shard = await store.shard(city, info.gen, district, searchKeyword, filter);
+      if (fallback && searchKeyword === fallback && shard && !shard.truncated && (shard.matched ?? shard.stops.length) === 0) {
+        searchKeyword = keyword;
+        shard = await store.shard(city, info.gen, district, searchKeyword, filter);
+      }
       if (!shard) return { text: now.getTime() - Date.parse(info.fetchedAt) > 14 * 86400000 ? '垃圾車資料已過時，請稍後再試。' : '資料更新中，請稍後再試', isError: true };
-      const matched = shard.stops.filter(s => [s.name, s.village, s.route].some(v => norm(v).includes(keyword)));
+      const matched = shard.stops.filter(s => [s.name, s.village, s.route].some(v => norm(v).includes(searchKeyword)));
       const stops = matched.map(s => ({ ...s, garbage: s.garbage.filter(filter), recycling: s.recycling.filter(filter), food: s.food.filter(filter) })).filter(s => s.garbage.length + s.recycling.length + s.food.length);
       if (q.time) stops.sort((a, b) => [...a.garbage, ...a.recycling, ...a.food].map(s => s.start).sort()[0].localeCompare([...b.garbage, ...b.recycling, ...b.food].map(s => s.start).sort()[0]));
       const prefix = `${cities[city].name}${district}${q.keyword ? `「${q.keyword}」` : ''}：`;
