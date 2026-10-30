@@ -41,6 +41,8 @@ jobs:
       - if: steps.guard.outputs.enabled == 'true'
         run: node scripts/dist/publish-rail.mjs
         env:
+          TDX_SNAPSHOT_RESERVE: ${{ vars.TDX_SNAPSHOT_RESERVE }}
+          TDX_MONTHLY_QUOTA: ${{ vars.TDX_MONTHLY_QUOTA }}
           TDX_CLIENT_ID: ${{ secrets.TDX_CLIENT_ID }}
           TDX_CLIENT_SECRET: ${{ secrets.TDX_CLIENT_SECRET }}
           CLOUDFLARE_KV_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_KV_WRITE_TOKEN }}

@@ -58,7 +58,7 @@ it('writes prioritized snapshots, metadata and usage locally; steady state has z
   expect(await publish({ bulkFile })).toBe(0);
   expect(fetch).toHaveBeenCalledTimes(7);
   const bulk = JSON.parse(await readFile(bulkFile, 'utf8'));
-  expect(bulk.map((entry: { key: string }) => entry.key)).toEqual([...keyOrder, usageKey]);
+  expect(bulk.map((entry: { key: string }) => entry.key)).toEqual([usageKey, ...keyOrder]);
   for (const entry of bulk) {
     expect(entry.value).toBe(await directoryStore(dir).get(entry.key));
     expect(entry.expiration_ttl).toBe(entry.key === usageKey ? 5356800 : entry.key.includes(':timetable:') ? 259200 : undefined);
@@ -126,10 +126,24 @@ it.each(['network', 'http', 'invalid', 'empty'])('keeps partial successes on %s 
   expect((await read(usageKey)).total).toBe(7);
   expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('private-body');
 });
-it('counts token failure and records it despite failed keys', async () => {
-  tdx.mockResolvedValue(new Response('private-body', { status: 403 }));
+it.each(['http', 'network'])('counts token %s failure and records it despite failed keys', async failure => {
+  if (failure === 'network') tdx.mockRejectedValue(new Error('private-body'));
+  else tdx.mockResolvedValue(new Response('private-body', { status: 403 }));
   expect(await publish({ maxCalls: 1 })).toBe(1);
   expect(fetch).toHaveBeenCalledTimes(1); expect((await read(usageKey)).total).toBe(1);
+});
+it.each([1, 2])('persists usage before call %i hangs then rejects', async call => {
+  const original = tdx.getMockImplementation()!;
+  let reject: ((error: Error) => void) | undefined;
+  tdx.mockImplementation(async (input, init) => tdx.mock.calls.length === call
+    ? new Promise<Response>((_, fail) => { reject = fail; }) : original(input, init));
+  const work = publish({ maxCalls: call });
+  await vi.waitFor(() => expect(reject).toBeDefined());
+  expect(await read(usageKey)).toMatchObject({ days: { [today]: call }, total: call, updatedAt: expect.any(String) });
+  reject!(new Error('private-body'));
+  expect(await work).toBe(1);
+  expect(tdx).toHaveBeenCalledTimes(call);
+  expect((await read(usageKey)).total).toBe(call);
 });
 it('honours a small call budget in priority order', async () => {
   expect(await publish({ maxCalls: 3 })).toBe(0);
@@ -160,6 +174,11 @@ it('allows zero reserve and uses the Taipei month for usage', async () => {
   expect(fetch).not.toHaveBeenCalled();
   expect(console.log).toHaveBeenCalledWith('rail skip rail:timetable:THSR:2026-11-01:v1 call limit');
 });
+it.each(['', '9999'])('clamps reserve %j to the configured monthly quota', async reserve => {
+  expect(await publish({ env: { ...credentials, TDX_SNAPSHOT_RESERVE: reserve, TDX_MONTHLY_QUOTA: '3' } })).toBe(0);
+  expect(tdx).toHaveBeenCalledTimes(3);
+  expect((await read(usageKey)).total).toBe(3);
+});
 it('paces token and data calls by the interval', async () => {
   vi.useFakeTimers(); vi.setSystemTime(now);
   const times: number[] = [], original = tdx.getMockImplementation()!;
@@ -189,7 +208,10 @@ it('KV uses encoded keys, multipart metadata, correct TTLs and never prints erro
   const values = new Map<string, string>(), writes: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (input, init?: RequestInit) => {
     const url = new URL(String(input));
-    if (url.hostname !== 'api.cloudflare.com') return tdx(input, init);
+    if (url.hostname !== 'api.cloudflare.com') {
+      expect(JSON.parse(values.get(usageKey)!)).toMatchObject({ total: tdx.mock.calls.length + 1, days: { [today]: tdx.mock.calls.length + 1 } });
+      return tdx(input, init);
+    }
     expect(init?.redirect).toBe('manual'); expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(new Headers(init?.headers).get('Authorization')).toBe(`Bearer ${cloud.CLOUDFLARE_KV_WRITE_TOKEN}`);
     const encoded = url.pathname.split('/').at(-1)!;
@@ -205,9 +227,28 @@ it('KV uses encoded keys, multipart metadata, correct TTLs and never prints erro
     values.set(key, String(body.get('value'))); return Response.json({ success: true });
   }));
   expect(await publishRail({ env: { ...credentials, ...cloud }, now, intervalMs: 0 })).toBe(1);
-  expect(writes).toEqual([...keyOrder, usageKey]);
+  expect(writes).toEqual([usageKey, ...keyOrder.flatMap(key => [usageKey, key])]);
   expect(JSON.parse(values.get(usageKey)!)).toMatchObject({ total: 7 });
   expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('private-body');
+});
+it.each([1, 3])('stops TDX calls when usage write %i fails', async failAt => {
+  let writes = 0, stored: string | undefined;
+  vi.stubGlobal('fetch', vi.fn(async (input, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.hostname !== 'api.cloudflare.com') return tdx(input, init);
+    const key = decodeURIComponent(url.pathname.split('/').at(-1)!);
+    if (init?.method !== 'PUT') return key === usageKey && stored ? new Response(stored) : new Response(null, { status: 404 });
+    if (key === usageKey) {
+      if (++writes === failAt) return Response.json({ success: false }, { status: 500 });
+      stored = String((init.body as FormData).get('value'));
+    }
+    return Response.json({ success: true });
+  }));
+  expect(await publishRail({ env: { ...credentials, ...cloud }, now, intervalMs: 0 })).toBe(1);
+  expect(writes).toBe(failAt);
+  expect(tdx).toHaveBeenCalledTimes(failAt - 1);
+  if (stored) expect(JSON.parse(stored)).toMatchObject({ total: failAt - 1, days: { [today]: failAt - 1 } });
+  expect(console.error).toHaveBeenCalledWith(`rail skip ${usageKey} put failed`);
 });
 it('aborts before TDX when the usage KV read fails', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('private-body', { status: 500 })));
@@ -224,6 +265,8 @@ it('workflow pins actions, guards every subsequent step and keeps secrets out of
   expect(text).toContain('runs-on: ubuntu-latest\n    timeout-minutes: 5');
   expect(text).toContain('CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}');
   expect(text).toContain('KV_NAMESPACE_ID: e92149e1efec4434835310d434b69f7d');
+  expect(text.slice(text.indexOf('run: node scripts/dist/publish-rail.mjs'))).toContain('          TDX_SNAPSHOT_RESERVE: ${{ vars.TDX_SNAPSHOT_RESERVE }}');
+  expect(text.slice(text.indexOf('run: node scripts/dist/publish-rail.mjs'))).toContain('          TDX_MONTHLY_QUOTA: ${{ vars.TDX_MONTHLY_QUOTA }}');
   expect(text).toContain('persist-credentials: false');
   expect(text).toContain('node-version: 20');
   const actions = [...text.matchAll(/uses: (\S+)/g)].map(match => match[1]);

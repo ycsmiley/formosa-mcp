@@ -176,18 +176,17 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
   const store = outDir ? directoryStore(outDir) : kvStore(env);
   const started = Date.now(), today = taipeiNow(now).date, month = today.slice(0, 7);
   const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
-  const usageKey = snapshotUsageKey(month), reserve = snapshotReserve(env.TDX_SNAPSHOT_RESERVE);
-  let calls = 0, bytes = 0, failed = false, lastCall, warned = false;
+  const usageKey = snapshotUsageKey(month), reserve = snapshotReserve(env.TDX_SNAPSHOT_RESERVE, quota(env.TDX_MONTHLY_QUOTA));
+  let calls = 0, bytes = 0, failed = false, lastCall, warned = false, usageFailed = false;
   let token;
-  const written = [];
+  const written = /* @__PURE__ */ new Map();
   async function put(key, value, options) {
     await store.put(key, value, options);
     const size = Buffer.byteLength(value);
     bytes += size;
-    written.push({ key, value, ...options.ttlSeconds === void 0 ? {} : { expiration_ttl: options.ttlSeconds } });
+    written.set(key, { key, value, ...options.ttlSeconds === void 0 ? {} : { expiration_ttl: options.ttlSeconds } });
     console.log(`rail put ${key} bytes=${size}`);
   }
-  let usage;
   try {
     let freshStations2 = function(raw) {
       try {
@@ -198,9 +197,10 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
       }
     };
     var freshStations = freshStations2;
-    usage = usageRecord(await store.get(usageKey), month, now.toISOString());
+    const usage = usageRecord(await store.get(usageKey), month, now.toISOString());
     async function request(url, init = {}) {
-      if (usage.total + calls + 1 > reserve) {
+      if (usageFailed) throw new CallLimit();
+      if (usage.total + 1 > reserve) {
         if (!warned) {
           console.warn("::warning::rail snapshot monthly reserve exhausted");
           warned = true;
@@ -211,6 +211,16 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
       if (lastCall !== void 0) {
         const wait = intervalMs - (Date.now() - lastCall);
         if (wait > 0) await new Promise((resolve2) => setTimeout(resolve2, wait));
+      }
+      usage.total++;
+      usage.days[today] = (usage.days[today] ?? 0) + 1;
+      usage.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      try {
+        await put(usageKey, JSON.stringify(usage), { ttlSeconds: 62 * 86400, metadata: { fetchedAt: usage.updatedAt, dataDate: today } });
+      } catch {
+        failed = usageFailed = true;
+        console.error(`rail skip ${usageKey} put failed`);
+        throw new CallLimit();
       }
       lastCall = Date.now();
       calls++;
@@ -292,20 +302,9 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
     failed = true;
     console.error(`rail skip ${usageKey} read failed`);
   } finally {
-    if (calls > 0 && usage) {
-      usage.total += calls;
-      usage.days[today] = (usage.days[today] ?? 0) + calls;
-      usage.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-      try {
-        await put(usageKey, JSON.stringify(usage), { ttlSeconds: 62 * 86400, metadata: { fetchedAt: usage.updatedAt, dataDate: today } });
-      } catch {
-        failed = true;
-        console.error(`rail skip ${usageKey} put failed`);
-      }
-    }
     if (bulkFile) {
       try {
-        await writeFile(bulkFile, JSON.stringify(written), "utf8");
+        await writeFile(bulkFile, JSON.stringify([...written.values()]), "utf8");
       } catch {
         failed = true;
         console.error("rail bulk write failed");

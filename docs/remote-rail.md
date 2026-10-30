@@ -19,7 +19,7 @@ The collector runs at **00:23 and 04:23 Asia/Taipei** (`23 16,20 * * *` UTC), or
 
 THSR uses one full-day v2 timetable call per date. TRA uses the v3 full-day timetable, `$top=1000`, up to three pages with `$skip`, marking a capped result as potentially incomplete. Station refreshes use THSR v2 and TRA v3. The token is fetched lazily and refreshed once after a data 401. Every attempted TDX request counts, including tokens and failures. Consecutive calls are spaced at least **15 seconds** apart (at most four per minute); `--max-calls N` can impose a smaller run budget. Failed keys do not prevent other keys from being written; any fetch/put failure exits 1. Budget exhaustion warns/skips and exits 0 unless a separate failure occurred.
 
-An empty-cache bootstrap uses **7–11 calls per run** (one token, two stations, two THSR dates, and two TRA dates at 1–3 pages each). After midnight, yesterday's tomorrow is already today's snapshot: the usual first run needs **3–5 calls**, plus about two station calls per week; the second needs zero if collection succeeded. At one or two TRA pages, expect about **3.3–4.3 calls/day, roughly 100–135/month**, before bootstrap/retries. Three-page TRA days approach 165/month. The collector refuses further calls once its monthly count would exceed `TDX_SNAPSHOT_RESERVE` (default **200**, integer clamped to 0–4,500). Each run reads the usage key and writes it after making calls. Workflow concurrency prevents overlapping collector read-modify-write runs; run manual collectors sequentially against the same store.
+An empty-cache bootstrap uses **7–11 calls per run** (one token, two stations, two THSR dates, and two TRA dates at 1–3 pages each). After midnight, yesterday's tomorrow is already today's snapshot: the usual first run needs **3–5 calls**, plus about two station calls per week; the second needs zero if collection succeeded. At one or two TRA pages, expect about **3.3–4.3 calls/day, roughly 100–135/month**, before bootstrap/retries. Three-page TRA days approach 165/month. The collector refuses further calls once its monthly count would exceed `TDX_SNAPSHOT_RESERVE` (default **200**, integer clamped to 0–`TDX_MONTHLY_QUOTA`). Each run reads the usage key and persists each attempted call before requesting TDX; a failed usage write stops further calls. Workflow concurrency prevents overlapping collector read-modify-write runs; run manual collectors sequentially against the same store.
 
 `FixedWindowCounter` enforces the MCP limit before routing: 30 requests per IP per fixed 60-second window, HTTP 429 with `Retry-After`. IPv6 clients share a /64; mapped IPv4 normalizes to IPv4. IP keys hash across 16 DO shards. These counters are in memory.
 
@@ -37,7 +37,7 @@ dailyBudget = max(0, floor((liveCeiling − usedBeforeToday) / R))
 n = 1 data call + (1 if a fresh token is needed, otherwise 0)
 ```
 
-At **Q = 4,500**, a reserve of **200** gives `liveCeiling = 4,050 − 200 = 3,850`. A collector report of 130 leaves 3,850; a report of 250 lowers it to 3,800. With 2,000 calls used before today and 11 days remaining, the daily budget is `floor((3,850 − 2,000) / 11) = 168`. At Q = 20 and reserve = 2, the live ceiling is 16. The reserve is also clamped to Q in the gateway.
+At **Q = 4,500**, a reserve of **200** gives `liveCeiling = 4,050 − 200 = 3,850`. A collector report of 130 leaves 3,850; a report of 250 lowers it to 3,800. With 2,000 calls used before today and 11 days remaining, the daily budget is `floor((3,850 − 2,000) / 11) = 168`. At Q = 20 and reserve = 2, the live ceiling is 16. The reserve is clamped to Q in both the collector and gateway. Their independent pacing can briefly exceed the project’s 4/min safety guard during collection (not a TDX limit); coordination would require a new authenticated Worker endpoint.
 
 | Cap | Admission rule |
 | --- | --- |
@@ -46,7 +46,7 @@ At **Q = 4,500**, a reserve of **200** gives `liveCeiling = 4,050 − 200 = 3,85
 | Monthly | `M + n ≤ liveCeiling` |
 | IP | At most six admitted live cache misses per IP in a sliding hour; a token is not an additional IP miss |
 
-The collector has its own pacing and monthly self-limit; the gateway observes its KV month total outside serialized admission, memoized for five minutes per month. Both successful and failed attempts count. Cap denials, missing credentials and upstream failures degrade live queries to scheduled trains with a reason note. The independent MCP HTTP limit can return 429. `TDX_MONTHLY_QUOTA` accepts integers 1–4,500 to lower the gateway budget; invalid values use 4,500. `TDX_BASE_URL` accepts only HTTP origins at localhost or 127.0.0.1, otherwise the production TDX origin is used.
+The collector has its own pacing and monthly self-limit; the gateway observes its KV month total outside serialized admission, memoized for five minutes per month. Both successful and failed attempts count. Cap denials, missing credentials and upstream failures degrade live queries to scheduled trains with a reason note. The independent MCP HTTP limit can return 429. `TDX_MONTHLY_QUOTA` accepts integers 1–4,500 to lower the project budget; invalid values use 4,500. `TDX_BASE_URL` accepts only HTTP origins at localhost or 127.0.0.1, otherwise the production TDX origin is used.
 
 ## Monitoring and deployment setup
 
@@ -55,7 +55,7 @@ The collector has its own pacing and monthly self-limit; the gateway observes it
 Configure these repository settings for the workflow:
 
 - Secrets: `TDX_CLIENT_ID`, `TDX_CLIENT_SECRET`, and `CLOUDFLARE_KV_WRITE_TOKEN` with KV write/read access to the configured namespace.
-- Variable: `CLOUDFLARE_ACCOUNT_ID`. The workflow hard-codes the same `KV_NAMESPACE_ID` as `wrangler.jsonc`.
+- Variables: `CLOUDFLARE_ACCOUNT_ID`, plus optional `TDX_SNAPSHOT_RESERVE` and `TDX_MONTHLY_QUOTA` (empty values use defaults). The workflow hard-codes the same `KV_NAMESPACE_ID` as `wrangler.jsonc`.
 
 Absent TDX secrets make the workflow succeed with `::notice::rail snapshot skipped: TDX_CLIENT_ID/TDX_CLIENT_SECRET not set`. The standalone collector trims credentials and has the same skip behaviour before touching TDX or KV. Missing Cloudflare configuration in KV mode prints variable names and exits 2. Logs show key summaries and `rail collector calls=N elapsedMs=… bytes=…`; they exclude credentials, tokens and response bodies. In Actions, received tokens are immediately registered with `::add-mask::`.
 
@@ -66,7 +66,7 @@ wrangler secret put TDX_CLIENT_ID
 wrangler secret put TDX_CLIENT_SECRET
 ```
 
-Deploy with the KV binding and SQLite DO migrations in `wrangler.jsonc`, then run the rail workflow to populate snapshots. Existing snapshots remain readable without Worker TDX secrets. Optional `TDX_SNAPSHOT_RESERVE` can be set in the collector environment and Worker environment; keep the values aligned (default 200 in both). This task does not set secrets or deploy.
+Deploy with the KV binding and SQLite DO migrations in `wrangler.jsonc`, then run the rail workflow to populate snapshots. Existing snapshots remain readable without Worker TDX secrets. If changed, the Worker vars and repository variables `TDX_SNAPSHOT_RESERVE` and `TDX_MONTHLY_QUOTA` must match (defaults 200 and 4,500 respectively). This task does not set secrets or deploy.
 
 ## Local collector
 

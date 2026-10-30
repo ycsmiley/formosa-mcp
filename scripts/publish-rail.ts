@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { snapshotReserve } from '../src/core/rail/budget.js';
+import { quota, snapshotReserve } from '../src/core/rail/budget.js';
 import { object, string, tdxApiUrl, tdxBase, tokenBody, tokenPath } from '../src/core/rail/client.js';
 import { compactStations, compactTimetable, stationKey, timetableKey } from '../src/core/rail/snapshot.js';
 import type { Railway } from '../src/core/rail/stations.js';
@@ -79,22 +79,22 @@ export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCa
   const store = outDir ? directoryStore(outDir) : kvStore(env);
   const started = Date.now(), today = taipeiNow(now).date, month = today.slice(0, 7);
   const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
-  const usageKey = snapshotUsageKey(month), reserve = snapshotReserve(env.TDX_SNAPSHOT_RESERVE);
-  let calls = 0, bytes = 0, failed = false, lastCall: number | undefined, warned = false;
+  const usageKey = snapshotUsageKey(month), reserve = snapshotReserve(env.TDX_SNAPSHOT_RESERVE, quota(env.TDX_MONTHLY_QUOTA));
+  let calls = 0, bytes = 0, failed = false, lastCall: number | undefined, warned = false, usageFailed = false;
   let token: { value: string; until: number } | undefined;
-  const written: { key: string; value: string; expiration_ttl?: number }[] = [];
+  const written = new Map<string, { key: string; value: string; expiration_ttl?: number }>();
   async function put(key: string, value: string, options: PutOptions) {
     await store.put(key, value, options);
     const size = Buffer.byteLength(value);
     bytes += size;
-    written.push({ key, value, ...(options.ttlSeconds === undefined ? {} : { expiration_ttl: options.ttlSeconds }) });
+    written.set(key, { key, value, ...(options.ttlSeconds === undefined ? {} : { expiration_ttl: options.ttlSeconds }) });
     console.log(`rail put ${key} bytes=${size}`);
   }
-  let usage: Usage | undefined;
   try {
-    usage = usageRecord(await store.get(usageKey), month, now.toISOString());
+    const usage = usageRecord(await store.get(usageKey), month, now.toISOString());
     async function request(url: string, init: RequestInit = {}) {
-      if (usage!.total + calls + 1 > reserve) {
+      if (usageFailed) throw new CallLimit();
+      if (usage.total + 1 > reserve) {
         if (!warned) { console.warn('::warning::rail snapshot monthly reserve exhausted'); warned = true; }
         throw new CallLimit();
       }
@@ -102,6 +102,12 @@ export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCa
       if (lastCall !== undefined) {
         const wait = intervalMs - (Date.now() - lastCall);
         if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+      }
+      usage.total++; usage.days[today] = (usage.days[today] ?? 0) + 1; usage.updatedAt = new Date().toISOString();
+      try { await put(usageKey, JSON.stringify(usage), { ttlSeconds: 62 * 86400, metadata: { fetchedAt: usage.updatedAt, dataDate: today } }); }
+      catch {
+        failed = usageFailed = true; console.error(`rail skip ${usageKey} put failed`);
+        throw new CallLimit();
       }
       lastCall = Date.now(); calls++;
       return fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(30_000) });
@@ -177,13 +183,8 @@ export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCa
     await collect('TRA', tomorrow);
   } catch { failed = true; console.error(`rail skip ${usageKey} read failed`); }
   finally {
-    if (calls > 0 && usage) {
-      usage.total += calls; usage.days[today] = (usage.days[today] ?? 0) + calls; usage.updatedAt = new Date().toISOString();
-      try { await put(usageKey, JSON.stringify(usage), { ttlSeconds: 62 * 86400, metadata: { fetchedAt: usage.updatedAt, dataDate: today } }); }
-      catch { failed = true; console.error(`rail skip ${usageKey} put failed`); }
-    }
     if (bulkFile) {
-      try { await writeFile(bulkFile, JSON.stringify(written), 'utf8'); }
+      try { await writeFile(bulkFile, JSON.stringify([...written.values()]), 'utf8'); }
       catch { failed = true; console.error('rail bulk write failed'); }
     }
     console.log(`rail collector calls=${calls} elapsedMs=${Date.now() - started} bytes=${bytes}`);
