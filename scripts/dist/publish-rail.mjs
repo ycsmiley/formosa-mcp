@@ -58,8 +58,8 @@ function quota(value) {
   return Number.isInteger(n) && n >= 1 && n <= 4500 ? n : 4500;
 }
 function snapshotReserve(value, monthlyQuota = 4500) {
-  const n = value === void 0 || value.trim() === "" ? 200 : Number(value);
-  return Math.min(quota(monthlyQuota), Math.max(0, Number.isFinite(n) ? Math.floor(n) : 200));
+  const n = value === void 0 || value.trim() === "" ? 300 : Number(value);
+  return Math.min(quota(monthlyQuota), Math.max(0, Number.isFinite(n) ? Math.floor(n) : 300));
 }
 
 // src/core/rail/snapshot.ts
@@ -148,15 +148,18 @@ function kvStore(env) {
 }
 var CallLimit = class extends Error {
 };
+var InvalidUsage = class extends Error {
+};
 function usageRecord(raw, month, updatedAt) {
+  if (raw === null) return { v: 1, month, days: {}, total: 0, updatedAt };
   try {
-    const data = JSON.parse(raw ?? "null");
-    if (data?.v === 1 && data.month === month && Number.isSafeInteger(data.total) && data.total >= 0 && data.days && typeof data.days === "object" && !Array.isArray(data.days) && Object.entries(data.days).every(([day, n]) => day.startsWith(`${month}-`) && /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isSafeInteger(n) && n >= 0)) return data;
+    const data = JSON.parse(raw);
+    if (data?.v === 1 && data.month === month && Number.isSafeInteger(data.total) && data.total >= 0 && data.days && typeof data.days === "object" && !Array.isArray(data.days) && Object.entries(data.days).every(([day, n]) => day.startsWith(`${month}-`) && /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isSafeInteger(n) && n >= 0) && Object.values(data.days).reduce((sum, n) => sum + n, 0) === data.total && typeof data.updatedAt === "string" && Number.isFinite(Date.parse(data.updatedAt))) return data;
   } catch {
   }
-  return { v: 1, month, days: {}, total: 0, updatedAt };
+  throw new InvalidUsage();
 }
-async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Infinity, env = process.env, now = /* @__PURE__ */ new Date() } = {}) {
+async function publishRail({ outDir, bulkFile, intervalMs = 6e4, maxCalls = Infinity, env = process.env, now = /* @__PURE__ */ new Date() } = {}) {
   const clientId = env.TDX_CLIENT_ID?.trim(), clientSecret = env.TDX_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     console.log("::notice::rail snapshot skipped: TDX_CLIENT_ID/TDX_CLIENT_SECRET not set");
@@ -177,7 +180,14 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
   const started = Date.now(), today = taipeiNow(now).date, month = today.slice(0, 7);
   const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
   const usageKey = snapshotUsageKey(month), reserve = snapshotReserve(env.TDX_SNAPSHOT_RESERVE, quota(env.TDX_MONTHLY_QUOTA));
-  let calls = 0, bytes = 0, failed = false, lastCall, warned = false, usageFailed = false;
+  let usage;
+  try {
+    usage = usageRecord(await store.get(usageKey), month, now.toISOString());
+  } catch (error) {
+    console.error(error instanceof InvalidUsage ? "rail usage record invalid; refusing to call TDX" : `rail skip ${usageKey} read failed`);
+    return 1;
+  }
+  let calls = 0, bytes = 0, failed = false, lastCall, warned = false, reserveWarned = false, usageFailed = false;
   let token;
   const written = /* @__PURE__ */ new Map();
   async function put(key, value, options) {
@@ -197,7 +207,6 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
       }
     };
     var freshStations = freshStations2;
-    const usage = usageRecord(await store.get(usageKey), month, now.toISOString());
     async function request(url, init = {}) {
       if (usageFailed) throw new CallLimit();
       if (usage.total + 1 > reserve) {
@@ -215,6 +224,10 @@ async function publishRail({ outDir, bulkFile, intervalMs = 15e3, maxCalls = Inf
       usage.total++;
       usage.days[today] = (usage.days[today] ?? 0) + 1;
       usage.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (!reserveWarned && usage.total >= Math.ceil(0.8 * reserve)) {
+        console.warn(`::warning::rail snapshot usage at least 80% of reserve (${usage.total}/${reserve})`);
+        reserveWarned = true;
+      }
       try {
         await put(usageKey, JSON.stringify(usage), { ttlSeconds: 62 * 86400, metadata: { fetchedAt: usage.updatedAt, dataDate: today } });
       } catch {

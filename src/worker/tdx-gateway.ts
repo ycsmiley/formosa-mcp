@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { snapshotUsageKey } from './snapshot-keys.js';
 import { allowance, calendar, decide, quota, snapshotReserve, type BudgetReason, type Counts } from '../core/rail/budget.js';
-import { object, string, tdxApiUrl, tdxBase, tokenBody, tokenPath } from '../core/rail/client.js';
+import { object, readJsonLimited, string, tdxApiUrl, tdxBase, tokenBody, tokenPath } from '../core/rail/client.js';
 
 export interface TdxEnv {
   SNAPSHOTS: KVNamespace;
@@ -20,6 +20,7 @@ export interface Usage {
   today: string; todayUsed: number; dailyBudget: number; byPurpose: Record<string, number>; last60s: number; updatedAt: string;
 }
 const livePath = /^\/v3\/Rail\/TRA\/(?:TrainLiveBoard\/TrainNo\/\d{1,10}|StationLiveBoard\/Station\/[A-Za-z0-9_-]{1,50})$/;
+const liveBodyLimit = 1024 * 1024;
 
 /** One instance named "tdx" owns project credentials, tokens and all admissions. */
 export class TdxGateway extends DurableObject<TdxEnv> {
@@ -112,7 +113,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
         });
         if ([400, 401, 403].includes(response.status)) { console.warn('tdx token authentication failed'); return { ok: false, reason: 'auth' }; }
         if (response.status !== 200) return { ok: false, reason: 'upstream' };
-        const data = object(await response.json()), access = string(data.access_token), expiry = data.expires_in ?? 86400;
+        const data = object(await readJsonLimited(response, liveBodyLimit)), access = string(data.access_token), expiry = data.expires_in ?? 86400;
         if (!access || (data.token_type !== undefined && data.token_type !== 'Bearer') || typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry <= 0) return { ok: false, reason: 'upstream' };
         token = access;
         this.ctx.storage.sql.exec('INSERT OR REPLACE INTO tdx_token(id,token,until) VALUES(1,?,?)', token, Date.now() + Math.max(0, expiry - Math.min(60, expiry / 10)) * 1000);
@@ -145,7 +146,7 @@ export class TdxGateway extends DurableObject<TdxEnv> {
             if (response.status === 401) await this.invalidate(admitted.token);
             return { ok: false, reason: 'upstream' };
           }
-          const data = await response.json() as object, fetchedAt = new Date().toISOString();
+          const data = await readJsonLimited(response, liveBodyLimit) as object, fetchedAt = new Date().toISOString();
           const rows = object(data)[path.includes('/TrainLiveBoard/') ? 'TrainLiveBoards' : 'StationLiveBoards'];
           if (!Array.isArray(rows)) return { ok: false, reason: 'upstream' };
           if (this.cache.size >= 256) this.cache.delete(this.cache.keys().next().value!);
@@ -181,6 +182,9 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     }
     sql.exec('INSERT OR REPLACE INTO tdx_monitor(id,at,fingerprint) VALUES(1,?,?)', Date.now(), fingerprint);
     await this.env.SNAPSHOTS.put('tdx:usage:v1', JSON.stringify(record));
+    console.log(`tdx usage ${JSON.stringify(record)}`);
+    if (record.snapshotReserve > 0 && record.snapshotReported >= Math.ceil(0.8 * record.snapshotReserve)) console.warn('tdx snapshot usage at least 80% of reserve');
+    if (record.monthUsed + record.snapshotReported >= 0.7 * record.monthlyQuota) console.warn('tdx usage at least 70%');
   }
   async alarm() { await this.publish(); }
 }

@@ -162,12 +162,31 @@ it('stops between pages without publishing an incomplete timetable', async () =>
   expect(await directoryStore(dir).get(timetableKey('TRA', today))).toBeNull();
 });
 it('stops exactly at the monthly self-limit and refuses new calls on the next run', async () => {
-  await writeFile(join(dir, `${usageKey.replaceAll(':', '_')}.json`), JSON.stringify({ v: 1, month: '2026-10', days: { [today]: 198 }, total: 198, updatedAt: now.toISOString() }));
+  await writeFile(join(dir, `${usageKey.replaceAll(':', '_')}.json`), JSON.stringify({ v: 1, month: '2026-10', days: { [today]: 298 }, total: 298, updatedAt: now.toISOString() }));
   expect(await publish()).toBe(0); expect(fetch).toHaveBeenCalledTimes(2);
-  expect((await read(usageKey)).total).toBe(200);
+  expect((await read(usageKey)).total).toBe(300);
   tdx.mockClear();
   expect(await publish()).toBe(0); expect(fetch).not.toHaveBeenCalled();
   expect(console.warn).toHaveBeenCalledWith('::warning::rail snapshot monthly reserve exhausted');
+});
+it('warns once per run after charging at 80% of the reserve', async () => {
+  await writeFile(join(dir, `${usageKey.replaceAll(':', '_')}.json`), JSON.stringify({ v: 1, month: '2026-10', days: { [today]: 239 }, total: 239, updatedAt: now.toISOString() }));
+  expect(await publish()).toBe(0);
+  expect((await read(usageKey)).total).toBe(246);
+  expect(console.warn).toHaveBeenCalledExactlyOnceWith('::warning::rail snapshot usage at least 80% of reserve (240/300)');
+});
+it.each(['not-json', 'null', '{}', JSON.stringify({ v: 1, month: '2026-09', days: {}, total: 0, updatedAt: now.toISOString() }),
+  JSON.stringify({ v: 1, month: '2026-10', days: { [today]: 1 }, total: 0, updatedAt: now.toISOString() }),
+  JSON.stringify({ v: 1, month: '2026-10', days: {}, total: -1, updatedAt: now.toISOString() }),
+])('refuses a present invalid usage record %s without calls or writes', async raw => {
+  const file = join(dir, `${usageKey.replaceAll(':', '_')}.json`), bulkFile = join(dir, 'bulk.json');
+  await writeFile(file, raw);
+  expect(await publish({ bulkFile })).toBe(1);
+  expect(fetch).not.toHaveBeenCalled(); expect(console.log).not.toHaveBeenCalled();
+  expect(console.error).toHaveBeenCalledExactlyOnceWith('rail usage record invalid; refusing to call TDX');
+  expect(await readFile(file, 'utf8')).toBe(raw);
+  expect(await directoryStore(dir).get(keyOrder[0])).toBeNull();
+  await expect(readFile(bulkFile)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 it('allows zero reserve and uses the Taipei month for usage', async () => {
   expect(await publish({ env: { ...credentials, TDX_SNAPSHOT_RESERVE: '0' }, now: new Date('2026-10-31T16:00:00Z') })).toBe(0);
@@ -183,14 +202,14 @@ it('paces token and data calls by the interval', async () => {
   vi.useFakeTimers(); vi.setSystemTime(now);
   const times: number[] = [], original = tdx.getMockImplementation()!;
   tdx.mockImplementation(async (input, init) => { times.push(Date.now()); return original(input, init); });
-  const work = publish({ intervalMs: 15000 });
+  const work = publish({ intervalMs: undefined });
   // Directory reads use real I/O; advance each pending timer as it appears.
   for (let i = 0; i < 7; i++) {
     await vi.waitFor(() => expect(times).toHaveLength(i + 1));
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(60000);
   }
   expect(await work).toBe(0);
-  expect(times.slice(1).every((time, i) => time - times[i] >= 15000)).toBe(true);
+  expect(times.slice(1).every((time, i) => time - times[i] >= 60000)).toBe(true);
 });
 it('honours the loopback TDX override', async () => {
   expect(await publish({ env: { ...credentials, TDX_BASE_URL: 'http://127.0.0.1:8790/path' } })).toBe(0);
@@ -262,15 +281,15 @@ it('workflow pins actions, guards every subsequent step and keeps secrets out of
   expect(text).toContain('workflow_dispatch:');
   expect(text).toContain('permissions:\n  contents: read');
   expect(text).toContain('group: rail-snapshot\n  cancel-in-progress: false');
-  expect(text).toContain('runs-on: ubuntu-latest\n    timeout-minutes: 5');
+  expect(text).toContain('runs-on: ubuntu-latest\n    timeout-minutes: 15');
   expect(text).toContain('CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}');
   expect(text).toContain('KV_NAMESPACE_ID: e92149e1efec4434835310d434b69f7d');
   expect(text.slice(text.indexOf('run: node scripts/dist/publish-rail.mjs'))).toContain('          TDX_SNAPSHOT_RESERVE: ${{ vars.TDX_SNAPSHOT_RESERVE }}');
   expect(text.slice(text.indexOf('run: node scripts/dist/publish-rail.mjs'))).toContain('          TDX_MONTHLY_QUOTA: ${{ vars.TDX_MONTHLY_QUOTA }}');
   expect(text).toContain('persist-credentials: false');
-  expect(text).toContain('node-version: 20');
+  expect(text).toContain('node-version: 22');
   const actions = [...text.matchAll(/uses: (\S+)/g)].map(match => match[1]);
-  expect(actions).toEqual(['actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020']);
+  expect(actions).toEqual(['actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1']);
   const guard = text.indexOf('- id: guard'), run = text.indexOf('run: node scripts/dist/publish-rail.mjs');
   expect(guard).toBeLessThan(run);
   expect(text).toContain('[ -n "$TDX_CLIENT_ID" ] && [ -n "$TDX_CLIENT_SECRET" ]');

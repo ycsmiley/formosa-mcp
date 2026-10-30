@@ -14,7 +14,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
-- Move rail station/timetable fetching and TRA compaction from Worker cron to a bundled GitHub Actions collector, preserving Workers Free; add local directory/bulk export, paced lazy token calls, monthly usage reporting and a default 200-call snapshot reserve (3,850 live ceiling at quota 4,500).
+- Move rail station/timetable fetching and TRA compaction from Worker cron to a bundled GitHub Actions collector, preserving Workers Free; add local directory/bulk export, paced lazy token calls, monthly usage reporting and a default 300-call snapshot reserve (3,750 live ceiling at quota 4,500).
 
 - TRA station live board sorted by scheduled time, including across midnight.
 - Remote rail developer guides document project-key and bring-your-own-key modes; local rail remains opt-in.

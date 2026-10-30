@@ -5,6 +5,24 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { main } from '../scripts/abuse-test.mjs';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+it('guards monitoring with step outputs and pins Node 22 in the updated workflows', async () => {
+  const workflow = await readFile('.github/workflows/abuse-test.yml', 'utf8');
+  expect(workflow.match(/- id: monitor/g)).toHaveLength(2);
+  expect(workflow.match(/if: steps.monitor.outputs.enabled == 'true'/g)).toHaveLength(2);
+  expect(workflow.match(/\[ -n "\$CLOUDFLARE_API_TOKEN" \] && \[ -n "\$CLOUDFLARE_ACCOUNT_ID" \] && \[ -n "\$SNAPSHOTS_KV_ID" \]/g)).toHaveLength(2);
+  expect(workflow.match(/echo "enabled=true" >> "\$GITHUB_OUTPUT"/g)).toHaveLength(2);
+  expect(workflow).toContain('monitor: ${{ steps.usage.outputs.monitor }}');
+  expect(workflow).toContain("needs.before.outputs.monitor == 'true'");
+  expect(workflow).not.toContain('if: ${{ env.');
+  expect(workflow).not.toContain('secrets.CLOUDFLARE_ACCOUNT_ID');
+  expect(workflow.match(/CLOUDFLARE_ACCOUNT_ID: \$\{\{ vars.CLOUDFLARE_ACCOUNT_ID \}\}/g)).toHaveLength(4);
+  for (const name of ['abuse-test', 'rail-snapshot', 'ci']) {
+    const text = await readFile(`.github/workflows/${name}.yml`, 'utf8');
+    const actions = [...text.matchAll(/uses: actions\/setup-node@(\S+) # (\S+)\n        with:\n(?:          #.*\n)?          node-version: (\d+)/g)];
+    expect(actions).toHaveLength(name === 'abuse-test' ? 4 : 1);
+    for (const match of actions) expect(match.slice(1)).toEqual(['949feb2413d6458794dcd2491c4babbbce0c15c1', 'v7.1.0', '22']);
+  }
+});
 async function run(args: string[], env = {}) {
   const output: string[] = [], errors: string[] = [];
   const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((text: string | Uint8Array) => { output.push(String(text)); return true; });

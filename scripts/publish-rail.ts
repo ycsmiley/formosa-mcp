@@ -53,17 +53,21 @@ function kvStore(env: Record<string, string | undefined>): Store {
   };
 }
 class CallLimit extends Error {}
+class InvalidUsage extends Error {}
 interface Usage { v: 1; month: string; days: Record<string, number>; total: number; updatedAt: string }
 function usageRecord(raw: string | null, month: string, updatedAt: string): Usage {
+  if (raw === null) return { v: 1, month, days: {}, total: 0, updatedAt };
   try {
-    const data = JSON.parse(raw ?? 'null');
+    const data = JSON.parse(raw);
     if (data?.v === 1 && data.month === month && Number.isSafeInteger(data.total) && data.total >= 0 &&
         data.days && typeof data.days === 'object' && !Array.isArray(data.days) &&
-        Object.entries(data.days).every(([day, n]) => day.startsWith(`${month}-`) && /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isSafeInteger(n) && (n as number) >= 0)) return data;
-  } catch { /* Invalid or absent usage starts at zero. */ }
-  return { v: 1, month, days: {}, total: 0, updatedAt };
+        Object.entries(data.days).every(([day, n]) => day.startsWith(`${month}-`) && /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isSafeInteger(n) && (n as number) >= 0) &&
+        Object.values(data.days).reduce<number>((sum, n) => sum + (n as number), 0) === data.total &&
+        typeof data.updatedAt === 'string' && Number.isFinite(Date.parse(data.updatedAt))) return data;
+  } catch { /* Present usage must be valid before calling TDX. */ }
+  throw new InvalidUsage();
 }
-export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCalls = Infinity, env = process.env, now = new Date() }: {
+export async function publishRail({ outDir, bulkFile, intervalMs = 60_000, maxCalls = Infinity, env = process.env, now = new Date() }: {
   outDir?: string; bulkFile?: string; intervalMs?: number; maxCalls?: number;
   env?: Record<string, string | undefined>; now?: Date;
 } = {}): Promise<number> {
@@ -80,7 +84,13 @@ export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCa
   const started = Date.now(), today = taipeiNow(now).date, month = today.slice(0, 7);
   const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
   const usageKey = snapshotUsageKey(month), reserve = snapshotReserve(env.TDX_SNAPSHOT_RESERVE, quota(env.TDX_MONTHLY_QUOTA));
-  let calls = 0, bytes = 0, failed = false, lastCall: number | undefined, warned = false, usageFailed = false;
+  let usage: Usage;
+  try { usage = usageRecord(await store.get(usageKey), month, now.toISOString()); }
+  catch (error) {
+    console.error(error instanceof InvalidUsage ? 'rail usage record invalid; refusing to call TDX' : `rail skip ${usageKey} read failed`);
+    return 1;
+  }
+  let calls = 0, bytes = 0, failed = false, lastCall: number | undefined, warned = false, reserveWarned = false, usageFailed = false;
   let token: { value: string; until: number } | undefined;
   const written = new Map<string, { key: string; value: string; expiration_ttl?: number }>();
   async function put(key: string, value: string, options: PutOptions) {
@@ -91,7 +101,6 @@ export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCa
     console.log(`rail put ${key} bytes=${size}`);
   }
   try {
-    const usage = usageRecord(await store.get(usageKey), month, now.toISOString());
     async function request(url: string, init: RequestInit = {}) {
       if (usageFailed) throw new CallLimit();
       if (usage.total + 1 > reserve) {
@@ -104,6 +113,10 @@ export async function publishRail({ outDir, bulkFile, intervalMs = 15_000, maxCa
         if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
       }
       usage.total++; usage.days[today] = (usage.days[today] ?? 0) + 1; usage.updatedAt = new Date().toISOString();
+      if (!reserveWarned && usage.total >= Math.ceil(0.8 * reserve)) {
+        console.warn(`::warning::rail snapshot usage at least 80% of reserve (${usage.total}/${reserve})`);
+        reserveWarned = true;
+      }
       try { await put(usageKey, JSON.stringify(usage), { ttlSeconds: 62 * 86400, metadata: { fetchedAt: usage.updatedAt, dataDate: today } }); }
       catch {
         failed = usageFailed = true; console.error(`rail skip ${usageKey} put failed`);

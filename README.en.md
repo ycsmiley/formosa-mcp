@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-Taiwan e-invoice lottery and TWSE/TPEx end-of-day stock data for AI assistants, with no API key; local HSR and TRA queries use your own free TDX key.
+Taiwan e-invoice lottery and TWSE/TPEx end-of-day stock data for AI assistants, with no API key; remote HSR and TRA provide timetables for today and tomorrow.
 
 ## Get started
 
@@ -36,7 +36,7 @@ claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
 
-Invoices and stocks need no key; for HSR and TRA see [Railway keys](#railway-keys).
+Invoices and stocks need no key; for HSR and TRA see the [rail section](#remote-rail).
 
 A keyless public URL is coming soon; you will be able to paste it into a Claude custom connector.
 
@@ -52,7 +52,7 @@ A keyless public URL is coming soon; you will be able to paste it into a Claude 
 
 - Invoices: winning numbers, claim periods and number checks.
 - Stocks: TWSE and TPEx end-of-day data; quotes show the data date.
-- HSR / TRA: available locally with your own free TDX key and `--toolsets`, including timetables and live delays.
+- HSR / TRA: remote timetables for today and tomorrow, plus TRA live data within quota; for local use, see the [rail section](#railway-keys).
 - Weather: planned.
 
 Tools:
@@ -146,7 +146,7 @@ Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live re
 
 #### Remote rail
 
-- **A: Project key.** Shared timetable snapshots cover today and tomorrow; the GitHub Actions collector fills missing snapshots at 00:23 and 04:23 Taipei time, with station refreshes every seven days. Timetable queries make no TDX calls. Live TRA queries fetch on demand with a shared two-minute cache. Four caps apply: four upstream calls per minute, a daily allowance divided over the remaining days, 4,500 calls per month (live ceiling is 90% minus the snapshot charge: default reserve 200 gives 3,850), and six live cache misses per IP per hour. Caps or upstream failures return scheduled trains with a reason note.
+- **A: Project key.** Shared timetable snapshots cover today and tomorrow; the GitHub Actions collector fills missing snapshots at 00:23 and 04:23 Taipei time, with station refreshes every seven days. Timetable queries make no TDX calls. Live TRA queries fetch on demand with a shared two-minute cache. Four caps apply: four upstream calls per minute, a daily allowance divided over the remaining days, 4,500 calls per month (live ceiling is 90% minus the snapshot charge: default reserve 300 gives 3,750), and six live cache misses per IP per hour. Caps or upstream failures return scheduled trains with a reason note.
 - **B: Bring your own key.** Add these `headers` to the existing remote endpoint entry in Claude Code's `.mcp.json` or Cursor's `.cursor/mcp.json` (merge this fragment with your endpoint configuration):
 
 ```json

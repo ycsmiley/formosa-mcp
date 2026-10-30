@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎與台股（上市＋上櫃）盤後行情，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表，亦可用自己的免費 TDX 金鑰查詢。
+讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎與台股（上市＋上櫃）盤後行情，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
 Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
 
 ## 開始使用
@@ -37,7 +37,7 @@ claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
 
-發票與台股免金鑰；高鐵／台鐵見[鐵路金鑰](#鐵路金鑰)。
+發票與台股免金鑰；高鐵／台鐵見[鐵路說明](#遠端鐵路)。
 
 免金鑰的公開網址即將推出，屆時貼到 Claude 的自訂連接器即可使用。
 
@@ -53,7 +53,7 @@ claude plugin install formosa@formosa-mcp
 
 - 發票：可用，查中獎號碼、領獎期間與對獎。
 - 台股：可用，涵蓋上市＋上櫃；盤後資料，非即時，行情顯示資料日期。
-- 高鐵／台鐵：遠端版預設提供今天與明天的時刻表、額度內的臺鐵即時資料；本機版須自備免費 TDX 金鑰並以 `--toolsets` 啟用。
+- 高鐵／台鐵：遠端版預設提供今天與明天的時刻表、額度內的臺鐵即時資料；本機版見[鐵路說明](#鐵路金鑰)。
 - 氣象：規劃中。
 
 工具：
@@ -159,7 +159,7 @@ claude plugin install formosa@formosa-mcp
 
 #### 遠端鐵路
 
-- **A：專案金鑰。** 時刻表使用共用快照，GitHub Actions collector 於臺北時間 00:23、04:23 補齊今天與明天，車站每七天更新；時刻表查詢不呼叫 TDX。臺鐵即時資料按需取得，共用兩分鐘快取。四道上限為每分鐘四次、依剩餘天數分配的每日額度、每月 4,500 次（即時上限為 90% 減去快照保留額；預設保留 200，即時上限 3,850）、每 IP 每小時六次即時快取未命中；達上限或上游失敗就回覆表訂班次並附原因。
+- **A：專案金鑰。** 時刻表使用共用快照，GitHub Actions collector 於臺北時間 00:23、04:23 補齊今天與明天，車站每七天更新；時刻表查詢不呼叫 TDX。臺鐵即時資料按需取得，共用兩分鐘快取。四道上限為每分鐘四次、依剩餘天數分配的每日額度、每月 4,500 次（即時上限為 90% 減去快照保留額；預設保留 300，即時上限 3,750）、每 IP 每小時六次即時快取未命中；達上限或上游失敗就回覆表訂班次並附原因。
 - **B：自備金鑰。** 在 Claude Code 的 `.mcp.json` 或 Cursor 的 `.cursor/mcp.json` 遠端連線設定加入以下 `headers`（合併到既有端點設定）：
 
 ```json

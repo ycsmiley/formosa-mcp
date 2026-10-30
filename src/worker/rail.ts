@@ -1,4 +1,4 @@
-import { RailError, truncatedNote } from '../core/rail/client.js';
+import { RailError, readJsonLimited, truncatedNote } from '../core/rail/client.js';
 import { attribution, createRailService, type LiveArgs, type RailResult, type TimetableArgs } from '../core/rail/service.js';
 import { deriveOD, expandStations, liveAge, renderFallback, snapshotTime, stationKey, timetableKey, type StationsSnapshot, type TimetableSnapshot } from '../core/rail/snapshot.js';
 import type { Railway } from '../core/rail/stations.js';
@@ -7,6 +7,7 @@ import type { TdxEnv, TdxGateway } from './tdx-gateway.js';
 
 export interface RailEnv extends TdxEnv { TDX_GATEWAY: DurableObjectNamespace<TdxGateway> }
 export const gateway = (env: RailEnv) => env.TDX_GATEWAY.get(env.TDX_GATEWAY.idFromName('tdx'));
+const userBodyLimit = 4 * 1024 * 1024;
 const memo = new WeakMap<KVNamespace, Map<string, { raw: string; data: unknown; until: number }>>();
 async function read<T extends StationsSnapshot | TimetableSnapshot>(env: RailEnv, key: string): Promise<T | null> {
   try {
@@ -45,7 +46,10 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
   if (credentials === 'invalid') return { timetable: async () => reply(keyHint), live: async () => reply(keyHint) };
   if (credentials) {
     // This service and its token cache belong exclusively to this HTTP request.
-    const service = createRailService({ credentials, http: (url, init) => fetch(url, { ...init, redirect: 'manual' }) });
+    const service = createRailService({ credentials, http: async (url, init) => {
+      const response = await fetch(url, { ...init, redirect: 'manual' });
+      return { status: response.status, json: () => readJsonLimited(response, userBodyLimit) };
+    } });
     return {
       timetable: async (railway: Railway, args: TimetableArgs) => attributed(await service.timetable(railway, args)),
       live: async (args: LiveArgs) => attributed(await service.live(args)),

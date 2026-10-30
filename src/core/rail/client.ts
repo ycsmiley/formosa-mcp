@@ -8,6 +8,27 @@ export const rejected = 'TDX 金鑰驗證失敗，請確認 TDX_CLIENT_ID／TDX_
 export const railRowLimit = 1000;
 export const truncatedNote = '資料可能未完整（已達單次上限）';
 export class RailError extends Error {}
+export async function readJsonLimited(response: Response, maxBytes: number): Promise<unknown> {
+  if (Number(response.headers.get('content-length')) > maxBytes) {
+    void response.body?.cancel().catch(() => {});
+    throw new RailError(unavailable);
+  }
+  const reader = response.body?.getReader(), decoder = new TextDecoder(), chunks: string[] = [];
+  let bytes = 0;
+  try {
+    if (reader) for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        void reader.cancel().catch(() => {});
+        throw new RailError(unavailable);
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+  } finally { reader?.releaseLock(); }
+  return JSON.parse(chunks.join('') + decoder.decode());
+}
 export const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 export const string = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 export const list = (value: unknown): unknown[] => { if (!Array.isArray(value)) throw new RailError(unavailable); return value; };

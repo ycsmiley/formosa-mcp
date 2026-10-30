@@ -36,6 +36,29 @@ it('degrades a token redirect to non-error fallback text without following it', 
   expect(http).toHaveBeenCalledTimes(1);
   expect(String(http.mock.calls[0][0])).toContain('https://tdx.transportdata.tw/');
 });
+it.each(['token-length', 'token-stream', 'live-length', 'live-stream'])('does not cache %s overflow and returns normal fallback', async failure => {
+  const target = await setup(), http = mockHttp(), cancel = vi.fn();
+  http.mockImplementation(async input => {
+    const token = String(input).endsWith('/token');
+    if (token === failure.startsWith('token')) {
+      return failure.endsWith('length')
+        ? new Response('{}', { headers: { 'content-length': String(1024 * 1024 + 1) } })
+        : new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new Uint8Array(1024 * 1024)); controller.enqueue(new Uint8Array(1));
+        }, cancel }));
+    }
+    return Response.json({ access_token: 'project-token-SENTINEL', expires_in: 86400 });
+  });
+  expect(await target.live(path(123), 'ip')).toEqual({ ok: false, reason: 'upstream' });
+  const namespace = { idFromName: () => target.id, get: () => target };
+  const result = await workerRail({ ...bindings, ...credentials, TDX_GATEWAY: namespace as unknown as Env['TDX_GATEWAY'] }, 'ip', undefined).live({ train_no: '123' });
+  expect(result.isError).not.toBe(true); expect(result.text).toContain('即時誤點暫時無法提供');
+  expect(http).toHaveBeenCalledTimes(failure.startsWith('token') ? 2 : 3);
+  if (failure.endsWith('stream')) expect(cancel).toHaveBeenCalledTimes(2);
+  await runInDurableObject(target, (_instance, ctx) => {
+    expect(ctx.storage.sql.exec('SELECT COUNT(*) AS n FROM tdx_token').one().n).toBe(failure.startsWith('token') ? 0 : 1);
+  });
+});
 it('admits exactly four total calls in a concurrent burst of twenty distinct paths, counting token', async () => {
   const target = await setup(), http = mockHttp();
   const results = await Promise.all(Array.from({ length: 20 }, (_, i) => target.live(path(100 + i), `ip-${i}`)));
@@ -106,16 +129,16 @@ async function seed(target: ReturnType<typeof stub>, day: string, purpose: strin
 }
 it('enforces the daily live budget', async () => {
   const target = await setup(), http = mockHttp();
-  await seed(target, '2026-10-01', 'live', 124);
+  await seed(target, '2026-10-01', 'live', 120);
   expect(await target.live(path(1), 'ip')).toMatchObject({ ok: false, reason: 'daily' });
   expect(http).not.toHaveBeenCalled();
 });
 it('stops live at ninety percent minus the snapshot reserve', async () => {
   const target = await setup(), http = mockHttp();
   vi.setSystemTime(new Date('2026-10-30T00:00:00Z'));
-  await seed(target, '2026-10-01', 'live', 3850);
+  await seed(target, '2026-10-01', 'live', 3750);
   expect(await target.live(path(1), 'ip')).toMatchObject({ ok: false, reason: 'monthly' });
-  expect((await target.usage()).liveCeiling).toBe(3850);
+  expect((await target.usage()).liveCeiling).toBe(3750);
   expect(http).not.toHaveBeenCalled();
 });
 it('supports a small quota with an explicit reserve', async () => {
@@ -135,7 +158,7 @@ it('reads collector usage outside admission and memoizes it for five minutes per
     } as unknown as KVNamespace };
   });
   mockHttp();
-  expect(await target.usage()).toMatchObject({ snapshotReserve: 200, snapshotReported: 240, liveCeiling: 3810 });
+  expect(await target.usage()).toMatchObject({ snapshotReserve: 300, snapshotReported: 240, liveCeiling: 3750 });
   total = 300;
   await Promise.all(Array.from({ length: 8 }, (_, i) => target.live(path(i), `ip-${i}`)));
   expect(reads).toBe(1);
@@ -145,7 +168,7 @@ it('reads collector usage outside admission and memoizes it for five minutes per
   expect(reads).toBe(2);
   vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
   total = 'invalid';
-  expect(await target.usage()).toMatchObject({ snapshotReported: 0, liveCeiling: 3850 });
+  expect(await target.usage()).toMatchObject({ snapshotReported: 0, liveCeiling: 3750 });
   expect(reads).toBe(3);
 });
 it('allows six upstream-triggering misses per IP per hour, with free hits and independent IPs', async () => {
@@ -210,6 +233,7 @@ it('rejects missing credentials and paths outside the two safe live shapes witho
 });
 it('publishes secret-free monitoring at most once per fifteen minutes when counts change', async () => {
   const target = await setup(), http = mockHttp(), writes: string[] = [];
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   await runInDurableObject(target, instance => {
     const state = instance as unknown as { env: TdxEnv }, kv = state.env.SNAPSHOTS;
     state.env = { ...state.env, SNAPSHOTS: { get: kv.get.bind(kv), async put(key: string, value: string) {
@@ -222,12 +246,40 @@ it('publishes secret-free monitoring at most once per fifteen minutes when count
   // Flush waitUntil work before inspecting monitoring.
   await runInDurableObject(target, async (_instance, ctx) => { await ctx.storage.sync(); });
   expect(writes).toHaveLength(1);
+  await vi.waitFor(() => expect(log).toHaveBeenCalledExactlyOnceWith(`tdx usage ${writes[0]}`));
   vi.setSystemTime(Date.now() + 900_000);
   await runInDurableObject(target, instance => instance.alarm());
   expect(writes).toHaveLength(2);
+  expect(log).toHaveBeenCalledTimes(2);
+  expect(log).toHaveBeenLastCalledWith(`tdx usage ${writes[1]}`);
   const serialized = JSON.stringify(await target.usage());
-  for (const value of [...Object.values(credentials), 'project-token-SENTINEL', 'private-ip-key']) expect(serialized).not.toContain(value);
+  for (const value of [...Object.values(credentials), 'project-token-SENTINEL', 'private-ip-key']) {
+    expect(serialized).not.toContain(value); expect(JSON.stringify(log.mock.calls)).not.toContain(value);
+  }
   expect(http).toHaveBeenCalledTimes(3);
+});
+it('warns at reserve and combined monthly thresholds only when publishing', async () => {
+  const target = await setup();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  await seed(target, '2026-10-01', 'live', 2909);
+  let total = 239;
+  await runInDurableObject(target, instance => {
+    const state = instance as unknown as { env: TdxEnv };
+    state.env = { ...state.env, SNAPSHOTS: { async get() { return JSON.stringify({ total }); }, async put() {} } as unknown as KVNamespace };
+  });
+  await runInDurableObject(target, instance => instance.alarm());
+  expect(log).toHaveBeenCalledTimes(1); expect(warn).not.toHaveBeenCalled();
+  vi.setSystemTime(Date.now() + 300_000); total = 240;
+  await seed(target, '2026-10-01', 'live', 2910);
+  await runInDurableObject(target, instance => instance.alarm());
+  expect(log).toHaveBeenCalledTimes(1); expect(warn).not.toHaveBeenCalled();
+  vi.setSystemTime(Date.now() + 600_000);
+  await runInDurableObject(target, instance => instance.alarm());
+  expect(log).toHaveBeenCalledTimes(2);
+  expect(warn.mock.calls).toEqual([['tdx snapshot usage at least 80% of reserve'], ['tdx usage at least 70%']]);
+  await runInDurableObject(target, instance => instance.alarm());
+  expect(log).toHaveBeenCalledTimes(2); expect(warn).toHaveBeenCalledTimes(2);
 });
 
 it('counts failed token attempts as upstream-triggering IP misses', async () => {

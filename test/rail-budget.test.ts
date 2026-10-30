@@ -15,30 +15,30 @@ it.each([
 });
 it('allocates remaining live ceiling over remaining days, excluding today from prior use', () => {
   const usage = { ...counts, monthUsed: 2100, todayUsed: 100 };
-  expect(allowance(usage, new Date('2026-10-21T00:00:00Z'))).toEqual({ monthlyQuota: 4500, snapshotReserve: 200, snapshotReported: 0, liveCeiling: 3850, dailyBudget: Math.floor((3850 - 2000) / 11) });
+  expect(allowance(usage, new Date('2026-10-21T00:00:00Z'))).toEqual({ monthlyQuota: 4500, snapshotReserve: 300, snapshotReported: 0, liveCeiling: 3750, dailyBudget: Math.floor((3750 - 2000) / 11) });
   expect(decide(86, { ...counts, monthUsed: 100, todayUsed: 100, last60s: 0 }, now)).toEqual({ ok: false, reason: 'daily' });
 });
 it.each([
   [{ hasKey: false }, 'nokey'], [{ last60s: 3 }, 'minute'],
-  [{ todayUsed: 124, monthUsed: 124 }, 'daily'], [{ monthUsed: 3849 }, 'monthly'], [{ ipMisses: 6 }, 'ip'],
+  [{ todayUsed: 120, monthUsed: 120 }, 'daily'], [{ monthUsed: 3749 }, 'monthly'], [{ ipMisses: 6 }, 'ip'],
 ] as const)('rejects a two-call live admission for %j with %s', (change, reason) => {
   expect(decide(2, { ...counts, ...change }, now)).toEqual({ ok: false, reason });
 });
 it('accepts each boundary inclusively and checks token plus data together', () => {
   expect(decide(2, { ...counts, last60s: 2, ipMisses: 5 }, now)).toEqual({ ok: true });
-  expect(decide(1, { ...counts, monthUsed: 3849, todayUsed: 0 }, new Date('2026-10-31T00:00:00Z'))).toEqual({ ok: true });
-  expect(decide(1, { ...counts, monthUsed: 123, todayUsed: 123 }, now)).toEqual({ ok: true });
+  expect(decide(1, { ...counts, monthUsed: 3749, todayUsed: 0 }, new Date('2026-10-31T00:00:00Z'))).toEqual({ ok: true });
+  expect(decide(1, { ...counts, monthUsed: 119, todayUsed: 119 }, now)).toEqual({ ok: true });
 });
 it('charges the larger of the reserve and reported collector use', () => {
-  expect(allowance(counts, now).liveCeiling).toBe(3850);
-  expect(allowance({ ...counts, collectorUsed: 199 }, now).liveCeiling).toBe(3850);
-  expect(allowance({ ...counts, collectorUsed: 250 }, now).liveCeiling).toBe(3800);
+  expect(allowance(counts, now).liveCeiling).toBe(3750);
+  expect(allowance({ ...counts, collectorUsed: 250 }, now).liveCeiling).toBe(3750);
+  expect(allowance({ ...counts, collectorUsed: 400 }, now).liveCeiling).toBe(3650);
   expect(allowance({ ...counts, collectorUsed: 5000 }, now).liveCeiling).toBe(0);
 });
 it('clamps the snapshot reserve to integer quota bounds', () => {
-  expect(snapshotReserve()).toBe(200);
-  expect(snapshotReserve('')).toBe(200);
-  expect(snapshotReserve('invalid')).toBe(200);
+  expect(snapshotReserve()).toBe(300);
+  expect(snapshotReserve('')).toBe(300);
+  expect(snapshotReserve('invalid')).toBe(300);
   expect(snapshotReserve('-2')).toBe(0);
   expect(snapshotReserve('2.9')).toBe(2);
   expect(snapshotReserve('9999')).toBe(4500);

@@ -22,8 +22,8 @@ export function quota(value?: string | number) {
   return Number.isInteger(n) && n >= 1 && n <= 4500 ? n : 4500;
 }
 export function snapshotReserve(value?: string, monthlyQuota = 4500) {
-  const n = value === undefined || value.trim() === '' ? 200 : Number(value);
-  return Math.min(quota(monthlyQuota), Math.max(0, Number.isFinite(n) ? Math.floor(n) : 200));
+  const n = value === undefined || value.trim() === '' ? 300 : Number(value);
+  return Math.min(quota(monthlyQuota), Math.max(0, Number.isFinite(n) ? Math.floor(n) : 300));
 }
 export function allowance(counts: Counts, now: Date) {
   const monthlyQuota = quota(counts.monthlyQuota);
