@@ -68,7 +68,7 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
           return deriveOD(railway, snapshot, decodeURIComponent(match[1]), decodeURIComponent(match[2]));
         } });
         const result = await service.timetable(railway, args);
-        return reply(`${result.text.replace(`\n${attribution}`, '')}${snapshot.truncated || stations.truncated ? `\n${truncatedNote}` : ''}\n${snapshotTime(snapshot.fetchedAt)}`);
+        return { ...result, ...reply(`${result.text.replace(`\n${attribution}`, '')}${snapshot.truncated || stations.truncated ? `\n${truncatedNote}` : ''}\n${snapshotTime(snapshot.fetchedAt)}`) };
       } catch (error) { return reply(error instanceof RailError ? error.message : unavailableSnapshot); }
     },
     async live(args: LiveArgs): Promise<RailResult> {

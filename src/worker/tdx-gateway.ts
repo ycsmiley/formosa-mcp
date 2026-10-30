@@ -114,25 +114,23 @@ export class TdxGateway extends DurableObject<TdxEnv> {
     if (pending) return pending;
     const work = (async (): Promise<LiveResult> => {
       try {
-        return await this.serial(async () => {
-          const admitted = await this.admit('live', ipKey);
-          if (!admitted.ok) return admitted;
-          try {
-            const response = await fetch(tdxApiUrl(path, tdxBase(this.env.TDX_BASE_URL)), {
-              headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
-            });
-            if (response.status !== 200) {
-              if (response.status === 401) await this.invalidate(admitted.token);
-              return { ok: false, reason: 'upstream' };
-            }
-            const data = await response.json() as object, fetchedAt = new Date().toISOString();
-            const rows = object(data)[path.includes('/TrainLiveBoard/') ? 'TrainLiveBoards' : 'StationLiveBoards'];
-            if (!Array.isArray(rows)) return { ok: false, reason: 'upstream' };
-            if (this.cache.size >= 256) this.cache.delete(this.cache.keys().next().value!);
-            this.cache.set(path, { data, fetchedAt, until: Date.now() + 120_000 });
-            return { ok: true, data, fetchedAt };
-          } catch { return { ok: false, reason: 'upstream' }; }
-        });
+        const admitted = await this.serial(() => this.admit('live', ipKey));
+        if (!admitted.ok) return admitted;
+        try {
+          const response = await fetch(tdxApiUrl(path, tdxBase(this.env.TDX_BASE_URL)), {
+            headers: { authorization: `Bearer ${admitted.token}` }, redirect: 'manual', signal: AbortSignal.timeout(10_000),
+          });
+          if (response.status !== 200) {
+            if (response.status === 401) await this.invalidate(admitted.token);
+            return { ok: false, reason: 'upstream' };
+          }
+          const data = await response.json() as object, fetchedAt = new Date().toISOString();
+          const rows = object(data)[path.includes('/TrainLiveBoard/') ? 'TrainLiveBoards' : 'StationLiveBoards'];
+          if (!Array.isArray(rows)) return { ok: false, reason: 'upstream' };
+          if (this.cache.size >= 256) this.cache.delete(this.cache.keys().next().value!);
+          this.cache.set(path, { data, fetchedAt, until: Date.now() + 120_000 });
+          return { ok: true, data, fetchedAt };
+        } catch { return { ok: false, reason: 'upstream' }; }
       } finally { this.pending.delete(path); this.monitor(); }
     })();
     this.pending.set(path, work);

@@ -4,6 +4,7 @@ import { buildInvoiceSnapshot, encodeSnapshot } from '../../src/core/snapshot.js
 import xml from '../fixtures/invoice.xml?raw';
 import worker, { keys, type Env } from '../../src/worker/index.js';
 import { compactStations, compactTimetable, stationKey, timetableKey } from '../../src/core/rail/snapshot.js';
+import { truncatedNote } from '../../src/core/rail/client.js';
 import { refreshRail, userCredentials } from '../../src/worker/rail.js';
 import { TdxGateway, type TdxEnv } from '../../src/worker/tdx-gateway.js';
 import thsrStations from '../fixtures/tdx/real/thsr-stations.json';
@@ -62,6 +63,23 @@ it.each([
   const text = textOf(await rpc(name, args));
   expect(text).toContain(expected); expect(text).toContain('時刻表資料：2026-10-29 00:23（臺北時間）更新');
   expect(http).not.toHaveBeenCalled();
+});
+it('preserves snapshot timetable validation errors with truncation, update time and attribution', async () => {
+  await seed();
+  await bindings.SNAPSHOTS.put(timetableKey('TRA', date), JSON.stringify(compactTimetable('TRA', traOD, date, fetchedAt, true)));
+  for (const [args, message] of [
+    [{ origin: '臺北', destination: '高雄', time: '30:00' }, '時間格式不正確'],
+    [{ origin: '不存在', destination: '高雄' }, '找不到車站'],
+    [{ origin: '臺北', destination: '臺北' }, '起站與迄站不可相同'],
+  ] as const) {
+    const response = await rpc('tra_timetable', args);
+    expect(response.status).toBe(200); expect(response.result.isError).toBe(true);
+    const text = response.result.content[0].text;
+    expect(text).toContain(message); expect(text).toContain(truncatedNote);
+    expect(text).toContain('時刻表資料：2026-10-29 00:23（臺北時間）更新');
+    expect(text).toContain('資料介接「交通部TDX平臺」');
+  }
+  expect(fetch).not.toHaveBeenCalled();
 });
 it('explains missing snapshots and date coverage without errors or fetching', async () => {
   const http = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));

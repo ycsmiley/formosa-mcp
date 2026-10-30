@@ -87,7 +87,23 @@ it('merges yesterday’s rolled-over stops into today’s sorted station board',
   const origin = await renderFallback({ station: '臺北' }, 'nokey', snapshot, stations, midnight, yesterday);
   expect(origin).not.toContain('903 次');
 });
-it.each([1, 2])('marks suspended trains and stops (%i), excluding them from station boards', async suspended => {
+it('prefers yesterday’s matching overnight run through its final rolled-over minute', async () => {
+  const snapshot = compactTimetable('TRA', daily('TRA'), date, fetchedAt);
+  const stations = compactStations('TRA', fixture('tra-stations'), fetchedAt);
+  snapshot.trains = [{ ...snapshot.trains[0], no: '999', type: '今日車種' }];
+  const yesterday = { ...snapshot, date: '2026-10-28', fetchedAt: '2026-10-27T16:23:00Z', trains: [
+    { ...snapshot.trains[0], type: '昨日車種', overnight: true, stops: [['1000', '23:00', '23:01', 0], ['4400', '00:20', '00:21', 0]] as typeof snapshot.trains[0]['stops'] },
+  ] };
+  for (const [time, type, timestamp] of [
+    ['00:05', '昨日車種', '2026-10-28 00:23'],
+    ['00:21', '昨日車種', '2026-10-28 00:23'],
+    ['00:22', '今日車種', '2026-10-29 00:23'],
+  ]) {
+    const text = await renderFallback({ train_no: '999' }, 'nokey', snapshot, stations, new Date(`${date}T${time}:00+08:00`), yesterday);
+    expect(text).toContain(`999 次｜${type}`); expect(text).toContain(timestamp);
+  }
+});
+it.each([1, 2])('marks suspended trains and stops (%i), excluding only fully suspended trains from station boards', async suspended => {
   const snapshot = compactTimetable('TRA', daily('TRA'), date, fetchedAt);
   const stations = compactStations('TRA', fixture('tra-stations'), fetchedAt), train = snapshot.trains[0];
   snapshot.trains = [
@@ -96,12 +112,26 @@ it.each([1, 2])('marks suspended trains and stops (%i), excluding them from stat
     { ...train, no: '903', suspended: 0, stops: [['1000', '18:59', '19:00', 0], ['4400', '20:00', '20:01', 0]] },
   ];
   const cancelled = await renderFallback({ train_no: '901' }, 'nokey', snapshot, stations, now);
-  expect(cancelled.split('\n').find(line => line.startsWith('臺鐵表訂停靠站'))).toMatch(/（停駛）$/);
+  expect(cancelled.split('\n').find(line => line.startsWith('臺鐵表訂停靠站'))).toContain(suspended === 1 ? '（停駛）' : '（部分停駛）');
   const skipped = await renderFallback({ train_no: '902' }, 'nokey', snapshot, stations, now);
   expect(skipped).toContain('臺北｜表訂時間 到站 18:59／離站 19:00（停駛）');
   expect(skipped).toContain('高雄｜表訂時間 到站 20:00／離站 20:01\n');
   const board = await renderFallback({ station: '臺北' }, 'nokey', snapshot, stations, now);
-  expect(board).toContain('903 次'); expect(board).not.toContain('901 次'); expect(board).not.toContain('902 次');
+  expect(board).toContain('903 次'); expect(board.includes('901 次')).toBe(suspended === 2); expect(board).not.toContain('902 次');
+});
+it('shows a partially suspended train only at its operating stops', async () => {
+  const snapshot = compactTimetable('TRA', daily('TRA'), date, fetchedAt);
+  const stations = compactStations('TRA', fixture('tra-stations'), fetchedAt);
+  snapshot.trains = [{ ...snapshot.trains[0], no: '901', suspended: 2, stops: [
+    ['1000', '18:59', '19:00', 0], ['3300', '19:30', '19:31', 1], ['4400', '20:00', '20:01', 2],
+  ] }];
+  const text = await renderFallback({ train_no: '901' }, 'nokey', snapshot, stations, now);
+  expect(text.split('\n').find(line => line.startsWith('臺鐵表訂停靠站'))).toMatch(/（部分停駛）$/);
+  expect(text).toContain('臺北｜表訂時間 到站 18:59／離站 19:00\n');
+  expect(text).toContain('到站 19:30／離站 19:31（停駛）');
+  expect(text).toContain('高雄｜表訂時間 到站 20:00／離站 20:01（停駛）');
+  expect(await renderFallback({ station: '臺北' }, 'nokey', snapshot, stations, now)).toContain('901 次');
+  for (const station of ['3300', '高雄']) expect(await renderFallback({ station }, 'nokey', snapshot, stations, now)).not.toContain('901 次');
 });
 it('formats live age and the snapshot timestamp in Taipei', () => {
   expect(liveAge(now.toISOString(), now)).toBe('即時資料剛剛取得');

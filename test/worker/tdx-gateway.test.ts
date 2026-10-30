@@ -44,6 +44,28 @@ it('admits exactly four total calls in a concurrent burst of twenty distinct pat
   expect(results.filter(r => !r.ok && r.reason === 'minute')).toHaveLength(17);
   expect(await target.usage()).toMatchObject({ monthUsed: 4, todayUsed: 4, last60s: 4, byPurpose: { token: 1, live: 3, snapshot: 0 } });
 });
+it('starts and counts a distinct live miss while the first data fetch is unresolved', async () => {
+  const target = await setup();
+  await runInDurableObject(target, async instance => {
+    let release!: () => void, started!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const firstStarted = new Promise<void>(resolve => { started = resolve; });
+    const http = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      if (String(input).endsWith('/token')) return Response.json({ access_token: 'project-token-SENTINEL', expires_in: 86400 });
+      if (new URL(String(input)).pathname.endsWith(path(1))) { started(); await held; }
+      return Response.json({ TrainLiveBoards: [{ TrainNo: '123' }] });
+    });
+    const first = instance.live(path(1), 'ip-1');
+    await firstStarted;
+    const second = instance.live(path(2), 'ip-2');
+    try {
+      await vi.waitFor(() => expect(http.mock.calls.some(([url]) => new URL(String(url)).pathname.endsWith(path(2)))).toBe(true));
+      expect(await second).toMatchObject({ ok: true });
+      expect(await instance.usage()).toMatchObject({ monthUsed: 3, todayUsed: 3, last60s: 3, byPurpose: { token: 1, live: 2, snapshot: 0 } });
+    } finally { release(); await Promise.all([first, second]); }
+    expect(await first).toMatchObject({ ok: true }); expect(http).toHaveBeenCalledTimes(3);
+  });
+});
 it('deduplicates concurrent identical paths and serves two-minute cache hits for free', async () => {
   const target = await setup(), http = mockHttp();
   const results = await Promise.all(Array.from({ length: 20 }, () => target.live(path(123), 'one-ip')));
