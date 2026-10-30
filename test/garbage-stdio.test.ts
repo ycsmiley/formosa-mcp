@@ -2,13 +2,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { beforeAll, expect, it } from 'vitest';
 import { collectGarbage, directoryStore } from '../scripts/publish-garbage.js';
 import { normalize, type City } from '../src/core/garbage/normalize.js';
 
-beforeAll(() => { if (!existsSync('dist/stdio.js')) throw new Error('先跑 npm run build'); });
+beforeAll(() => { if (!existsSync('dist/stdio.js')) execSync('npm run build', { stdio: 'inherit' }); }, 180000);
 
 it('serves collected fixture schedules through stdio', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'garbage-'));

@@ -510,7 +510,7 @@
     },
     "expected_key_facts": [
       "資料來源",
-      "收運點"
+      "里，路線"
     ],
     "notes": "依資料時間與當日班表回答。",
     "daily_ci": false,

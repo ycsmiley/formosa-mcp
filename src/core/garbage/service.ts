@@ -26,7 +26,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
     try {
       const index = await store.index(city); const info = index?.cities[city];
       if (!info) return { text: '資料更新中，請稍後再試', isError: true };
-      const districts = Object.keys(info.districts); let keyword = norm(q.keyword ?? '');
+      const districts = Object.keys(info.districts); let keyword = norm(q.keyword ?? '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
       let district = q.district ? districts.find(d => norm(d).replace(/區$/, '') === norm(q.district!).replace(/區$/, '')) : undefined;
       if (!q.district) {
         for (const d of [...districts].sort((a, b) => b.length - a.length)) {
@@ -43,10 +43,10 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
         else if (short.length >= 2 && keyword.startsWith(short)) keyword = keyword.slice(short.length).trim();
       }
       if (!keyword) return { text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false };
-      if ([...keyword].length < 2 || /^[\p{N}]+$/u.test(keyword) || /^[\p{P}\p{S}\s]+$/u.test(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
+      if ([...keyword].length < 2 || /["\\]/.test(keyword) || /^[\p{N}]+$/u.test(keyword) || /^[\p{P}\p{S}\s]+$/u.test(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
       const now = clock(), wantedDay = weekday(q.weekday, now);
       if (q.weekday && wantedDay === undefined) return { text: '請輸入今天、明天或星期一至星期日。', isError: true };
-      if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: '臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n實際收運以各地環保局公告為準（國定假日可能調整）', isError: false };
+      if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: `臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）\n實際收運以各地環保局公告為準（國定假日可能調整）`, isError: false };
       if (city === 'kaohsiung' && wantedDay !== undefined) {
         const capture = new Date(Date.parse(info.fetchedAt) + 8 * 3600000);
         const today = new Date(now.getTime() + 8 * 3600000);
@@ -63,14 +63,15 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       const stops = matched.map(s => ({ ...s, garbage: s.garbage.filter(filter), recycling: s.recycling.filter(filter), food: s.food.filter(filter) })).filter(s => s.garbage.length + s.recycling.length + s.food.length);
       if (q.time) stops.sort((a, b) => [...a.garbage, ...a.recycling, ...a.food].map(s => s.start).sort()[0].localeCompare([...b.garbage, ...b.recycling, ...b.food].map(s => s.start).sort()[0]));
       const prefix = `${cities[city].name}${district}${q.keyword ? `「${q.keyword}」` : ''}：`;
-      const lines = [shard.truncated ? `${prefix}符合的收運點超過 200 筆，請加上里名或路段縮小範圍。` : stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${(shard.matched ?? matched.length) ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
+      const lines = shard.truncated ? (stops.length ? [shard.stops.length >= 200 ? `${prefix}超過 200 個收運點，以下列出前 15 個` : `${prefix}符合太多收運點，以下列出部分結果`] : []) : [stops.length ? `${prefix}共 ${stops.length} 個收運點` : `${prefix}${(shard.matched ?? matched.length) ? '有收運點，但不符合指定的星期或時間。' : '找不到符合的收運點，試試較短的關鍵字或里名。'}`];
       const format = (slots: Slot[]) => slots.map(s => `週${[...dayNames].filter((_, i) => s.days & 1 << i).join('、')} ${s.start}${s.end && s.end !== s.start ? `–${s.end}` : ''}`).join('；');
-      for (const s of (shard.truncated ? [] : stops.slice(0, 15))) {
+      for (const s of stops.slice(0, 15)) {
         lines.push(`${s.name}（${s.village}，路線 ${s.route}）`);
         for (const [label, slots] of [['一般垃圾', s.garbage], ['資源回收', s.recycling], ['廚餘', s.food]] as const) if (slots.length) lines.push(`${label}：${format(slots)}`);
         if (s.note) lines.push(`備註：${s.note}`);
       }
-      if (!shard.truncated && stops.length > 15) lines.push('僅顯示前 15 筆，請用里名、關鍵字或時間縮小範圍。');
+      if (shard.truncated) lines.push('符合的收運點太多，請加上里名、路段或時間縮小範圍。');
+      else if (stops.length > 15) lines.push('僅顯示前 15 筆，請用里名、關鍵字或時間縮小範圍。');
       const local = new Date(Date.parse(info.fetchedAt) + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
       lines.push(`資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）`, `資料時間：${local}（台北時間）${now.getTime() - Date.parse(info.fetchedAt) > 3 * 86400000 ? '；資料可能已過時' : ''}`);
       if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示，部分站點僅資源回收車收運；廚餘依環保局規則隨垃圾車收運。');

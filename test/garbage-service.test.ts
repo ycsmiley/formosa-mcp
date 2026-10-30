@@ -94,25 +94,28 @@ it('infers only district prefixes or separate full district tokens', async () =>
 it('validates keywords before loading a shard', async () => {
   let calls = 0;
   const svc = createGarbageService({ index: async () => index, shard: async () => { calls++; return shard; } });
-  for (const keyword of ['路', '1', '123', '，。', '板橋區路', '板橋區123']) {
+  for (const keyword of ['路', '1', '123', '，。', '板橋區路', '板橋區123', '文化"路', '文化\\路', '""']) {
     expect((await svc.schedule({ city: '新北', keyword: keyword.startsWith('板橋') ? keyword : `板橋區${keyword}` })).text).toContain('關鍵字太短或無效');
   }
+  expect((await svc.schedule({ city: '新北', district: '板橋', keyword: '\u200b\u200c\u200d\u2060\ufeff' })).text).toContain('請提供');
   expect(calls).toBe(0);
 });
 
 it('returns Taipei closure days without reading a shard', async () => {
   let calls = 0;
   const svc = createGarbageService({ index: async () => ({ ...index, cities: { taipei: index.cities.ntpc! } }), shard: async () => { calls++; return shard; } }, () => new Date('2026-10-31T00:00:00Z'));
-  for (const weekday of ['週三', '週日', '明天']) expect((await svc.schedule({ city: '台北', district: '板橋', keyword: '文化', weekday })).text).toContain('週三、週日停收');
+  for (const weekday of ['週三', '週日', '明天']) expect((await svc.schedule({ city: '台北', district: '板橋', keyword: '文化', weekday })).text).toBe('臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n資料來源：臺北市政府環境保護局「臺北市垃圾車點位路線資訊」，政府資料開放授權條款第1版（OGDL-1）\n實際收運以各地環保局公告為準（國定假日可能調整）');
   expect(calls).toBe(0);
 });
 
 it('reports stale missing shards and too many matches', async () => {
   const missing = createGarbageService({ index: async () => index, shard: async () => null }, () => new Date('2026-11-10T00:00:00Z'));
   expect((await missing.schedule({ city: '新北', district: '板橋', keyword: '文化' })).text).toBe('垃圾車資料已過時，請稍後再試。');
-  const many = createGarbageService({ index: async () => index, shard: async () => ({ ...shard, truncated: true }) });
+  const many = createGarbageService({ index: async () => index, shard: async () => ({ v: 2, stops: Array.from({ length: 200 }, (_, i) => ({ ...shard.stops[0], name: `文化路${i}號` })), truncated: true }) });
   const result = await many.schedule({ city: '新北', district: '板橋', keyword: '文化' });
-  expect(result.text).toContain('符合的收運點超過 200 筆');
+  expect(result.text).toContain('超過 200 個收運點，以下列出前 15 個');
+  expect(result.text.match(/文化路\d+號（文化里，路線 A1）/g)).toHaveLength(15);
+  expect(result.text).toContain('符合的收運點太多，請加上里名、路段或時間縮小範圍。');
   expect(result.text).toContain('資料來源：');
   expect(result.text).not.toContain('共 1 個收運點');
 });
@@ -128,14 +131,22 @@ it('filters slots before applying the shard limit and retains keyword match info
   expect(result.text).toContain('文化路249號');
   expect(result.text).not.toContain('超過 200 筆');
   expect((await svc.schedule({ ...query, time: '20:00' })).text).toContain('有收運點，但不符合指定的星期或時間');
-  expect((await svc.schedule(query)).text).toContain('超過 200 筆');
+  expect((await svc.schedule(query)).text).toContain('超過 200 個收運點');
 });
 
-it('truncates after 1000 keyword matches even when no stops pass the filter', () => {
+it('truncates after 1000 keyword matches even when few stops pass the filter', async () => {
   const stops = Array.from({ length: 1100 }, (_, i) => ({ ...shard.stops[0], name: `文化路${i}號` }));
   const raw = encodeShard({ v: 2, stops });
   expect(decodeShard(raw, '板橋區', '文化路', () => false)).toEqual({ v: 2, stops: [], truncated: true, matched: 1001 });
   expect(decodeShard(encodeShard({ v: 2, stops: stops.slice(0, 1000) }), '板橋區', '文化路', () => false)).toEqual({ v: 2, stops: [], matched: 1000 });
+  for (const count of [0, 2]) {
+    const svc = createGarbageService({ index: async () => index, shard: async () => ({ v: 2, stops: stops.slice(0, count), truncated: true }) });
+    const text = (await svc.schedule({ city: '新北', district: '板橋', keyword: '文化路' })).text;
+    expect(text).toContain('符合的收運點太多，請加上里名、路段或時間縮小範圍。');
+    expect(text).not.toContain('超過 200');
+    if (count) expect(text).toContain('符合太多收運點，以下列出部分結果');
+    expect(text.match(/文化路\d+號（文化里，路線 A1）/g) ?? []).toHaveLength(count);
+  }
 });
 
 it('strips the supplied district from the keyword', async () => {
