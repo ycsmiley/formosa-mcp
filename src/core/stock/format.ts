@@ -31,7 +31,7 @@ export function quoteStalenessNote(s: StockQuote, clock: Clock, tpexCheck?: Tpex
       do { expected.setUTCDate(expected.getUTCDate() - 1); } while ([0, 6].includes(expected.getUTCDay()));
     }
     const date = expected.toISOString().slice(0, 10);
-    if (tpexCheck.dataDate < date && isoDate(checked) < date) return `⚠️ 櫃買資料可能延遲，最近一次更新：${isoDate(checked)} ${String(checked.hour).padStart(2, '0')}:${String(checkedAt.getUTCMinutes()).padStart(2, '0')}（台北時間）`;
+    if (tpexCheck.dataDate < date && checkedAt.getTime() < expected.getTime() + 10 * 3600000) return `⚠️ 櫃買資料可能延遲，最近一次更新：${isoDate(checked)} ${String(checked.hour).padStart(2, '0')}:${String(checkedAt.getUTCMinutes()).padStart(2, '0')}（台北時間）`;
   }
   return '';
 }

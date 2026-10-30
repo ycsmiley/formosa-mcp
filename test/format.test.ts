@@ -86,7 +86,9 @@ it.each([
   { now: '2026-10-30T09:59:00Z', delayed: false },
   { now: '2026-10-30T11:00:00Z', dataDate: '2026-10-30', delayed: false },
   { now: '2026-10-30T11:00:00Z', lastSuccessAt: '2026-10-30T10:47:00Z', delayed: false },
-  { now: '2026-10-30T11:00:00Z', lastSuccessAt: '2026-10-29T16:00:00Z', delayed: false },
+  { now: '2026-10-30T11:00:00Z', lastSuccessAt: '2026-10-29T16:00:00Z', delayed: true },
+  { now: '2026-10-30T11:00:00Z', lastSuccessAt: '2026-10-30T06:17:00Z', delayed: true },
+  { now: '2026-10-30T11:00:00Z', lastSuccessAt: '2026-10-30T10:00:00Z', delayed: false },
   { now: '2026-10-30T11:00:00Z', market: '上市' as const, delayed: false },
   { now: '2026-10-31T11:00:00Z', delayed: true },
   { now: '2026-11-01T11:00:00Z', delayed: true },
@@ -97,7 +99,8 @@ it.each([
   const check = { dataDate, lastSuccessAt }, clock = () => new Date(now);
   const text = formatStockQuote(quote, clock, check);
   expect(text.includes('⚠️ 櫃買資料可能延遲')).toBe(delayed);
-  if (delayed) expect(text).toContain('⚠️ 櫃買資料可能延遲，最近一次更新：2026-10-29 18:47（台北時間）');
+  const updatedAt = new Date(Date.parse(lastSuccessAt) + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
+  if (delayed) expect(text).toContain(`⚠️ 櫃買資料可能延遲，最近一次更新：${updatedAt}（台北時間）`);
   expect(formatStockQuote(quote, clock)).not.toContain('⚠️');
   expect(formatStockQuote(quote, undefined, check)).not.toContain('⚠️');
 });
