@@ -17,8 +17,18 @@ describe('garbage source normalization', () => {
   it('reads explicit Taipei recycling days from stop names', () => {
     for (const csv of [fixture('taipei.csv'), fixture('taipei.csv').replace('每週二,五回收車', '每週二、五回收車')]) {
       const stop = normalize('taipei', csv, capture).find(s => s.name.includes('登山路25之1號'))!;
-      expect(stop.garbage[0].days).toBe(118);
+      expect(stop.garbage).toEqual([]);
       expect(stop.recycling[0].days).toBe((1 << 2) | (1 << 5));
+      expect(stop.note).toBe('僅資源回收車收運');
+    }
+  });
+  it('marks Taipei recycling truck stops as recycling only', () => {
+    const stops = normalize('taipei', fixture('taipei.csv'), capture);
+    for (const tag of ['(回收車收運)', '(回收車)', '(由回收車收運)']) {
+      const stop = stops.find(s => s.name.includes(tag))!;
+      expect(stop.garbage).toEqual([]);
+      expect(stop.recycling[0].days).toBe(118);
+      expect(stop.note).toBe('僅資源回收車收運');
     }
   });
   it('drops placeholder New Taipei memos', () => {

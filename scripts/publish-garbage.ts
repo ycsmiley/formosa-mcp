@@ -36,7 +36,7 @@ export async function collectGarbage(store: Store, options: { cities?: City[]; f
 }
 export async function main(args = process.argv.slice(2), env = process.env): Promise<number> {
   let dir: string | undefined, cities: City[] | undefined;
-  for (let i = 0; i < args.length; i += 2) { const value = args[i + 1]; if (!value || !['--out', '--city'].includes(args[i])) { console.error('Usage: publish-garbage [--out dir] [--city codes]'); return 2; } if (args[i] === '--out') dir = value; else { const parts = value.split(','); if (parts.some(c => !(c in urls))) return 2; cities = parts as City[]; } }
+  for (let i = 0; i < args.length; i += 2) { const value = args[i + 1]; if (!value || !['--out', '--city'].includes(args[i]) || (args[i] === '--city' && value.split(',').some(c => !Object.hasOwn(urls, c)))) { console.error('Usage: publish-garbage [--out dir] [--city codes]'); return 2; } if (args[i] === '--out') dir = value; else cities = value.split(',') as City[]; }
   if (!dir && ['CLOUDFLARE_ACCOUNT_ID', 'KV_NAMESPACE_ID', 'CLOUDFLARE_KV_WRITE_TOKEN'].some(k => !env[k]?.trim())) { console.error('garbage KV configuration missing'); return 2; }
   return collectGarbage(dir ? directoryStore(dir) : kvStore(env), { cities, token: env.CLOUDFLARE_KV_WRITE_TOKEN });
 }

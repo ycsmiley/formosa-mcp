@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGarbageService } from '../src/core/garbage/service.js';
+import { readFileSync } from 'node:fs';
+import { normalize } from '../src/core/garbage/normalize.js';
 import type { Index, Shard } from '../src/core/garbage/snapshot.js';
 const index: Index = { v: 2, generatedAt: '2026-10-30T00:00:00Z', cities: { ntpc: { gen: 'abc', fetchedAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:00Z', stops: 1, districts: { 板橋區: { stops: 1, sha256: 'a'.repeat(64) } } } } };
 const shard: Shard = { v: 2, stops: [{ district: '板橋區', village: '文化里', route: 'A1', name: '文化路１號', garbage: [{ days: 1 << 5, start: '16:30', end: '' }], recycling: [], food: [] }] };
@@ -20,6 +22,19 @@ describe('garbage schedule service', () => {
     const empty = createGarbageService({ index: async () => null, shard: async () => null });
     expect(await empty.schedule({ city: '新北' })).toEqual({ text: '資料更新中，請稍後再試', isError: true });
   });
+});
+
+it('renders and filters a Taipei recycling-only stop', async () => {
+  const stop = normalize('taipei', readFileSync('test/fixtures/garbage/real/taipei.csv', 'utf8'), new Date()).find(s => s.name.includes('登山路25之1號'))!;
+  const entry = { ...index.cities.ntpc!, districts: { 北投區: { stops: 1, sha256: 'a'.repeat(64) } } };
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { taipei: entry } }), shard: async () => ({ v: 2, stops: [stop] }) });
+  const query = { city: '台北', district: '北投', keyword: '登山路25之1號' };
+  const result = await svc.schedule({ ...query, weekday: '週二', time: '17:00' });
+  expect(result.text).toContain('資源回收：週二、五 17:03–17:05');
+  expect(result.text).toContain('備註：僅資源回收車收運');
+  expect(result.text).not.toContain('一般垃圾：');
+  expect((await svc.schedule({ ...query, weekday: '週一' })).text).toContain('不符合指定的星期或時間');
+  expect((await svc.schedule({ ...query, time: '18:00' })).text).toContain('不符合指定的星期或時間');
 });
 
 it('explains Taipei weekday rules and Kaohsiung capture day', async () => {

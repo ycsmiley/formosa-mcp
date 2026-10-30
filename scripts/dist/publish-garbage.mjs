@@ -87,7 +87,8 @@ function normalize(city, input, capturedAt) {
     } else if (city === "taipei") {
       const start = time(r["\u62B5\u9054\u6642\u9593"]), end = time(r["\u96E2\u958B\u6642\u9593"]);
       const recyclingDays = /每週([一二三四五六日](?:[,、]?[一二三四五六日])*)回收/.exec(str(r["\u5730\u9EDE"]));
-      stop = { district: str(r["\u884C\u653F\u5340"]), village: str(r["\u91CC\u5225"]), route: `${str(r["\u8DEF\u7DDA"])} ${str(r["\u8ECA\u6B21"])}`.trim(), name: str(r["\u5730\u9EDE"]), garbage: one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: [] };
+      const recyclingOnly = str(r["\u5730\u9EDE"]).includes("\u56DE\u6536\u8ECA");
+      stop = { district: str(r["\u884C\u653F\u5340"]), village: str(r["\u91CC\u5225"]), route: `${str(r["\u8DEF\u7DDA"])} ${str(r["\u8ECA\u6B21"])}`.trim(), name: str(r["\u5730\u9EDE"]), garbage: recyclingOnly ? [] : one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: [], ...recyclingOnly ? { note: "\u50C5\u8CC7\u6E90\u56DE\u6536\u8ECA\u6536\u904B" } : {} };
     } else if (city === "taichung") {
       if (str(r.task_type) === "\u5F80\u5EE0") continue;
       stop = { district: str(r.area), village: str(r.village), route: str(r.car_licence), name: str(r.caption), garbage: daily(r, "g"), recycling: daily(r, "r"), food: [] };
@@ -299,16 +300,12 @@ async function main(args = process.argv.slice(2), env = process.env) {
   let dir, cities;
   for (let i = 0; i < args.length; i += 2) {
     const value = args[i + 1];
-    if (!value || !["--out", "--city"].includes(args[i])) {
+    if (!value || !["--out", "--city"].includes(args[i]) || args[i] === "--city" && value.split(",").some((c) => !Object.hasOwn(urls, c))) {
       console.error("Usage: publish-garbage [--out dir] [--city codes]");
       return 2;
     }
     if (args[i] === "--out") dir = value;
-    else {
-      const parts = value.split(",");
-      if (parts.some((c) => !(c in urls))) return 2;
-      cities = parts;
-    }
+    else cities = value.split(",");
   }
   if (!dir && ["CLOUDFLARE_ACCOUNT_ID", "KV_NAMESPACE_ID", "CLOUDFLARE_KV_WRITE_TOKEN"].some((k) => !env[k]?.trim())) {
     console.error("garbage KV configuration missing");

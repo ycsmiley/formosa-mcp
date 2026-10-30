@@ -144,7 +144,7 @@ Your own key enables local rail queries, including live train delays. Rail was v
 
 ### Remote (Cloudflare Workers)
 
-Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
+Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all five cities at 11:37 and Kaohsiung only at 00:20 Taipei time. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
 
 #### Remote rail
 

@@ -1,10 +1,34 @@
 import { readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { collectGarbage, type Store } from '../scripts/publish-garbage.js';
+import { collectGarbage, directoryStore, main, type Store } from '../scripts/publish-garbage.js';
 import { fetchSource } from '../src/garbage/source.js';
 import { decodeIndex, decodeShard, indexKey, shardKey } from '../src/core/garbage/snapshot.js';
 import type { City } from '../src/core/garbage/normalize.js';
 const fixture = (city: string) => readFileSync(`test/fixtures/garbage/real/${city}.${city === 'ntpc' || city === 'taipei' ? 'csv' : 'json'}`, 'utf8');
+it('selects Kaohsiung via the CLI and preserves other city entries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'garbage-city-'));
+  const store = directoryStore(dir);
+  const minimum = { ntpc: 1, taipei: 1, taichung: 1, tainan: 1, kaohsiung: 1 };
+  const row = JSON.parse(fixture('kaohsiung')).data[0];
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: Array.from({ length: 1000 }, (_, i) => ({ ...row, caption: `地點${i}` })) })));
+  try {
+    expect(await collectGarbage(store, { cities: ['ntpc'], minimum, fetch: async () => fixture('ntpc') })).toBe(0);
+    const previous = decodeIndex((await store.get(indexKey))!).cities.ntpc;
+    expect(await main(['--out', dir, '--city', 'kaohsiung'], {})).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('kcg.gov.tw');
+    const index = decodeIndex((await store.get(indexKey))!);
+    expect(index.cities.ntpc).toEqual(previous);
+    expect(index.cities.kaohsiung?.stops).toBe(1000);
+  } finally { fetchMock.mockRestore(); await rm(dir, { recursive: true, force: true }); }
+});
+it('prints usage for an unknown city', async () => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try { expect(await main(['--city', 'unknown'], {})).toBe(2); expect(error).toHaveBeenCalledWith('Usage: publish-garbage [--out dir] [--city codes]'); } finally { error.mockRestore(); }
+});
 it('collects in order, retains failures, and writes shards before the index', async () => {
   const values = new Map<string, string>(), writes: string[] = [], events: string[] = [];
   const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { writes.push(k); values.set(k, v); } };

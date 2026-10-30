@@ -68,7 +68,8 @@ export function normalize(city: City, input: string, capturedAt: Date): Stop[] {
     } else if (city === 'taipei') {
       const start = time(r['抵達時間']), end = time(r['離開時間']);
       const recyclingDays = /每週([一二三四五六日](?:[,、]?[一二三四五六日])*)回收/.exec(str(r['地點']));
-      stop = { district: str(r['行政區']), village: str(r['里別']), route: `${str(r['路線'])} ${str(r['車次'])}`.trim(), name: str(r['地點']), garbage: one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: [] };
+      const recyclingOnly = str(r['地點']).includes('回收車');
+      stop = { district: str(r['行政區']), village: str(r['里別']), route: `${str(r['路線'])} ${str(r['車次'])}`.trim(), name: str(r['地點']), garbage: recyclingOnly ? [] : one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: [], ...(recyclingOnly ? { note: '僅資源回收車收運' } : {}) };
     } else if (city === 'taichung') {
       if (str(r.task_type) === '往廠') continue;
       stop = { district: str(r.area), village: str(r.village), route: str(r.car_licence), name: str(r.caption), garbage: daily(r, 'g'), recycling: daily(r, 'r'), food: [] };

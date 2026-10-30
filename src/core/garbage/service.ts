@@ -65,7 +65,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       if (stops.length > 15) lines.push('僅顯示前 15 筆，請用里名、關鍵字或時間縮小範圍。');
       const local = new Date(Date.parse(info.fetchedAt) + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
       lines.push(`資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）`, `資料時間：${local}（台北時間）${now.getTime() - Date.parse(info.fetchedAt) > 3 * 86400000 ? '；資料可能已過時' : ''}`);
-      if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示。');
+      if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示，部分站點僅資源回收車收運。');
       if (city === 'kaohsiung') { const d = new Date(Date.parse(info.fetchedAt) + 8 * 3600000); lines.push(`高雄市資料只含 ${d.getUTCMonth() + 1}/${d.getUTCDate()}（星期${dayNames[info.capturedWeekday ?? d.getUTCDay()]}）當日班表`); }
       lines.push('實際收運以各地環保局公告為準（國定假日可能調整）');
       return { text: lines.join('\n'), isError: false };
