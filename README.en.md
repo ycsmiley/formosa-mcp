@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-Taiwan e-invoice lottery and TWSE/TPEx end-of-day stock data and garbage truck schedules for five cities for AI assistants, with no API key; remote HSR and TRA provide timetables for today and tomorrow.
+Taiwan e-invoice lottery and TWSE/TPEx end-of-day stock data and garbage truck schedules for New Taipei, Taipei and Taichung for AI assistants, with no API key; remote HSR and TRA provide timetables for today and tomorrow.
 
 ## Get started
 
@@ -190,7 +190,7 @@ Verify with `npm run typecheck:worker` and `npm run test:worker`. `@modelcontext
 
 - The project code is licensed under [MIT](LICENSE).
 - Data is used under the [Open Government Data License, version 1.0 (政府資料開放授權條款第1版)](https://data.gov.tw/license). Sources: Ministry of Finance (e-invoice winning numbers), Taiwan Stock Exchange (TWSE OpenAPI), Taipei Exchange (TPEx OpenAPI), and MOTC TDX (資料介接「交通部TDX平臺」).
-- Garbage schedules use [New Taipei](https://data.gov.tw/dataset/125664), [Taipei](https://data.gov.tw/dataset/136515), [Taichung](https://data.gov.tw/dataset/84004) environmental protection bureaus’ open data (OGDL-1). Taipei weekdays follow the bureau rule. Tainan and Kaohsiung are not yet supported because their open-data sites only accept connections from Taiwan, which the cloud collector cannot reach.
+- Garbage schedules use [New Taipei](https://data.gov.tw/dataset/125664), [Taipei](https://data.gov.tw/dataset/136515) and [Taichung](https://data.gov.tw/dataset/84004) environmental protection bureaus’ open data (OGDL-1). Taipei weekdays follow the bureau rule. Tainan and Kaohsiung are not yet supported because their open-data sites only accept connections from Taiwan, which the cloud collector cannot reach.
 - This is an unofficial project and is not affiliated with those agencies. Data may be delayed or inaccurate; official announcements prevail.
 - Stock data is end-of-day, for reference only, and is not investment advice.
 

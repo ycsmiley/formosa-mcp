@@ -17,6 +17,25 @@ it('prints usage for an unknown city', async () => {
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   try { expect(await main(['--city', 'unknown'], {})).toBe(2); expect(await main(['--city', 'tainan'], {})).toBe(2); expect(error).toHaveBeenCalledWith('Usage: publish-garbage [--out dir] [--city codes]'); } finally { error.mockRestore(); }
 });
+it('selects a city via the CLI and preserves other city entries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'garbage-'));
+  const fetchMock = vi.spyOn(globalThis, 'fetch');
+  try {
+    const store = directoryStore(dir);
+    expect(await collectGarbage(store, { cities: ['ntpc'], minimum: { ntpc: 1, taipei: 1, taichung: 1 }, fetch: async () => fixture('ntpc') })).toBe(0);
+    const previous = decodeIndex((await store.get(indexKey))!).cities.ntpc;
+    const [header, row] = fixture('taipei').trim().split(/\r?\n/);
+    const fields = row.split(',');
+    const csv = [header, ...Array.from({ length: 2001 }, (_, i) => { const copy = [...fields]; copy[9] += ` ${i}`; return copy.join(','); })].join('\n');
+    fetchMock.mockResolvedValue(new Response(csv));
+    expect(await main(['--out', dir, '--city', 'taipei'], {})).toBe(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('data.taipei');
+    const index = decodeIndex((await store.get(indexKey))!);
+    expect(index.cities.ntpc).toEqual(previous);
+    expect(index.cities.taipei!.stops).toBeGreaterThan(0);
+  } finally { fetchMock.mockRestore(); await rm(dir, { recursive: true, force: true }); }
+});
 it('collects in order, retains failures, and writes shards before the index', async () => {
   const values = new Map<string, string>(), writes: string[] = [], events: string[] = [];
   const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { writes.push(k); values.set(k, v); } };
