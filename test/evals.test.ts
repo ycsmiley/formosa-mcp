@@ -18,13 +18,13 @@ it('validates eval schema, unique ids, and registered tool names', async () => {
     daily_ci: z.boolean(),
     expires: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, 'Invalid date').optional(),
     requires_key: z.enum(['TDX']).nullable(),
-  }).strict()).length(33);
+  }).strict()).length(34);
   const questions = schema.parse(JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8')));
   expect(new Set(questions.map(q => q.id)).size).toBe(questions.length);
   expect(Object.fromEntries(questions.filter(q => q.expires).map(q => [q.id, q.expires]))).toEqual({
     'invoice-008': '2026-11-25', 'invoice-011': '2027-07-01', 'invoice-012': '2027-07-01', 'invoice-013': '2027-03-25',
   });
-  for (const [toolset, count] of [['invoice', 13], ['stock', 13], ['rail', 4], ['garbage', 3]] as const) expect(questions.filter(q => q.toolset === toolset)).toHaveLength(count);
+  for (const [toolset, count] of [['invoice', 13], ['stock', 13], ['rail', 4], ['garbage', 4]] as const) expect(questions.filter(q => q.toolset === toolset)).toHaveLength(count);
   const daily = questions.filter(q => q.daily_ci);
   expect(daily.length).toBeGreaterThanOrEqual(8);
   expect(daily.length).toBeLessThanOrEqual(10);
@@ -41,6 +41,10 @@ it('validates eval schema, unique ids, and registered tool names', async () => {
     const names = (await client.listTools()).tools.map(tool => tool.name);
     for (const question of questions) {
       expect(names).toContain(question.expected_tool);
+      if (question.toolset === 'garbage' && question.expected_key_facts.includes('目前尚未支援')) {
+        const result = await client.callTool({ name: question.expected_tool, arguments: question.expected_args });
+        for (const fact of question.expected_key_facts) expect(JSON.stringify(result.content)).toContain(fact);
+      }
       if (question.expected_tool === 'invoice_check') expect(question.expected_args.number).toBeTypeOf('string');
       else expect(question.expected_args.number).toBeUndefined();
     }

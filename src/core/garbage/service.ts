@@ -7,9 +7,8 @@ const cities: Record<City, { name: string; source: string }> = {
   ntpc: { name: '新北市', source: '新北市政府環境保護局「新北市垃圾車路線」' },
   taipei: { name: '臺北市', source: '臺北市政府環境保護局「臺北市垃圾車點位路線資訊」' },
   taichung: { name: '臺中市', source: '臺中市政府環境保護局「臺中市定時定點垃圾收運地點」' },
-  tainan: { name: '臺南市', source: '臺南市政府環境保護局「臺南市垃圾清運點資料」' },
-  kaohsiung: { name: '高雄市', source: '高雄市政府環境保護局「垃圾車到點時間預估」' },
 };
+const unsupported = ['臺南市', '高雄市'];
 const day = (date: Date) => new Date(date.getTime() + 8 * 3600000).getUTCDay();
 const dayNames = '日一二三四五六';
 function weekday(s: string | undefined, now: Date): number | undefined {
@@ -21,8 +20,10 @@ function weekday(s: string | undefined, now: Date): number | undefined {
 }
 export function createGarbageService(store: GarbageStore, clock = () => new Date()) {
   return { async schedule(q: Query): Promise<{ text: string; isError: boolean }> {
+    const name = unsupported.find(c => norm(c).replace(/市$/, '') === norm(q.city).replace(/市$/, ''));
+    if (name) return { text: `${name}垃圾車資料目前尚未支援：市府資料站目前只允許從台灣連線抓取，我們的雲端收集器抓不到。目前支援新北市、臺北市、臺中市。`, isError: false };
     const city = (Object.keys(cities) as City[]).find(c => norm(cities[c].name).replace(/市$/, '') === norm(q.city).replace(/市$/, ''));
-    if (!city) return { text: `目前支援新北市、臺北市、臺中市、臺南市、高雄市；「${q.city}」尚未支援。`, isError: false };
+    if (!city) return { text: `目前支援新北市、臺北市、臺中市；「${q.city}」尚未支援。`, isError: false };
     try {
       const index = await store.index(city); const info = index?.cities[city];
       if (!info) return { text: '資料更新中，請稍後再試', isError: true };
@@ -50,14 +51,6 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       const now = clock(), wantedDay = weekday(q.weekday, now);
       if (q.weekday && wantedDay === undefined) return { text: '請輸入今天、明天或星期一至星期日。', isError: true };
       if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: `臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）\n實際收運以各地環保局公告為準（國定假日可能調整）`, isError: false };
-      if (city === 'kaohsiung' && wantedDay !== undefined) {
-        const capture = new Date(Date.parse(info.fetchedAt) + 8 * 3600000);
-        const today = new Date(now.getTime() + 8 * 3600000);
-        const requested = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + (wantedDay - today.getUTCDay() + 7) % 7));
-        if (capture.toISOString().slice(0, 10) !== requested.toISOString().slice(0, 10)) {
-          return { text: `高雄市資料只含 ${capture.getUTCMonth() + 1}/${capture.getUTCDate()}（星期${dayNames[capture.getUTCDay()]}）當日班表，無法查詢 ${requested.getUTCMonth() + 1}/${requested.getUTCDate()}（星期${dayNames[wantedDay]}）。`, isError: false };
-        }
-      }
       if (q.time && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(norm(q.time))) return { text: '時間請使用 HH:MM 格式。', isError: true };
       const filter = (s: Slot) => (wantedDay === undefined || !!(s.days & (1 << wantedDay))) && (!q.time || s.start >= norm(q.time));
       let searchKeyword = fallback && valid(fallback) ? fallback : keyword;
@@ -83,7 +76,6 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       const local = new Date(Date.parse(info.fetchedAt) + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
       lines.push(`資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）`, `資料時間：${local}（台北時間）${now.getTime() - Date.parse(info.fetchedAt) > 3 * 86400000 ? '；資料可能已過時' : ''}`);
       if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示，部分站點僅資源回收車收運；廚餘依環保局規則隨垃圾車收運。');
-      if (city === 'kaohsiung') { const d = new Date(Date.parse(info.fetchedAt) + 8 * 3600000); lines.push(`高雄市資料只含 ${d.getUTCMonth() + 1}/${d.getUTCDate()}（星期${dayNames[info.capturedWeekday ?? d.getUTCDay()]}）當日班表${d.toISOString().slice(0, 10) !== new Date(now.getTime() + 8 * 3600000).toISOString().slice(0, 10) ? '（非今日資料）' : ''}`); }
       lines.push('實際收運以各地環保局公告為準（國定假日可能調整）');
       return { text: lines.join('\n'), isError: false };
     } catch { return { text: '暫時無法取得垃圾車資料，請稍後再試。', isError: true }; }

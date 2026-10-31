@@ -8,7 +8,7 @@ import type { GarbageStore } from '../core/garbage/service.js';
 import { fetchSource } from './source.js';
 export const filename = (key: string) => `${key.replaceAll(':', '_')}.json`;
 export function localGarbageStore(dir?: string): GarbageStore {
-  const cache = new TtlCache<Awaited<ReturnType<typeof buildCity>>>(value => value.entry.capturedWeekday === undefined ? 12 * 3600000 : Math.min(12 * 3600000, 86400000 - (Date.now() + 8 * 3600000) % 86400000));
+  const cache = new TtlCache<Awaited<ReturnType<typeof buildCity>>>(12 * 3600000);
   const load = (city: City) => cache.getOrLoad(city, async () => buildCity(city, await fetchSource(city), new Date()));
   const read = async (key: string) => { try { return await readFile(join(dir!, filename(key)), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; } };
   return {

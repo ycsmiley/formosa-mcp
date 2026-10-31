@@ -13,7 +13,7 @@ export function kvStore(env: Record<string, string | undefined>): Store {
   const request = (key: string, init: RequestInit = {}, query = '') => fetch(base + encodeURIComponent(key) + query, { ...init, headers: { Authorization: `Bearer ${env.CLOUDFLARE_KV_WRITE_TOKEN}` }, redirect: 'manual', signal: AbortSignal.timeout(30_000) });
   return { async get(key) { const r = await request(key); if (r.status === 404) return null; if (r.status !== 200) throw Error(`kv read failed HTTP ${r.status}`); return r.text(); }, async put(key, value, updatedAt, ttlSeconds) { const body = new FormData(); body.set('value', value); body.set('metadata', JSON.stringify({ updatedAt })); const r = await request(key, { method: 'PUT', body }, ttlSeconds === undefined ? '' : `?expiration_ttl=${ttlSeconds}`); const data = await r.json().catch(() => null); if (r.status !== 200 || data?.success !== true) throw Error(`kv put failed HTTP ${r.status}`); } };
 }
-const minimum: Record<City, number> = { ntpc: 10000, taipei: 2000, taichung: 8000, tainan: 5000, kaohsiung: 1000 };
+const minimum: Record<City, number> = { ntpc: 10000, taipei: 2000, taichung: 8000 };
 export async function collectGarbage(store: Store, options: { cities?: City[]; fetch?: (city: City) => Promise<string>; delay?: () => Promise<void>; now?: () => Date; minimum?: Record<City, number>; token?: string } = {}): Promise<number> {
   const reason = (error: unknown) => { const message = error instanceof Error ? error.message : String(error); return (options.token ? message.replaceAll(options.token, '[redacted]') : message).replace(/\s+/g, ' ').slice(0, 200); };
   const cities = options.cities ?? Object.keys(urls) as City[]; let index: Index;

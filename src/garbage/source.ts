@@ -3,8 +3,6 @@ export const urls: Record<City, string> = {
   ntpc: 'https://data.ntpc.gov.tw/api/datasets/edc3ad26-8ae7-4916-a00b-bc6048d19bf8/csv/file',
   taipei: 'https://data.taipei/api/dataset/6bb3304b-4f46-4bb0-8cd1-60c66dcd1cae/resource/a6e90031-7ec4-4089-afb5-361a4efe7202/download',
   taichung: 'https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download?rid=68d1a87f-7baa-4b50-8408-c36a3a7eda68',
-  tainan: 'https://soa.tainan.gov.tw/Api/Service/Get/84df8cd6-8741-41ed-919c-5105a28ecd6d',
-  kaohsiung: 'https://openapi.kcg.gov.tw/Api/Service/Get/14fe516d-ac62-4905-9325-70daae7616bd',
 };
 export async function fetchSource(city: City): Promise<string> {
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 90_000);

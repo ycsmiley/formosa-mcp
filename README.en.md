@@ -54,7 +54,7 @@ A keyless public URL is coming soon; you will be able to paste it into a Claude 
 - Invoices: winning numbers, claim periods and number checks.
 - Stocks: TWSE and TPEx end-of-day data; quotes show the data date.
 - HSR / TRA: remote timetables for today and tomorrow, plus TRA live data within quota; for local use, see the [rail section](#railway-keys).
-- Garbage trucks: scheduled stops in New Taipei, Taipei, Taichung, Tainan and Kaohsiung; give a district plus a village, road or place.
+- Garbage trucks: scheduled stops in New Taipei, Taipei and Taichung; give a district plus a village, road or place.
 - Weather: planned.
 
 Tools:
@@ -144,7 +144,7 @@ Your own key enables local rail queries, including live train delays. Rail was v
 
 ### Remote (Cloudflare Workers)
 
-Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all five cities at 11:37 and Kaohsiung only at 05:00 Taipei time. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
+Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all three cities at 11:37 Taipei time. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
 
 #### Remote rail
 
@@ -190,7 +190,7 @@ Verify with `npm run typecheck:worker` and `npm run test:worker`. `@modelcontext
 
 - The project code is licensed under [MIT](LICENSE).
 - Data is used under the [Open Government Data License, version 1.0 (政府資料開放授權條款第1版)](https://data.gov.tw/license). Sources: Ministry of Finance (e-invoice winning numbers), Taiwan Stock Exchange (TWSE OpenAPI), Taipei Exchange (TPEx OpenAPI), and MOTC TDX (資料介接「交通部TDX平臺」).
-- Garbage schedules use [New Taipei](https://data.gov.tw/dataset/125664), [Taipei](https://data.gov.tw/dataset/136515), [Taichung](https://data.gov.tw/dataset/84004), [Tainan](https://data.tainan.gov.tw/), and [Kaohsiung](https://data.gov.tw/dataset/117726) environmental protection bureaus’ open data (OGDL-1). Taipei weekdays follow the bureau rule; Kaohsiung provides only the current day’s plan.
+- Garbage schedules use [New Taipei](https://data.gov.tw/dataset/125664), [Taipei](https://data.gov.tw/dataset/136515), [Taichung](https://data.gov.tw/dataset/84004) environmental protection bureaus’ open data (OGDL-1). Taipei weekdays follow the bureau rule. Tainan and Kaohsiung are not yet supported because their open-data sites only accept connections from Taiwan, which the cloud collector cannot reach.
 - This is an unofficial project and is not affiliated with those agencies. Data may be delayed or inaccurate; official announcements prevail.
 - Stock data is end-of-day, for reference only, and is not investment advice.
 

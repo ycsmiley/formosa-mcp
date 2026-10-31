@@ -8,23 +8,6 @@ import { fetchSource } from '../src/garbage/source.js';
 import { decodeIndex, decodeShard, indexKey, shardKey } from '../src/core/garbage/snapshot.js';
 import type { City } from '../src/core/garbage/normalize.js';
 const fixture = (city: string) => readFileSync(`test/fixtures/garbage/real/${city}.${city === 'ntpc' || city === 'taipei' ? 'csv' : 'json'}`, 'utf8');
-it('selects Kaohsiung via the CLI and preserves other city entries', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'garbage-city-'));
-  const store = directoryStore(dir);
-  const minimum = { ntpc: 1, taipei: 1, taichung: 1, tainan: 1, kaohsiung: 1 };
-  const row = JSON.parse(fixture('kaohsiung')).data[0];
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: Array.from({ length: 1000 }, (_, i) => ({ ...row, caption: `地點${i}` })) })));
-  try {
-    expect(await collectGarbage(store, { cities: ['ntpc'], minimum, fetch: async () => fixture('ntpc') })).toBe(0);
-    const previous = decodeIndex((await store.get(indexKey))!).cities.ntpc;
-    expect(await main(['--out', dir, '--city', 'kaohsiung'], {})).toBe(0);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0][0])).toContain('kcg.gov.tw');
-    const index = decodeIndex((await store.get(indexKey))!);
-    expect(index.cities.ntpc).toEqual(previous);
-    expect(index.cities.kaohsiung?.stops).toBe(1000);
-  } finally { fetchMock.mockRestore(); await rm(dir, { recursive: true, force: true }); }
-});
 
 it('matches a keyword containing an escaped quote in a stop name', () => {
   const raw = ['{"v":2}', JSON.stringify(['文化里', 'A', 'A"B路', [], [], []])].join('\n');
@@ -32,12 +15,12 @@ it('matches a keyword containing an escaped quote in a stop name', () => {
 });
 it('prints usage for an unknown city', async () => {
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-  try { expect(await main(['--city', 'unknown'], {})).toBe(2); expect(error).toHaveBeenCalledWith('Usage: publish-garbage [--out dir] [--city codes]'); } finally { error.mockRestore(); }
+  try { expect(await main(['--city', 'unknown'], {})).toBe(2); expect(await main(['--city', 'tainan'], {})).toBe(2); expect(error).toHaveBeenCalledWith('Usage: publish-garbage [--out dir] [--city codes]'); } finally { error.mockRestore(); }
 });
 it('collects in order, retains failures, and writes shards before the index', async () => {
   const values = new Map<string, string>(), writes: string[] = [], events: string[] = [];
   const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { writes.push(k); values.set(k, v); } };
-  const minimum = Object.fromEntries(['ntpc','taipei','taichung','tainan','kaohsiung'].map(c => [c, 1])) as Record<City, number>;
+  const minimum = Object.fromEntries(['ntpc','taipei','taichung'].map(c => [c, 1])) as Record<City, number>;
   const options = { cities: ['ntpc', 'taipei'] as City[], minimum, now: () => new Date('2026-10-30T00:00:00Z'), fetch: async (c: City) => { events.push(c); return fixture(c); }, delay: async () => { events.push('delay'); } };
   expect(await collectGarbage(store, options)).toBe(0);
   expect(events).toEqual(['ntpc', 'delay', 'taipei']);
@@ -93,7 +76,7 @@ it('publishes all KV shards before the index even when unchanged', async () => {
   });
   try {
     const store = kvStore({ CLOUDFLARE_ACCOUNT_ID: 'a', KV_NAMESPACE_ID: 'n', CLOUDFLARE_KV_WRITE_TOKEN: 'token' });
-    const minimum = Object.fromEntries(['ntpc','taipei','taichung','tainan','kaohsiung'].map(c => [c, 1])) as Record<City, number>;
+    const minimum = Object.fromEntries(['ntpc','taipei','taichung'].map(c => [c, 1])) as Record<City, number>;
     const options = { cities: ['ntpc'] as City[], minimum, fetch: async () => fixture('ntpc'), now: () => new Date('2026-10-30T00:00:00Z') };
     expect(await collectGarbage(store, options)).toBe(0);
     expect(writes.length).toBeGreaterThan(1); expect(writes.at(-1)).toBe(indexKey);
@@ -122,7 +105,7 @@ it('prefilters a large shard and rejects v1 snapshots', () => {
 it('keeps the old generation readable after a partial shard write', async () => {
   const values = new Map<string, string>(); let fail = false, count = 0;
   const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { if (fail && k !== indexKey && ++count === 2) throw Error('write failed'); values.set(k, v); } };
-  const minimum = { ntpc: 1, taipei: 1, taichung: 1, tainan: 1, kaohsiung: 1 };
+  const minimum = { ntpc: 1, taipei: 1, taichung: 1 };
   const options = { cities: ['ntpc'] as City[], minimum, fetch: async () => fixture('ntpc') };
   expect(await collectGarbage(store, { ...options, now: () => new Date('2026-10-30T00:00:00Z') })).toBe(0);
   const old = decodeIndex(values.get(indexKey)!).cities.ntpc!;
@@ -150,4 +133,11 @@ it('prefilters only decoded leading fields and caps matches', () => {
   const many = ['{"v":2}', ...Array(201).fill(row)].join('\n');
   expect(decodeShard(many, '板橋區', '文化')).toMatchObject({ truncated: true, stops: Array(200).fill(expect.any(Object)) });
   expect(decodeShard(['{"v":2}', ...Array(200).fill(row)].join('\n'), '板橋區', '文化').truncated).toBeUndefined();
+});
+
+it('drops legacy cities from indexes and rejects other unknown cities', () => {
+  const entry = { gen: 'abc', fetchedAt: '2026-10-30T00:00:00Z', updatedAt: '2026-10-30T00:00:00Z', stops: 0, districts: {}, capturedWeekday: 5 };
+  const index = { v: 2, generatedAt: entry.fetchedAt, cities: { ntpc: entry, tainan: entry, kaohsiung: entry } };
+  expect(Object.keys(decodeIndex(JSON.stringify(index)).cities)).toEqual(['ntpc']);
+  expect(() => decodeIndex(JSON.stringify({ ...index, cities: { ...index.cities, unknown: entry } }))).toThrow();
 });

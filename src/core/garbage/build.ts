@@ -6,5 +6,5 @@ export async function buildCity(city: City, input: string, now: Date): Promise<{
   const shards = new Map<string, string>(), districts: CityIndex['districts'] = {};
   for (const [district, group] of groups) { const value = encodeShard({ v: 2, stops: group }); shards.set(district, value); districts[district] = { stops: group.length, sha256: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('') }; }
   const date = now.toISOString();
-  return { entry: { gen: now.getTime().toString(36), fetchedAt: date, updatedAt: date, ...(city === 'kaohsiung' ? { capturedWeekday: new Date(now.getTime() + 8 * 3600000).getUTCDay() } : {}), stops: stops.length, districts }, shards };
+  return { entry: { gen: now.getTime().toString(36), fetchedAt: date, updatedAt: date, stops: stops.length, districts }, shards };
 }

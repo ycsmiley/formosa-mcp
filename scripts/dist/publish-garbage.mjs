@@ -75,8 +75,6 @@ function normalize(city, input, capturedAt) {
   const rows = Array.isArray(parsed) ? parsed : parsed?.data;
   if (!Array.isArray(rows)) throw new Error("Invalid source data");
   const output = [];
-  const merged = /* @__PURE__ */ new Map();
-  const captureDay = new Date(capturedAt.getTime() + 8 * 36e5).getUTCDay();
   for (const item of rows) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const r = item;
@@ -89,27 +87,11 @@ function normalize(city, input, capturedAt) {
       const recyclingDays = /每週([一二三四五六日](?:[,、]?[一二三四五六日])*)回收/.exec(str(r["\u5730\u9EDE"]));
       const recyclingOnly = str(r["\u5730\u9EDE"]).includes("\u56DE\u6536\u8ECA");
       stop = { district: str(r["\u884C\u653F\u5340"]), village: str(r["\u91CC\u5225"]), route: `${str(r["\u8DEF\u7DDA"])} ${str(r["\u8ECA\u6B21"])}`.trim(), name: str(r["\u5730\u9EDE"]), garbage: recyclingOnly ? [] : one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: recyclingOnly ? [] : one(118, start, end), ...recyclingOnly ? { note: "\u50C5\u8CC7\u6E90\u56DE\u6536\u8ECA\u6536\u904B" } : {} };
-    } else if (city === "taichung") {
+    } else {
       if (str(r.task_type) === "\u5F80\u5EE0") continue;
       stop = { district: str(r.area), village: str(r.village), route: str(r.car_licence), name: str(r.caption), garbage: daily(r, "g"), recycling: daily(r, "r"), food: [] };
-    } else if (city === "tainan") {
-      const start = time(r.TIME);
-      stop = { district: str(r.AREA), village: str(r.VILLAGE), route: str(r.ROUTEID), name: str(r.POINTNAME), garbage: one(dayText(r.WORKDAY), start), recycling: one(dayText(r.RECYCLEDAY), start), food: [] };
-    } else {
-      const start = time(r.today_s), end = time(r.today_e), task = str(r.task);
-      stop = { district: str(r.area), village: str(r.village), route: `\u8CAC\u4EFB\u5340${str(r.area_name)} \u7B2C${str(r.trips_name)}\u8ECA`, name: str(r.caption), garbage: task === "\u5783\u573E" ? one(1 << captureDay, start, end) : [], recycling: task === "\u8CC7\u6536" ? one(1 << captureDay, start, end) : [], food: [] };
     }
     if (!stop.district || !stop.name || ![...stop.garbage, ...stop.recycling, ...stop.food].length) continue;
-    if (city === "kaohsiung") {
-      const key = JSON.stringify([stop.district, stop.village, stop.route, stop.name]);
-      const existing = merged.get(key);
-      if (existing) {
-        existing.garbage.push(...stop.garbage);
-        existing.recycling.push(...stop.recycling);
-        continue;
-      }
-      merged.set(key, stop);
-    }
     output.push(stop);
   }
   return output;
@@ -128,7 +110,11 @@ function decodeIndex(text) {
   const x = JSON.parse(text);
   if (!object(x) || x.v !== 2 || !timestamp(x.generatedAt) || !object(x.cities)) throw new Error("Invalid garbage index");
   for (const [city, entry] of Object.entries(x.cities)) {
-    if (!["ntpc", "taipei", "taichung", "tainan", "kaohsiung"].includes(city) || !object(entry) || (typeof entry.gen !== "string" || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || !count(entry.stops) || !object(entry.districts) || entry.capturedWeekday !== void 0 && (!Number.isInteger(entry.capturedWeekday) || entry.capturedWeekday < 0 || entry.capturedWeekday > 6)) throw new Error("Invalid garbage city");
+    if (city === "tainan" || city === "kaohsiung") {
+      delete x.cities[city];
+      continue;
+    }
+    if (!["ntpc", "taipei", "taichung"].includes(city) || !object(entry) || (typeof entry.gen !== "string" || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || !count(entry.stops) || !object(entry.districts)) throw new Error("Invalid garbage city");
     for (const [name, district] of Object.entries(entry.districts)) if (!name || !object(district) || !count(district.stops) || typeof district.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(district.sha256)) throw new Error("Invalid garbage district");
   }
   return x;
@@ -191,16 +177,14 @@ async function buildCity(city, input, now) {
     districts[district] = { stops: group.length, sha256: Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), (b) => b.toString(16).padStart(2, "0")).join("") };
   }
   const date = now.toISOString();
-  return { entry: { gen: now.getTime().toString(36), fetchedAt: date, updatedAt: date, ...city === "kaohsiung" ? { capturedWeekday: new Date(now.getTime() + 8 * 36e5).getUTCDay() } : {}, stops: stops.length, districts }, shards };
+  return { entry: { gen: now.getTime().toString(36), fetchedAt: date, updatedAt: date, stops: stops.length, districts }, shards };
 }
 
 // src/garbage/source.ts
 var urls = {
   ntpc: "https://data.ntpc.gov.tw/api/datasets/edc3ad26-8ae7-4916-a00b-bc6048d19bf8/csv/file",
   taipei: "https://data.taipei/api/dataset/6bb3304b-4f46-4bb0-8cd1-60c66dcd1cae/resource/a6e90031-7ec4-4089-afb5-361a4efe7202/download",
-  taichung: "https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download?rid=68d1a87f-7baa-4b50-8408-c36a3a7eda68",
-  tainan: "https://soa.tainan.gov.tw/Api/Service/Get/84df8cd6-8741-41ed-919c-5105a28ecd6d",
-  kaohsiung: "https://openapi.kcg.gov.tw/Api/Service/Get/14fe516d-ac62-4905-9325-70daae7616bd"
+  taichung: "https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download?rid=68d1a87f-7baa-4b50-8408-c36a3a7eda68"
 };
 async function fetchSource(city) {
   const controller = new AbortController();
@@ -267,7 +251,7 @@ function kvStore(env) {
     if (r.status !== 200 || data?.success !== true) throw Error(`kv put failed HTTP ${r.status}`);
   } };
 }
-var minimum = { ntpc: 1e4, taipei: 2e3, taichung: 8e3, tainan: 5e3, kaohsiung: 1e3 };
+var minimum = { ntpc: 1e4, taipei: 2e3, taichung: 8e3 };
 async function collectGarbage(store, options = {}) {
   const reason = (error) => {
     const message = error instanceof Error ? error.message : String(error);

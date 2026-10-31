@@ -546,9 +546,29 @@
       "keyword": "四維一路"
     },
     "expected_key_facts": [
-      "當日班表"
+      "目前尚未支援",
+      "只允許從台灣連線"
     ],
-    "notes": "依資料時間與收運規則回答。",
+    "notes": "高雄市已從垃圾車服務下架。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "garbage-004",
+    "question": "台南東區崇學路今天幾點收垃圾？",
+    "toolset": "garbage",
+    "expected_tool": "garbage_schedule",
+    "expected_args": {
+      "city": "台南",
+      "district": "東區",
+      "keyword": "崇學路",
+      "weekday": "今天"
+    },
+    "expected_key_facts": [
+      "目前尚未支援",
+      "只允許從台灣連線"
+    ],
+    "notes": "臺南市已從垃圾車服務下架。",
     "daily_ci": false,
     "requires_key": null
   }

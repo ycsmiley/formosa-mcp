@@ -37,15 +37,6 @@ it('renders and filters a Taipei recycling-only stop', async () => {
   expect((await svc.schedule({ ...query, time: '18:00' })).text).toContain('不符合指定的星期或時間');
 });
 
-it('explains Taipei weekday rules and Kaohsiung capture day', async () => {
-  const entry = index.cities.ntpc!;
-  for (const [city, code, quirk] of [['台北', 'taipei', '部分回收日依站點名稱標示'], ['高雄', 'kaohsiung', '高雄市資料只含 10/25（星期日）當日班表']] as const) {
-    const svc = createGarbageService({ index: async () => ({ ...index, cities: { [code]: { ...entry, capturedWeekday: 0 } } }), shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
-    const text = (await svc.schedule({ city, district: '板橋', keyword: '文化' })).text;
-    expect(text).toContain(quirk);
-    expect(text).toContain(code === 'taipei' ? '廚餘依環保局規則隨垃圾車收運' : '（非今日資料）');
-  }
-});
 
 it('distinguishes thrown store errors and missing shards', async () => {
   const broken = createGarbageService({ index: async () => { throw Error('private detail'); }, shard: async () => null });
@@ -54,12 +45,6 @@ it('distinguishes thrown store errors and missing shards', async () => {
   expect(await missing.schedule({ city: '新北', district: '板橋', keyword: '文化' })).toEqual({ text: '資料更新中，請稍後再試', isError: true });
 });
 
-it('explains when a requested weekday differs from the Kaohsiung capture', async () => {
-  let calls = 0;
-  const svc = createGarbageService({ index: async () => ({ ...index, cities: { kaohsiung: { ...index.cities.ntpc!, capturedWeekday: 0 } } }), shard: async () => { calls++; return shard; } }, () => new Date('2026-10-30T00:00:00Z'));
-  expect(await svc.schedule({ city: '高雄', district: '板橋', keyword: '文化', weekday: '週一' })).toEqual({ text: '高雄市資料只含 10/25（星期日）當日班表，無法查詢 11/2（星期一）。', isError: false });
-  expect(calls).toBe(0);
-});
 
 it('asks for a keyword without loading a shard', async () => {
   let calls = 0;
@@ -70,24 +55,13 @@ it('asks for a keyword without loading a shard', async () => {
   expect(calls).toBe(0);
 });
 
-it('compares Kaohsiung calendar dates and formats identical slot endpoints', async () => {
-  const entry = { ...index.cities.ntpc!, fetchedAt: '2026-10-23T00:00:00Z', capturedWeekday: 5 };
-  const point = { ...shard, stops: [{ ...shard.stops[0], garbage: [{ days: 1 << 5, start: '18:01', end: '18:01' }] }] };
-  const svc = createGarbageService({ index: async () => ({ ...index, cities: { kaohsiung: entry } }), shard: async () => point }, () => new Date('2026-10-30T00:00:00Z'));
-  const query = { city: '高雄', district: '板橋', keyword: '文化', weekday: '今天' };
-  expect((await svc.schedule(query)).text).toContain('無法查詢 10/30（星期五）');
-  entry.fetchedAt = '2026-10-30T00:00:00Z';
-  const result = await svc.schedule(query);
-  expect(result.text).toContain('週五 18:01');
-  expect(result.text).not.toContain('18:01–18:01');
-});
 
 it('infers only district prefixes or separate full district tokens', async () => {
   const entry = { ...index.cities.ntpc!, districts: { 東區: { stops: 1, sha256: 'a'.repeat(64) }, 西屯區: { stops: 1, sha256: 'b'.repeat(64) }, 板橋區: { stops: 1, sha256: 'c'.repeat(64) } } };
   const calls: string[] = [];
-  const svc = createGarbageService({ index: async () => ({ ...index, cities: { tainan: entry } }), shard: async (_c, _g, d, k) => { calls.push(`${d}:${k}`); return { v: 2, stops: [] }; } });
-  expect((await svc.schedule({ city: '台南', keyword: '和平東路' })).text).toContain('請指定行政區');
-  for (const keyword of ['板橋文化路', '西屯 河南路', '東區和平路', '和平 東區 路']) await svc.schedule({ city: '台南', keyword });
+  const svc = createGarbageService({ index: async () => ({ ...index, cities: { ntpc: entry } }), shard: async (_c, _g, d, k) => { calls.push(`${d}:${k}`); return { v: 2, stops: [] }; } });
+  expect((await svc.schedule({ city: '新北', keyword: '和平東路' })).text).toContain('請指定行政區');
+  for (const keyword of ['板橋文化路', '西屯 河南路', '東區和平路', '和平 東區 路']) await svc.schedule({ city: '新北', keyword });
   expect(calls).toEqual(['板橋區:板橋文化路', '板橋區:文化路', '西屯區:西屯 河南路', '西屯區:河南路', '東區:和平路', '東區:和平  路']);
 });
 
@@ -180,4 +154,14 @@ it('preserves road names beginning with a short district name and falls back to 
   const bridge = createGarbageService({ index: async () => index, shard: async (_c, _g, d, k, filter) => { bridgeCalls.push(k); return decodeShard(encodeShard(shard), d, k, filter); } });
   expect((await bridge.schedule({ city: '新北', district: '板橋', keyword: '板橋文化路' })).text).toContain('文化路１號');
   expect(bridgeCalls).toEqual(['板橋文化路', '文化路']);
+});
+
+it('returns unsupported explanations without accessing the store', async () => {
+  let calls = 0;
+  const svc = createGarbageService({ index: async () => { calls++; return null; }, shard: async () => { calls++; return null; } });
+  for (const [city, name] of [['臺南', '臺南市'], ['台南', '臺南市'], ['台南市', '臺南市'], ['臺南市', '臺南市'], ['高雄', '高雄市'], ['高雄市', '高雄市']]) {
+    expect(await svc.schedule({ city, district: '東區', keyword: '崇學路', weekday: '今天', time: 'bad' })).toEqual({ text: `${name}垃圾車資料目前尚未支援：市府資料站目前只允許從台灣連線抓取，我們的雲端收集器抓不到。目前支援新北市、臺北市、臺中市。`, isError: false });
+  }
+  expect(await svc.schedule({ city: '桃園' })).toEqual({ text: '目前支援新北市、臺北市、臺中市；「桃園」尚未支援。', isError: false });
+  expect(calls).toBe(0);
 });

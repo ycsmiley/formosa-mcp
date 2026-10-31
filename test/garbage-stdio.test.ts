@@ -13,8 +13,8 @@ beforeAll(() => { if (!existsSync('dist/stdio.js')) execSync('npm run build', { 
 
 it('serves collected fixture schedules through stdio', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'garbage-'));
-  const cities: City[] = ['ntpc', 'taipei', 'taichung', 'tainan', 'kaohsiung'];
-  const names = ['新北', '臺北', '臺中', '臺南', '高雄'];
+  const cities: City[] = ['ntpc', 'taipei', 'taichung'];
+  const names = ['新北', '臺北', '臺中'];
   const fixture = (city: City) => readFileSync(`test/fixtures/garbage/real/${city}.${city === 'ntpc' || city === 'taipei' ? 'csv' : 'json'}`, 'utf8');
   const now = new Date('2026-10-30T00:00:00Z');
   const minimum = Object.fromEntries(cities.map(city => [city, 1])) as Record<City, number>;
@@ -28,28 +28,10 @@ it('serves collected fixture schedules through stdio', async () => {
       const result = await client.callTool({ name: 'garbage_schedule', arguments: { city: names[i], district: stop.district, keyword: stop.name } });
       expect(JSON.stringify(result.content)).toContain(stop.name);
     }
+    for (const city of ['台南', '高雄']) {
+      const result = await client.callTool({ name: 'garbage_schedule', arguments: { city, district: '東區', keyword: '崇學路', weekday: '今天' } });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.stringify(result.content)).toContain('目前尚未支援');
+    }
   } finally { await client.close(); await rm(dir, { recursive: true, force: true }); }
-});
-
-it('refreshes the Kaohsiung cache at Taipei midnight while retaining other cities', async () => {
-  const { vi } = await import('vitest');
-  const { localGarbageStore } = await import('../src/garbage/store.js');
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-10-30T15:59:00Z'));
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
-    const city = String(url).includes('kcg.gov.tw') ? 'kaohsiung' : 'ntpc';
-    return new Response(readFileSync(`test/fixtures/garbage/real/${city}.${city === 'ntpc' ? 'csv' : 'json'}`, 'utf8'));
-  });
-  try {
-    const store = localGarbageStore();
-    await store.index('kaohsiung'); await store.index('ntpc');
-    vi.setSystemTime(new Date('2026-10-30T16:01:00Z'));
-    await store.index('kaohsiung'); await store.index('ntpc');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    await store.index('kaohsiung');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    vi.setSystemTime(new Date('2026-10-31T16:01:00Z'));
-    await store.index('kaohsiung');
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  } finally { fetchMock.mockRestore(); vi.useRealTimers(); }
 });

@@ -86,7 +86,7 @@
     },
     {
       "name": "garbage_schedule",
-      "description": "查詢新北市、臺北市、臺中市、臺南市、高雄市垃圾車定點收運時刻。",
+      "description": "查詢新北市、臺北市、臺中市垃圾車定點收運時刻。",
       "inputSchema": {
         "type": "object",
         "properties": {

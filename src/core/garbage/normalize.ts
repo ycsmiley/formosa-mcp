@@ -1,4 +1,4 @@
-export type City = 'ntpc' | 'taipei' | 'taichung' | 'tainan' | 'kaohsiung';
+export type City = 'ntpc' | 'taipei' | 'taichung';
 export interface Slot { days: number; start: string; end: string }
 export interface Stop { district: string; village: string; route: string; name: string; garbage: Slot[]; recycling: Slot[]; food: Slot[]; note?: string }
 
@@ -57,8 +57,7 @@ export function normalize(city: City, input: string, capturedAt: Date): Stop[] {
   const parsed = city === 'ntpc' || city === 'taipei' ? parseCsv(input) : JSON.parse(input);
   const rows: unknown = Array.isArray(parsed) ? parsed : parsed?.data;
   if (!Array.isArray(rows)) throw new Error('Invalid source data');
-  const output: Stop[] = []; const merged = new Map<string, Stop>();
-  const captureDay = new Date(capturedAt.getTime() + 8 * 3600000).getUTCDay();
+  const output: Stop[] = [];
   for (const item of rows) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const r = item as Row; let stop: Stop;
@@ -70,23 +69,11 @@ export function normalize(city: City, input: string, capturedAt: Date): Stop[] {
       const recyclingDays = /每週([一二三四五六日](?:[,、]?[一二三四五六日])*)回收/.exec(str(r['地點']));
       const recyclingOnly = str(r['地點']).includes('回收車');
       stop = { district: str(r['行政區']), village: str(r['里別']), route: `${str(r['路線'])} ${str(r['車次'])}`.trim(), name: str(r['地點']), garbage: recyclingOnly ? [] : one(118, start, end), recycling: one(recyclingDays ? dayText(recyclingDays[1]) : 118, start, end), food: recyclingOnly ? [] : one(118, start, end), ...(recyclingOnly ? { note: '僅資源回收車收運' } : {}) };
-    } else if (city === 'taichung') {
+    } else {
       if (str(r.task_type) === '往廠') continue;
       stop = { district: str(r.area), village: str(r.village), route: str(r.car_licence), name: str(r.caption), garbage: daily(r, 'g'), recycling: daily(r, 'r'), food: [] };
-    } else if (city === 'tainan') {
-      const start = time(r.TIME);
-      stop = { district: str(r.AREA), village: str(r.VILLAGE), route: str(r.ROUTEID), name: str(r.POINTNAME), garbage: one(dayText(r.WORKDAY), start), recycling: one(dayText(r.RECYCLEDAY), start), food: [] };
-    } else {
-      const start = time(r.today_s), end = time(r.today_e), task = str(r.task);
-      stop = { district: str(r.area), village: str(r.village), route: `責任區${str(r.area_name)} 第${str(r.trips_name)}車`, name: str(r.caption), garbage: task === '垃圾' ? one(1 << captureDay, start, end) : [], recycling: task === '資收' ? one(1 << captureDay, start, end) : [], food: [] };
     }
     if (!stop.district || !stop.name || ![...stop.garbage, ...stop.recycling, ...stop.food].length) continue;
-    if (city === 'kaohsiung') {
-      const key = JSON.stringify([stop.district, stop.village, stop.route, stop.name]);
-      const existing = merged.get(key);
-      if (existing) { existing.garbage.push(...stop.garbage); existing.recycling.push(...stop.recycling); continue; }
-      merged.set(key, stop);
-    }
     output.push(stop);
   }
   return output;

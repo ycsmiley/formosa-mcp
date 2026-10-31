@@ -55,7 +55,7 @@ claude plugin install formosa@formosa-mcp
 - 發票：可用，查中獎號碼、領獎期間與對獎。
 - 台股：可用，涵蓋上市＋上櫃；盤後資料，非即時，行情顯示資料日期。
 - 高鐵／台鐵：遠端版預設提供今天與明天的時刻表、額度內的臺鐵即時資料；本機版見[鐵路說明](#鐵路金鑰)。
-- 垃圾車：查詢新北、臺北、臺中、臺南、高雄定點收運時刻；請提供行政區與里名、路名或地點。
+- 垃圾車：查詢新北、臺北、臺中定點收運時刻；請提供行政區與里名、路名或地點。
 - 氣象：規劃中。
 
 工具：
@@ -157,7 +157,7 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新五市，05:00 只更新高雄。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 
@@ -203,7 +203,7 @@ npm run remote-check
 
 - 本專案程式碼採 [MIT](LICENSE) 授權。
 - 資料依[政府資料開放授權條款第1版](https://data.gov.tw/license)使用，來源：財政部（統一發票中獎號碼）、臺灣證券交易所（TWSE OpenAPI）、證券櫃檯買賣中心（TPEx OpenAPI）、交通部 TDX 運輸資料流通服務平臺（資料介接「交通部TDX平臺」）。
-- 垃圾車時刻資料來自[新北](https://data.gov.tw/dataset/125664)、[臺北](https://data.gov.tw/dataset/136515)、[臺中](https://data.gov.tw/dataset/84004)、[臺南](https://data.tainan.gov.tw/)、[高雄](https://data.gov.tw/dataset/117726)市環保局開放資料（OGDL-1）；臺北收運日依環保局公告，高雄僅提供當日班表。
+- 垃圾車時刻資料來自[新北](https://data.gov.tw/dataset/125664)、[臺北](https://data.gov.tw/dataset/136515)、[臺中](https://data.gov.tw/dataset/84004)市環保局開放資料（OGDL-1）；臺北收運日依環保局公告。臺南、高雄尚未支援：市府開放資料站只接受台灣連線，雲端收集器無法取得資料。
 - 非官方專案，與上述機關無關；資料以官方公告為準，可能延遲或有誤。
 - 股票資料為盤後資料，僅供參考，不構成投資建議。
 

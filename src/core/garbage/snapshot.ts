@@ -1,6 +1,6 @@
 import type { City, Slot, Stop } from './normalize.js';
 import { norm } from './text.js';
-export interface CityIndex { gen: string; fetchedAt: string; updatedAt: string; capturedWeekday?: number; stops: number; districts: Record<string, { stops: number; sha256: string }> }
+export interface CityIndex { gen: string; fetchedAt: string; updatedAt: string; stops: number; districts: Record<string, { stops: number; sha256: string }> }
 export interface Index { v: 2; generatedAt: string; cities: Partial<Record<City, CityIndex>> }
 export interface Shard { v: 2; stops: Stop[]; truncated?: boolean; matched?: number }
 export const indexKey = 'garbage:index:v2';
@@ -12,7 +12,8 @@ export function decodeIndex(text: string): Index {
   const x: unknown = JSON.parse(text);
   if (!object(x) || x.v !== 2 || !timestamp(x.generatedAt) || !object(x.cities)) throw new Error('Invalid garbage index');
   for (const [city, entry] of Object.entries(x.cities)) {
-    if (!['ntpc', 'taipei', 'taichung', 'tainan', 'kaohsiung'].includes(city) || !object(entry) || (typeof entry.gen !== 'string' || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || !count(entry.stops) || !object(entry.districts) || (entry.capturedWeekday !== undefined && (!Number.isInteger(entry.capturedWeekday) || entry.capturedWeekday < 0 || entry.capturedWeekday > 6))) throw new Error('Invalid garbage city');
+    if (city === 'tainan' || city === 'kaohsiung') { delete x.cities[city]; continue; }
+    if (!['ntpc', 'taipei', 'taichung'].includes(city) || !object(entry) || (typeof entry.gen !== 'string' || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || !count(entry.stops) || !object(entry.districts)) throw new Error('Invalid garbage city');
     for (const [name, district] of Object.entries(entry.districts)) if (!name || !object(district) || !count(district.stops) || typeof district.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(district.sha256)) throw new Error('Invalid garbage district');
   }
   return x as unknown as Index;
