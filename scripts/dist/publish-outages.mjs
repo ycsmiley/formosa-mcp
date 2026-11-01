@@ -135,7 +135,7 @@ var clean = (s, limit = Infinity) => {
   const text = typeof s === "string" || typeof s === "number" ? stripZeroWidth(String(s)).replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim() : "";
   return text.length > limit ? text.slice(0, limit - 1) + "\u2026" : text;
 };
-var canonical = (s) => stripZeroWidth(norm(s)).replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區]/g, "\u6843\u5712\u5E02$1\u5340").replace(/(臺北縣|臺中縣|臺南縣|高雄縣)(.{1,4}?[市鄉鎮])/g, (match, oldCounty, oldDistrict) => {
+var canonical = (s) => stripZeroWidth(norm(s)).replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區](?!場)/g, "\u6843\u5712\u5E02$1\u5340").replace(/(臺北縣|臺中縣|臺南縣|高雄縣)(.{1,4}?[市鄉鎮])(?!場)/g, (match, oldCounty, oldDistrict) => {
   const county = oldCounty === "\u81FA\u5317\u7E23" ? "\u65B0\u5317\u5E02" : oldCounty.replace("\u7E23", "\u5E02");
   const district = resolveDistrict(county, oldDistrict);
   return district ? county + district : match;

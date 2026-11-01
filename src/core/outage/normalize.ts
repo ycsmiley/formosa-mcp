@@ -8,8 +8,8 @@ export const clean = (s: unknown, limit = Infinity) => {
   return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
 };
 export const canonical = (s: string) => stripZeroWidth(norm(s))
-  .replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區]/g, '桃園市$1區')
-  .replace(/(臺北縣|臺中縣|臺南縣|高雄縣)(.{1,4}?[市鄉鎮])/g, (match, oldCounty: string, oldDistrict: string) => {
+  .replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區](?!場)/g, '桃園市$1區')
+  .replace(/(臺北縣|臺中縣|臺南縣|高雄縣)(.{1,4}?[市鄉鎮])(?!場)/g, (match, oldCounty: string, oldDistrict: string) => {
     const county = oldCounty === '臺北縣' ? '新北市' : oldCounty.replace('縣', '市');
     const district = resolveDistrict(county, oldDistrict);
     return district ? county + district : match;

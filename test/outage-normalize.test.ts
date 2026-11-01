@@ -134,6 +134,15 @@ it('uses listed districts at the start of an area rather than community or marke
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   expect(taipower(new Map([['101.csv', [header, ...areas.map((a, i) => `處,${i},施工,無,無,${a},1911`)].join('\n')]]), 1).items.map(i => i.d)).toEqual(['', '', '', '中山區', '新社區']);
 });
+it('preserves market names in legacy county areas while converting municipality suffixes', () => {
+  const areas = ['臺中縣大里市場旁', '臺中縣大里市中興路', '桃園縣桃園市場旁', '桃園縣桃園市中正路'];
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const csv = [header, ...areas.map((area, i) => `處,${i},施工,無,無,${area},1911`)].join('\n');
+  expect(taipower(new Map([['101.csv', csv]]), 1).items.map(({ c, d, a }) => [c, d, a])).toEqual([
+    ['臺中市', '', '臺中市大里市場旁'], ['臺中市', '大里區', '臺中市大里區中興路'],
+    ['桃園市', '', '桃園市桃園市場旁'], ['桃園市', '桃園區', '桃園市桃園區中正路'],
+  ]);
+});
 it('drops wrong-field-count CSV rows and fails only above both the absolute and percentage caps', () => {
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   const good = '處,good,施工,無,無,臺北市中山區林森北路,1911', bad = '處,bad,施工,無,無,臺北市中山區林森北路';
