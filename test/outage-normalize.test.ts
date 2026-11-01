@@ -20,6 +20,16 @@ it('normalizes BOM, 台, legacy Taoyuan, windows, county-only rows and grouped p
   expect(result.items.find(i => i.n === 'P1')).toMatchObject({ c: '桃園市', d: '桃園區' }); expect(result.items.find(i => i.n === 'S1')!.d).toBe('');
   expect(() => taipower(new Map([['101.csv', powerCsv()]]))).toThrow('筆數不足');
 });
+it('parses quoted commas, escaped quotes and line breaks in power CSV fields', () => {
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const csv = [header, '處,1,"設備,維修",無,無,臺北市信義區中正路,1911',
+    '處,2,"更換""設備""",無,無,臺北市信義區中正路,1911',
+    '處,3,施工,無,無,"臺北市信義區中正路\r\n一段",1911'].join('\r\n');
+  const result = taipower(new Map([['101.csv', csv]]), 3);
+  expect(result.rows).toBe(3); expect(result.items.map(i => i.r)).toEqual(['設備,維修', '更換"設備"', '施工']);
+  expect(result.items[2].a).toBe('臺北市信義區中正路\r\n一段');
+  expect(() => taipower(new Map([['101.csv', csv]]), 4)).toThrow('筆數不足');
+});
 it('converts legacy Taoyuan districts in power areas only', () => {
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   const areas = ['桃園縣平鎮市廣泰路', '桃園縣大園鄉中正東路一段', '桃園縣新屋鄉新生五街', '新竹縣竹東鎮中正路'];

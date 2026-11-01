@@ -148,16 +148,47 @@ function taipeiwater(input) {
 function unique(items) {
   return [...new Map(items.map((i) => [JSON.stringify(i), i])).values()];
 }
+function parseCsv(text) {
+  const records2 = [];
+  let record = [], field = "", quoted = false, closed = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        quoted = false;
+        closed = true;
+      } else field += ch;
+    } else if (ch === '"' && !field && !closed) quoted = true;
+    else if (ch === "," || ch === "\n" || ch === "\r" && text[i + 1] === "\n") {
+      record.push(field);
+      field = "";
+      closed = false;
+      if (ch !== ",") {
+        records2.push(record);
+        record = [];
+        if (ch === "\r") i++;
+      }
+    } else if (ch === '"' || closed) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
+    else field += ch;
+  }
+  if (quoted) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
+  record.push(field);
+  records2.push(record);
+  return records2;
+}
 function taipower(files, minimum = 100) {
   const groups = /* @__PURE__ */ new Map();
   let rows = 0, dropped = 0;
   for (const [code, text] of files) {
-    const lines = text.replace(/^\uFEFF/, "").trim().split(/\r?\n/);
-    if (lines.shift() !== "\u71DF\u696D\u5340\u8655,\u8ACB\u6C42\u865F\u6578,\u5DE5\u4F5C\u6982\u8FF0,\u7B2C\u4E00\u6B21\u505C\u96FB\u6642\u9593,\u7B2C\u4E8C\u6B21\u505C\u96FB\u6642\u9593,\u505C\u96FB\u7BC4\u570D,\u67E5\u8A62\u96FB\u8A71(1911)") throw Error("\u53F0\u96FB CSV \u6B04\u4F4D\u683C\u5F0F\u932F\u8AA4");
-    for (const line of lines) {
-      if (!line.trim()) continue;
+    const lines = parseCsv(text.replace(/^\uFEFF/, "").trim());
+    const header = lines.shift();
+    if (header?.length !== 7 || header.join(",") !== "\u71DF\u696D\u5340\u8655,\u8ACB\u6C42\u865F\u6578,\u5DE5\u4F5C\u6982\u8FF0,\u7B2C\u4E00\u6B21\u505C\u96FB\u6642\u9593,\u7B2C\u4E8C\u6B21\u505C\u96FB\u6642\u9593,\u505C\u96FB\u7BC4\u570D,\u67E5\u8A62\u96FB\u8A71(1911)") throw Error("\u53F0\u96FB CSV \u6B04\u4F4D\u683C\u5F0F\u932F\u8AA4");
+    for (const fields of lines) {
+      if (fields.length === 1 && !fields[0].trim()) continue;
       rows++;
-      const fields = line.split(",");
       if (fields.length !== 7) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
       const [office, n, r, first, second, area] = fields.map((s) => s.trim());
       const a = canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, "\u6843\u5712\u5E02$1\u5340"));

@@ -47,14 +47,33 @@ export function taipeiwater(input: unknown): Item[] {
   return unique(items);
 }
 function unique(items: Item[]): Item[] { return [...new Map(items.map(i => [JSON.stringify(i), i])).values()]; }
+function parseCsv(text: string): string[][] {
+  const records: string[][] = []; let record: string[] = [], field = '', quoted = false, closed = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') { quoted = false; closed = true; }
+      else field += ch;
+    } else if (ch === '"' && !field && !closed) quoted = true;
+    else if (ch === ',' || ch === '\n' || ch === '\r' && text[i + 1] === '\n') {
+      record.push(field); field = ''; closed = false;
+      if (ch !== ',') { records.push(record); record = []; if (ch === '\r') i++; }
+    } else if (ch === '"' || closed) throw Error('台電 CSV 資料格式錯誤');
+    else field += ch;
+  }
+  if (quoted) throw Error('台電 CSV 資料格式錯誤');
+  record.push(field); records.push(record); return records;
+}
 export function taipower(files: Map<string, string>, minimum = 100): { items: Item[]; dropped: number; rows: number } {
   const groups = new Map<string, { item: Item; areas: Set<string> }>(); let rows = 0, dropped = 0;
   for (const [code, text] of files) {
-    const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/);
-    if (lines.shift() !== '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)') throw Error('台電 CSV 欄位格式錯誤');
-    for (const line of lines) {
-      if (!line.trim()) continue; rows++;
-      const fields = line.split(','); if (fields.length !== 7) throw Error('台電 CSV 資料格式錯誤');
+    const lines = parseCsv(text.replace(/^\uFEFF/, '').trim());
+    const header = lines.shift();
+    if (header?.length !== 7 || header.join(',') !== '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)') throw Error('台電 CSV 欄位格式錯誤');
+    for (const fields of lines) {
+      if (fields.length === 1 && !fields[0].trim()) continue; rows++;
+      if (fields.length !== 7) throw Error('台電 CSV 資料格式錯誤');
       const [office, n, r, first, second, area] = fields.map(s => s.trim()); const a = canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, '桃園市$1區'));
       const c = counties.find(c => a.startsWith(c)); if (!c) { dropped++; continue; }
       const d = /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? '';
