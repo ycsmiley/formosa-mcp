@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 // src/core/garbage/text.ts
 var norm = (s) => s.trim().replaceAll("\u53F0", "\u81FA").replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 65296));
+var stripZeroWidth = (s) => s.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 
 // src/garbage/store.ts
 var filename = (key) => `${key.replaceAll(":", "_")}.json`;
@@ -41,6 +42,41 @@ function decodeIndex2(raw) {
     for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0 || shard.writtenAt !== void 0 && !timestamp(shard.writtenAt)) throw Error("\u516C\u544A\u7E23\u5E02\u683C\u5F0F\u932F\u8AA4");
   }
   return x;
+}
+
+// src/core/outage/districts.ts
+var districts = {
+  \u81FA\u5317\u5E02: "\u4E2D\u6B63\u5340 \u5927\u540C\u5340 \u4E2D\u5C71\u5340 \u677E\u5C71\u5340 \u5927\u5B89\u5340 \u842C\u83EF\u5340 \u4FE1\u7FA9\u5340 \u58EB\u6797\u5340 \u5317\u6295\u5340 \u5167\u6E56\u5340 \u5357\u6E2F\u5340 \u6587\u5C71\u5340".split(" "),
+  \u65B0\u5317\u5E02: "\u677F\u6A4B\u5340 \u4E09\u91CD\u5340 \u4E2D\u548C\u5340 \u6C38\u548C\u5340 \u65B0\u838A\u5340 \u65B0\u5E97\u5340 \u6A39\u6797\u5340 \u9DAF\u6B4C\u5340 \u4E09\u5CFD\u5340 \u6DE1\u6C34\u5340 \u6C50\u6B62\u5340 \u745E\u82B3\u5340 \u571F\u57CE\u5340 \u8606\u6D32\u5340 \u4E94\u80A1\u5340 \u6CF0\u5C71\u5340 \u6797\u53E3\u5340 \u6DF1\u5751\u5340 \u77F3\u7887\u5340 \u576A\u6797\u5340 \u4E09\u829D\u5340 \u77F3\u9580\u5340 \u516B\u91CC\u5340 \u5E73\u6EAA\u5340 \u96D9\u6EAA\u5340 \u8CA2\u5BEE\u5340 \u91D1\u5C71\u5340 \u842C\u91CC\u5340 \u70CF\u4F86\u5340".split(" "),
+  \u6843\u5712\u5E02: "\u6843\u5712\u5340 \u4E2D\u58E2\u5340 \u5E73\u93AE\u5340 \u516B\u5FB7\u5340 \u694A\u6885\u5340 \u8606\u7AF9\u5340 \u5927\u6EAA\u5340 \u9F8D\u6F6D\u5340 \u9F9C\u5C71\u5340 \u5927\u5712\u5340 \u89C0\u97F3\u5340 \u65B0\u5C4B\u5340 \u5FA9\u8208\u5340".split(" "),
+  \u81FA\u4E2D\u5E02: "\u4E2D\u5340 \u6771\u5340 \u5357\u5340 \u897F\u5340 \u5317\u5340 \u897F\u5C6F\u5340 \u5357\u5C6F\u5340 \u5317\u5C6F\u5340 \u8C50\u539F\u5340 \u6771\u52E2\u5340 \u5927\u7532\u5340 \u6E05\u6C34\u5340 \u6C99\u9E7F\u5340 \u68A7\u68F2\u5340 \u540E\u91CC\u5340 \u795E\u5CA1\u5340 \u6F6D\u5B50\u5340 \u5927\u96C5\u5340 \u65B0\u793E\u5340 \u77F3\u5CA1\u5340 \u5916\u57D4\u5340 \u5927\u5B89\u5340 \u70CF\u65E5\u5340 \u5927\u809A\u5340 \u9F8D\u4E95\u5340 \u9727\u5CF0\u5340 \u592A\u5E73\u5340 \u5927\u91CC\u5340 \u548C\u5E73\u5340".split(" "),
+  \u81FA\u5357\u5E02: "\u65B0\u71DF\u5340 \u9E7D\u6C34\u5340 \u767D\u6CB3\u5340 \u67F3\u71DF\u5340 \u5F8C\u58C1\u5340 \u6771\u5C71\u5340 \u9EBB\u8C46\u5340 \u4E0B\u71DF\u5340 \u516D\u7532\u5340 \u5B98\u7530\u5340 \u5927\u5167\u5340 \u4F73\u91CC\u5340 \u5B78\u7532\u5340 \u897F\u6E2F\u5340 \u4E03\u80A1\u5340 \u5C07\u8ECD\u5340 \u5317\u9580\u5340 \u65B0\u5316\u5340 \u5584\u5316\u5340 \u65B0\u5E02\u5340 \u5B89\u5B9A\u5340 \u5C71\u4E0A\u5340 \u7389\u4E95\u5340 \u6960\u897F\u5340 \u5357\u5316\u5340 \u5DE6\u93AE\u5340 \u4EC1\u5FB7\u5340 \u6B78\u4EC1\u5340 \u95DC\u5EDF\u5340 \u9F8D\u5D0E\u5340 \u6C38\u5EB7\u5340 \u6771\u5340 \u5357\u5340 \u5317\u5340 \u5B89\u5357\u5340 \u5B89\u5E73\u5340 \u4E2D\u897F\u5340".split(" "),
+  \u9AD8\u96C4\u5E02: "\u9E7D\u57D5\u5340 \u9F13\u5C71\u5340 \u5DE6\u71DF\u5340 \u6960\u6893\u5340 \u4E09\u6C11\u5340 \u65B0\u8208\u5340 \u524D\u91D1\u5340 \u82D3\u96C5\u5340 \u524D\u93AE\u5340 \u65D7\u6D25\u5340 \u5C0F\u6E2F\u5340 \u9CF3\u5C71\u5340 \u6797\u5712\u5340 \u5927\u5BEE\u5340 \u5927\u6A39\u5340 \u5927\u793E\u5340 \u4EC1\u6B66\u5340 \u9CE5\u677E\u5340 \u5CA1\u5C71\u5340 \u6A4B\u982D\u5340 \u71D5\u5DE2\u5340 \u7530\u5BEE\u5340 \u963F\u84EE\u5340 \u8DEF\u7AF9\u5340 \u6E56\u5167\u5340 \u8304\u8423\u5340 \u6C38\u5B89\u5340 \u5F4C\u9640\u5340 \u6893\u5B98\u5340 \u65D7\u5C71\u5340 \u7F8E\u6FC3\u5340 \u516D\u9F9C\u5340 \u7532\u4ED9\u5340 \u6749\u6797\u5340 \u5167\u9580\u5340 \u8302\u6797\u5340 \u6843\u6E90\u5340 \u90A3\u746A\u590F\u5340".split(" "),
+  \u57FA\u9686\u5E02: "\u4E2D\u6B63\u5340 \u4E03\u5835\u5340 \u6696\u6696\u5340 \u4EC1\u611B\u5340 \u4E2D\u5C71\u5340 \u5B89\u6A02\u5340 \u4FE1\u7FA9\u5340".split(" "),
+  \u65B0\u7AF9\u5E02: "\u6771\u5340 \u5317\u5340 \u9999\u5C71\u5340".split(" "),
+  \u5609\u7FA9\u5E02: "\u6771\u5340 \u897F\u5340".split(" "),
+  \u65B0\u7AF9\u7E23: "\u7AF9\u5317\u5E02 \u7AF9\u6771\u93AE \u65B0\u57D4\u93AE \u95DC\u897F\u93AE \u6E56\u53E3\u9109 \u65B0\u8C50\u9109 \u828E\u6797\u9109 \u6A6B\u5C71\u9109 \u5317\u57D4\u9109 \u5BF6\u5C71\u9109 \u5CE8\u7709\u9109 \u5C16\u77F3\u9109 \u4E94\u5CF0\u9109".split(" "),
+  \u82D7\u6817\u7E23: "\u82D7\u6817\u5E02 \u982D\u4EFD\u5E02 \u7AF9\u5357\u93AE \u5F8C\u9F8D\u93AE \u901A\u9704\u93AE \u82D1\u88E1\u93AE \u5353\u862D\u93AE \u4E09\u7063\u9109 \u5357\u5E84\u9109 \u7345\u6F6D\u9109 \u982D\u5C4B\u9109 \u516C\u9928\u9109 \u9285\u947C\u9109 \u4E09\u7FA9\u9109 \u897F\u6E56\u9109 \u9020\u6A4B\u9109 \u5927\u6E56\u9109 \u6CF0\u5B89\u9109".split(" "),
+  \u5F70\u5316\u7E23: "\u5F70\u5316\u5E02 \u54E1\u6797\u5E02 \u548C\u7F8E\u93AE \u9E7F\u6E2F\u93AE \u6EAA\u6E56\u93AE \u4E8C\u6797\u93AE \u7530\u4E2D\u93AE \u5317\u6597\u93AE \u82B1\u58C7\u9109 \u82AC\u5712\u9109 \u5927\u6751\u9109 \u6C38\u9756\u9109 \u4F38\u6E2F\u9109 \u7DDA\u897F\u9109 \u798F\u8208\u9109 \u79C0\u6C34\u9109 \u57D4\u5FC3\u9109 \u57D4\u9E7D\u9109 \u5927\u57CE\u9109 \u82B3\u82D1\u9109 \u7AF9\u5858\u9109 \u793E\u982D\u9109 \u4E8C\u6C34\u9109 \u7530\u5C3E\u9109 \u57E4\u982D\u9109 \u6EAA\u5DDE\u9109".split(" "),
+  \u5357\u6295\u7E23: "\u5357\u6295\u5E02 \u57D4\u91CC\u93AE \u8349\u5C6F\u93AE \u7AF9\u5C71\u93AE \u96C6\u96C6\u93AE \u540D\u9593\u9109 \u9E7F\u8C37\u9109 \u4E2D\u5BEE\u9109 \u9B5A\u6C60\u9109 \u570B\u59D3\u9109 \u6C34\u91CC\u9109 \u4FE1\u7FA9\u9109 \u4EC1\u611B\u9109".split(" "),
+  \u96F2\u6797\u7E23: "\u6597\u516D\u5E02 \u6597\u5357\u93AE \u864E\u5C3E\u93AE \u897F\u87BA\u93AE \u571F\u5EAB\u93AE \u5317\u6E2F\u93AE \u53E4\u5751\u9109 \u5927\u57E4\u9109 \u83BF\u6850\u9109 \u6797\u5167\u9109 \u4E8C\u5D19\u9109 \u5D19\u80CC\u9109 \u9EA5\u5BEE\u9109 \u6771\u52E2\u9109 \u8912\u5FE0\u9109 \u81FA\u897F\u9109 \u5143\u9577\u9109 \u56DB\u6E56\u9109 \u53E3\u6E56\u9109 \u6C34\u6797\u9109".split(" "),
+  \u5609\u7FA9\u7E23: "\u592A\u4FDD\u5E02 \u6734\u5B50\u5E02 \u5E03\u888B\u93AE \u5927\u6797\u93AE \u6C11\u96C4\u9109 \u6EAA\u53E3\u9109 \u65B0\u6E2F\u9109 \u516D\u8173\u9109 \u6771\u77F3\u9109 \u7FA9\u7AF9\u9109 \u9E7F\u8349\u9109 \u6C34\u4E0A\u9109 \u4E2D\u57D4\u9109 \u7AF9\u5D0E\u9109 \u6885\u5C71\u9109 \u756A\u8DEF\u9109 \u5927\u57D4\u9109 \u963F\u91CC\u5C71\u9109".split(" "),
+  \u5C4F\u6771\u7E23: "\u5C4F\u6771\u5E02 \u6F6E\u5DDE\u93AE \u6771\u6E2F\u93AE \u6046\u6625\u93AE \u842C\u4E39\u9109 \u9577\u6CBB\u9109 \u9E9F\u6D1B\u9109 \u4E5D\u5982\u9109 \u91CC\u6E2F\u9109 \u9E7D\u57D4\u9109 \u9AD8\u6A39\u9109 \u842C\u5DD2\u9109 \u5167\u57D4\u9109 \u7AF9\u7530\u9109 \u65B0\u57E4\u9109 \u678B\u5BEE\u9109 \u65B0\u5712\u9109 \u5D01\u9802\u9109 \u6797\u908A\u9109 \u5357\u5DDE\u9109 \u4F73\u51AC\u9109 \u7409\u7403\u9109 \u8ECA\u57CE\u9109 \u6EFF\u5DDE\u9109 \u678B\u5C71\u9109 \u4E09\u5730\u9580\u9109 \u9727\u81FA\u9109 \u746A\u5BB6\u9109 \u6CF0\u6B66\u9109 \u4F86\u7FA9\u9109 \u6625\u65E5\u9109 \u7345\u5B50\u9109 \u7261\u4E39\u9109".split(" "),
+  \u5B9C\u862D\u7E23: "\u5B9C\u862D\u5E02 \u7F85\u6771\u93AE \u8607\u6FB3\u93AE \u982D\u57CE\u93AE \u7901\u6EAA\u9109 \u58EF\u570D\u9109 \u54E1\u5C71\u9109 \u51AC\u5C71\u9109 \u4E94\u7D50\u9109 \u4E09\u661F\u9109 \u5927\u540C\u9109 \u5357\u6FB3\u9109".split(" "),
+  \u82B1\u84EE\u7E23: "\u82B1\u84EE\u5E02 \u9CF3\u6797\u93AE \u7389\u91CC\u93AE \u65B0\u57CE\u9109 \u5409\u5B89\u9109 \u58FD\u8C50\u9109 \u5149\u5FA9\u9109 \u8C50\u6FF1\u9109 \u745E\u7A57\u9109 \u5BCC\u91CC\u9109 \u79C0\u6797\u9109 \u842C\u69AE\u9109 \u5353\u6EAA\u9109".split(" "),
+  \u81FA\u6771\u7E23: "\u81FA\u6771\u5E02 \u6210\u529F\u93AE \u95DC\u5C71\u93AE \u5351\u5357\u9109 \u9E7F\u91CE\u9109 \u6C60\u4E0A\u9109 \u6771\u6CB3\u9109 \u9577\u6FF1\u9109 \u592A\u9EBB\u91CC\u9109 \u5927\u6B66\u9109 \u7DA0\u5CF6\u9109 \u6D77\u7AEF\u9109 \u5EF6\u5E73\u9109 \u91D1\u5CF0\u9109 \u9054\u4EC1\u9109 \u862D\u5DBC\u9109".split(" "),
+  \u6F8E\u6E56\u7E23: "\u99AC\u516C\u5E02 \u6E56\u897F\u9109 \u767D\u6C99\u9109 \u897F\u5DBC\u9109 \u671B\u5B89\u9109 \u4E03\u7F8E\u9109".split(" "),
+  \u91D1\u9580\u7E23: "\u91D1\u57CE\u93AE \u91D1\u6E56\u93AE \u91D1\u6C99\u93AE \u91D1\u5BE7\u9109 \u70C8\u5DBC\u9109 \u70CF\u5775\u9109".split(" "),
+  \u9023\u6C5F\u7E23: "\u5357\u7AFF\u9109 \u5317\u7AFF\u9109 \u8392\u5149\u9109 \u6771\u5F15\u9109".split(" ")
+};
+var counties = Object.keys(districts);
+var districtAtStart = (county, area) => districts[county]?.find((d) => area.startsWith(d)) ?? "";
+function resolveDistrict(county, value) {
+  const available = districts[county] ?? [];
+  if (available.includes(value)) return value;
+  if (county === "\u6843\u5712\u5E02" && /[市鄉鎮]$/.test(value)) value = value.slice(0, -1);
+  const matches = available.filter((d) => ["\u5340", "\u9109", "\u93AE", "\u5E02"].some((suffix) => value + suffix === d));
+  return matches.length === 1 ? matches[0] : void 0;
 }
 
 // src/core/outage/time.ts
@@ -89,23 +125,19 @@ function dailyTimes(date, time) {
 }
 
 // src/core/outage/normalize.ts
-var counties = ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02", "\u6843\u5712\u5E02", "\u81FA\u4E2D\u5E02", "\u81FA\u5357\u5E02", "\u9AD8\u96C4\u5E02", "\u57FA\u9686\u5E02", "\u65B0\u7AF9\u5E02", "\u5609\u7FA9\u5E02", "\u65B0\u7AF9\u7E23", "\u82D7\u6817\u7E23", "\u5F70\u5316\u7E23", "\u5357\u6295\u7E23", "\u96F2\u6797\u7E23", "\u5609\u7FA9\u7E23", "\u5C4F\u6771\u7E23", "\u5B9C\u862D\u7E23", "\u82B1\u84EE\u7E23", "\u81FA\u6771\u7E23", "\u6F8E\u6E56\u7E23", "\u91D1\u9580\u7E23", "\u9023\u6C5F\u7E23"];
-var clean = (s) => typeof s === "string" || typeof s === "number" ? String(s).trim() : "";
-var canonical = (s) => norm(s).replaceAll("\u6843\u5712\u7E23", "\u6843\u5712\u5E02");
+var clean = (s, limit = Infinity) => {
+  const text = typeof s === "string" || typeof s === "number" ? stripZeroWidth(String(s)).replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim() : "";
+  return text.length > limit ? text.slice(0, limit - 1) + "\u2026" : text;
+};
+var canonical = (s) => stripZeroWidth(norm(s)).replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區]/g, "\u6843\u5712\u5E02$1\u5340").replace(/桃園縣/g, "\u6843\u5712\u5E02").replace(/臺北縣/g, "\u65B0\u5317\u5E02").replace(/(臺中|臺南|高雄)縣/g, "$1\u5E02");
 var countyPattern = counties.join("|");
 function locations(text) {
-  const result = [];
-  let c = "";
-  for (const m of canonical(text).matchAll(new RegExp(`(${countyPattern})|([\\u4e00-\\u9fff]{1,3}?\u5340|[\\u4e00-\\u9fff]{1,3}?[\u9109\u93AE\u5E02])`, "g"))) {
-    if (m[1]) {
-      c = m[1];
-      result.push({ c, d: "" });
-    } else if (c) {
-      const previous = result[result.length - 1];
-      if (previous.c === c && !previous.d) previous.d = m[2];
-      else result.push({ c, d: m[2] });
-    }
-  }
+  const area = canonical(text), matches = [...area.matchAll(new RegExp(countyPattern, "g"))];
+  const result = matches.flatMap((m, i) => {
+    const c = m[0], section = area.slice(m.index + c.length, matches[i + 1]?.index);
+    const ds = section.split(/[、,，；;/]/).map((part) => districtAtStart(c, part.trim())).filter(Boolean);
+    return (ds.length ? ds : [""]).map((d) => ({ c, d }));
+  });
   return result.filter((v, i, all) => all.findIndex((x) => x.c === v.c && x.d === v.d) === i);
 }
 var records = (input) => {
@@ -117,6 +149,7 @@ function taiwater(input) {
   const rows = records(input);
   if (!rows.length) throw Error(taiwaterEmptyReason);
   const items = [];
+  let dropped = 0;
   for (const row of rows) {
     const v = (key) => clean(row[key]);
     const area = [v("\u505C\u6C34\u5730\u5340"), v("\u964D\u58D3\u5730\u5340") ? `\u964D\u58D3\uFF1A${v("\u964D\u58D3\u5730\u5340")}` : ""].filter(Boolean).join("\uFF1B");
@@ -124,27 +157,31 @@ function taiwater(input) {
     const fallback = locations(cs.length === 1 && !counties.some((c) => canonical(area).includes(c)) ? cs[0] + area : area);
     const ds = canonical(v("\u5F71\u97FF\u884C\u653F\u5340")).split(/[、,，/\s]+/).filter(Boolean);
     const places = cs.length ? cs.flatMap((c) => {
-      let scoped = ds.filter((d) => !counties.some((other) => d.includes(other)) || d.includes(c)).map((d) => d.replace(new RegExp(countyPattern, "g"), "")).filter(Boolean);
+      let scoped = ds.filter((d) => !counties.some((other) => d.includes(other)) || d.includes(c)).map((d) => resolveDistrict(c, d.replace(new RegExp(countyPattern, "g"), ""))).filter((d) => !!d);
       const linked = fallback.filter((p) => p.c === c).map((p) => p.d).filter((d) => scoped.includes(d));
       if (cs.length > 1) scoped = scoped.filter((d) => linked.includes(d) || ds.some((raw) => raw.includes(c) && raw.replace(new RegExp(countyPattern, "g"), "") === d) || !fallback.some((p) => p.d === d));
       return (scoped.length ? scoped : fallback.filter((p) => p.c === c).map((p) => p.d)).map((d) => ({ c, d })).concat(!scoped.length && !fallback.some((p) => p.c === c) ? [{ c, d: "" }] : []);
     }) : fallback;
-    for (const { c, d } of places) items.push({ s: "taiwater", k: "water", c, d, t: waterTimes(v("\u6848\u4EF6\u65E5\u671F\u6642\u9593"), v("\u6062\u5FA9\u65E5\u671F\u6642\u9593")), a: area, r: v("\u505C\u6C34\u539F\u56E0") || v("\u964D\u58D3\u539F\u56E0"), n: v("\u6848\u4EF6\u7DE8\u865F"), u: official.taiwater.url, ...v("\u6848\u4EF6\u985E\u578B") ? { o: v("\u6848\u4EF6\u985E\u578B") } : {} });
+    if (!places.length) dropped++;
+    for (const { c, d } of places) items.push({ s: "taiwater", k: "water", c, d, t: waterTimes(v("\u6848\u4EF6\u65E5\u671F\u6642\u9593"), v("\u6062\u5FA9\u65E5\u671F\u6642\u9593")), a: clean(area, 200), r: clean(v("\u505C\u6C34\u539F\u56E0") || v("\u964D\u58D3\u539F\u56E0"), 100), n: v("\u6848\u4EF6\u7DE8\u865F"), u: official.taiwater.url, ...v("\u6848\u4EF6\u985E\u578B") ? { o: v("\u6848\u4EF6\u985E\u578B") } : {} });
   }
   if (!items.length) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u672A\u63D0\u4F9B\u53EF\u8FA8\u8B58\u7684\u7E23\u5E02");
-  return unique(items);
+  return { items: unique(items), dropped, rows: rows.length };
 }
 function taipeiwater(input) {
   const items = [];
   const rows = records(input);
+  let dropped = 0;
   for (const row of rows) {
     const v = (key) => clean(row[key]);
     const area = v("SW_Area"), same = (s) => s.replace(/\s+/g, "");
     const reason = [...new Set([v("Title"), v("Description")].filter((s) => s && same(s) !== same(area)))].join("\uFF1B");
-    for (const { c, d } of locations(area)) items.push({ s: "taipeiwater", k: "water", c, d, t: dailyTimes(v("Date"), v("Time")), a: area, r: reason, n: v("SW_No"), u: /^https?:\/\//i.test(v("MapUrl")) ? v("MapUrl") : official.taipeiwater.url });
+    const places = locations(area);
+    if (!places.length) dropped++;
+    for (const { c, d } of places) items.push({ s: "taipeiwater", k: "water", c, d, t: dailyTimes(v("Date"), v("Time")), a: clean(area, 200), r: clean(reason, 100), n: v("SW_No"), u: /^https?:\/\//i.test(v("MapUrl")) ? v("MapUrl") : official.taipeiwater.url });
   }
   if (rows.length && !items.length) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u672A\u63D0\u4F9B\u53EF\u8FA8\u8B58\u7684\u7E23\u5E02");
-  return unique(items);
+  return { items: unique(items), dropped, rows: rows.length };
 }
 function unique(items) {
   return [...new Map(items.map((i) => [JSON.stringify(i), i])).values()];
@@ -180,6 +217,31 @@ function parseCsv(text) {
   records2.push(record);
   return records2;
 }
+var officeCounties = {
+  \u81FA\u5317\u5E02\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02"],
+  \u81FA\u5317\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
+  \u81FA\u5317\u5357\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
+  \u81FA\u5317\u897F\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
+  \u57FA\u9686\u5340\u71DF\u696D\u8655: ["\u57FA\u9686\u5E02", "\u65B0\u5317\u5E02"],
+  \u6843\u5712\u5340\u71DF\u696D\u8655: ["\u6843\u5712\u5E02"],
+  \u65B0\u7AF9\u5340\u71DF\u696D\u8655: ["\u65B0\u7AF9\u5E02", "\u65B0\u7AF9\u7E23"],
+  \u82D7\u6817\u5340\u71DF\u696D\u8655: ["\u82D7\u6817\u7E23"],
+  \u81FA\u4E2D\u5340\u71DF\u696D\u8655: ["\u81FA\u4E2D\u5E02"],
+  \u5F70\u5316\u5340\u71DF\u696D\u8655: ["\u5F70\u5316\u7E23"],
+  \u5357\u6295\u5340\u71DF\u696D\u8655: ["\u5357\u6295\u7E23"],
+  \u96F2\u6797\u5340\u71DF\u696D\u8655: ["\u96F2\u6797\u7E23"],
+  \u5609\u7FA9\u5340\u71DF\u696D\u8655: ["\u5609\u7FA9\u5E02", "\u5609\u7FA9\u7E23"],
+  \u81FA\u5357\u5340\u71DF\u696D\u8655: ["\u81FA\u5357\u5E02"],
+  \u65B0\u71DF\u5340\u71DF\u696D\u8655: ["\u81FA\u5357\u5E02"],
+  \u9AD8\u96C4\u5340\u71DF\u696D\u8655: ["\u9AD8\u96C4\u5E02"],
+  \u9CF3\u5C71\u5340\u71DF\u696D\u8655: ["\u9AD8\u96C4\u5E02"],
+  \u5C4F\u6771\u5340\u71DF\u696D\u8655: ["\u5C4F\u6771\u7E23"],
+  \u5B9C\u862D\u5340\u71DF\u696D\u8655: ["\u5B9C\u862D\u7E23"],
+  \u82B1\u84EE\u5340\u71DF\u696D\u8655: ["\u82B1\u84EE\u7E23"],
+  \u81FA\u6771\u5340\u71DF\u696D\u8655: ["\u81FA\u6771\u7E23"],
+  \u6F8E\u6E56\u5340\u71DF\u696D\u8655: ["\u6F8E\u6E56\u7E23"],
+  \u91D1\u9580\u5340\u71DF\u696D\u8655: ["\u91D1\u9580\u7E23"]
+};
 function taipower(files, minimum = 100) {
   const groups = /* @__PURE__ */ new Map();
   let rows = 0, dropped = 0;
@@ -187,28 +249,20 @@ function taipower(files, minimum = 100) {
     const lines = parseCsv(text.replace(/^\uFEFF/, "").trim());
     const header = lines.shift();
     if (header?.length !== 7 || header.join(",") !== "\u71DF\u696D\u5340\u8655,\u8ACB\u6C42\u865F\u6578,\u5DE5\u4F5C\u6982\u8FF0,\u7B2C\u4E00\u6B21\u505C\u96FB\u6642\u9593,\u7B2C\u4E8C\u6B21\u505C\u96FB\u6642\u9593,\u505C\u96FB\u7BC4\u570D,\u67E5\u8A62\u96FB\u8A71(1911)") throw Error("\u53F0\u96FB CSV \u6B04\u4F4D\u683C\u5F0F\u932F\u8AA4");
-    const district = (area) => /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(area)?.[1] ?? "";
-    const areaText = (area) => canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, "\u6843\u5712\u5E02$1\u5340"));
-    const districtCounties = /* @__PURE__ */ new Map();
-    for (const fields of lines) {
-      const a = areaText(fields[5]?.trim() ?? ""), c = counties.find((c2) => a.startsWith(c2)), d = c && district(a.slice(c.length));
-      if (c && d) {
-        const found = districtCounties.get(d) ?? /* @__PURE__ */ new Set();
-        found.add(c);
-        districtCounties.set(d, found);
-      }
-    }
     for (const fields of lines) {
       if (fields.length === 1 && !fields[0].trim()) continue;
       rows++;
-      if (fields.length !== 7) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
-      const [office, n, r, first, second, area] = fields.map((s) => s.trim());
-      let a = areaText(area);
+      if (fields.length !== 7) {
+        dropped++;
+        continue;
+      }
+      const [office, n, r, first, second, area] = fields.map((s) => clean(s));
+      let a = canonical(area);
       let c = counties.find((c2) => a.startsWith(c2));
       if (!c) {
-        const candidates = districtCounties.get(district(a));
-        if (candidates?.size === 1) {
-          c = [...candidates][0];
+        const candidates = (officeCounties[canonical(office).replace(/^臺電/, "")] ?? []).filter((county) => districtAtStart(county, a));
+        if (candidates.length === 1) {
+          c = candidates[0];
           a = c + a;
         }
       }
@@ -216,18 +270,19 @@ function taipower(files, minimum = 100) {
         dropped++;
         continue;
       }
-      const d = district(a.slice(c.length));
+      const d = districtAtStart(c, a.slice(c.length).trimStart());
       const windows = [first, second].filter((s) => s && s !== "\u7121");
       const parsed = windows.map(powerWindow);
       const t = windows.length && parsed.every((t2) => t2 !== null) ? parsed : windows.join("\uFF1B") || "\u672A\u6A19\u793A\u6642\u9593";
       const key = JSON.stringify([n, t, c, d]);
       const found = groups.get(key);
       if (found) found.areas.add(a);
-      else groups.set(key, { item: { s: "taipower", k: "power", c, d, t, a, r, n, u: `https://service.taipower.com.tw/branch/d${code.replace(/\.csv$/, "")}`, o: office }, areas: /* @__PURE__ */ new Set([a]) });
+      else groups.set(key, { item: { s: "taipower", k: "power", c, d, t, a, r: clean(r, 100), n, u: `https://service.taipower.com.tw/branch/d${code.replace(/\.csv$/, "")}`, o: office }, areas: /* @__PURE__ */ new Set([a]) });
     }
   }
+  if (dropped > 20 && dropped / rows > 0.05) throw Error("\u53F0\u96FB\u958B\u653E\u8CC7\u6599\u7121\u6CD5\u8FA8\u8B58\u7684\u8CC7\u6599\u5217\u904E\u591A");
   if (rows < minimum || !groups.size) throw Error("\u53F0\u96FB\u958B\u653E\u8CC7\u6599\u7B46\u6578\u4E0D\u8DB3");
-  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: [...areas].sort().join("\u3001") })), dropped, rows };
+  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join("\u3001"), 200) })), dropped, rows };
 }
 
 // src/outage/zip.ts
@@ -278,13 +333,39 @@ var urls = {
   taipeiwater: "https://webs.water.gov.taipei/apps/outage.asmx/outageOpenData",
   taipower: "https://service.taipower.com.tw/data/opendata/apply/file/d077004/001.zip"
 };
+var downloadLimit = 16 * 1024 * 1024;
 async function fetchSource2(source) {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 3e4);
   try {
     const r = await fetch(urls[source], { signal: controller.signal, redirect: "follow" });
     if (!r.ok) throw Error(`\u5B98\u65B9\u958B\u653E\u8CC7\u6599 HTTP ${r.status}`);
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    if (bytes.length > 32 * 1024 * 1024) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u6A94\u6848\u904E\u5927");
+    if (Number(r.headers.get("content-length")) > downloadLimit) {
+      await r.body?.cancel();
+      throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u6A94\u6848\u904E\u5927");
+    }
+    if (!r.body) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u7F3A\u5C11\u5167\u5BB9");
+    const reader = r.body.getReader(), chunks = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > downloadLimit) {
+          await reader.cancel();
+          throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u6A94\u6848\u904E\u5927");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
     if (source === "taipower") return taipower(readZip(bytes));
     let input;
     try {
@@ -292,8 +373,7 @@ async function fetchSource2(source) {
     } catch {
       throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599 JSON \u683C\u5F0F\u932F\u8AA4");
     }
-    const items = source === "taiwater" ? taiwater(input) : taipeiwater(input);
-    return { items, dropped: 0, rows: input.length };
+    return source === "taiwater" ? taiwater(input) : taipeiwater(input);
   } catch (e) {
     if (controller.signal.aborted) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u9023\u7DDA\u903E\u6642");
     throw e;
@@ -369,11 +449,14 @@ async function collectOutages(store, options = {}) {
         }
         counties2[county] = { sha, count: data.items.filter((item) => item.c === county).length, writtenAt };
       }
-      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, ...source === "taipower" ? { dropped } : {} };
+      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, dropped };
     } catch (e) {
-      failed = true;
+      const emptyTaiwater = source === "taiwater" && reason(e) === taiwaterEmptyReason;
+      const regressed = old?.ok === true && !emptyTaiwater;
+      if (regressed) failed = true;
       index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {}, ...old?.dropped !== void 0 ? { dropped: old.dropped } : {} };
-      console.error(`outage ${source} failed: ${reason(e)}`);
+      if (regressed) console.error(`outage ${source} failed: ${reason(e)}`);
+      else console.warn(`outage ${source} unavailable: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source].ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
   }

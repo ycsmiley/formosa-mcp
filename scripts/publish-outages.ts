@@ -35,10 +35,14 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
         if (prior?.sha !== sha || !writtenAt || Date.parse(index.generatedAt) - Date.parse(writtenAt) > 3 * 86400000) { await store.put(shardKey(source, county, sha), raw, index.generatedAt, 8 * 86400); writes++; writtenAt = index.generatedAt; }
         counties[county] = { sha, count: data.items.filter(item => item.c === county).length, writtenAt };
       }
-      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties, ...(source === 'taipower' ? { dropped } : {}) };
+      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties, dropped };
     } catch (e) {
-      failed = true; index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {}, ...(old?.dropped !== undefined ? { dropped: old.dropped } : {}) };
-      console.error(`outage ${source} failed: ${reason(e)}`);
+      const emptyTaiwater = source === 'taiwater' && reason(e) === taiwaterEmptyReason;
+      const regressed = old?.ok === true && !emptyTaiwater;
+      if (regressed) failed = true;
+      index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {}, ...(old?.dropped !== undefined ? { dropped: old.dropped } : {}) };
+      if (regressed) console.error(`outage ${source} failed: ${reason(e)}`);
+      else console.warn(`outage ${source} unavailable: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source]!.ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
   }

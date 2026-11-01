@@ -645,5 +645,23 @@
     "notes": "資料未涵蓋必須明說，不能宣稱沒有停電。",
     "daily_ci": false,
     "requires_key": null
+  },
+  {
+    "id": "outage-005",
+    "question": "臺東縣綠島鄉未來七天有計畫停電嗎？",
+    "toolset": "outage",
+    "expected_tool": "outage_schedule",
+    "expected_args": {
+      "city": "臺東縣",
+      "district": "綠島鄉",
+      "type": "power"
+    },
+    "expected_key_facts": [
+      "官方公告中查無",
+      "已查詢來源：台電"
+    ],
+    "notes": "以來源健康但綠島鄉無相符公告的快照為準；來源不可用時不得宣稱查無，實際公告會變動。",
+    "daily_ci": false,
+    "requires_key": null
   }
 ]

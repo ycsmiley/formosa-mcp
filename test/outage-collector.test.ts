@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { collectOutages, directoryStore, kvStore, main, type Store } from '../scripts/publish-outages.js';
 import { decodeIndex, indexKey, shardKey, type Source } from '../src/core/outage/model.js';
-import { fetchSource, urls } from '../src/outage/source.js';
+import { downloadLimit, fetchSource, urls } from '../src/outage/source.js';
 import { localOutageStore } from '../src/outage/store.js';
 import { createOutageService } from '../src/core/outage/service.js';
 import { taiwaterEmptyReason } from '../src/core/outage/normalize.js';
@@ -94,18 +94,19 @@ it('uses TTL only for shard KV REST writes and redacts failed index reads', asyn
 it('publishes healthy sources even when one source is empty', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'outage-empty-')); const fetch = mockSources(); const original = fetch.getMockImplementation()!;
   fetch.mockImplementation(async (input, init) => String(input) === urls.taiwater ? new Response('[]') : original(input, init));
-  try { expect(await main(['--out', dir], {})).toBe(1); const index = decodeIndex((await directoryStore(dir).get(indexKey))!); expect(index.sources.taiwater).toMatchObject({ ok: false, reason: expect.stringContaining('空清單'), counties: {} }); expect(index.sources.taipower!.ok).toBe(true); }
+  try { expect(await main(['--out', dir], {})).toBe(0); const index = decodeIndex((await directoryStore(dir).get(indexKey))!); expect(index.sources.taiwater).toMatchObject({ ok: false, reason: expect.stringContaining('空清單'), counties: {} }); expect(index.sources.taipower!.ok).toBe(true); }
   finally { await rm(dir, { recursive: true, force: true }); }
 });
 it('retains Taiwan Water snapshots through an empty export and recovers on the next non-empty export', async () => {
   const values = new Map<string, string>(), writes: string[] = [];
   const store: Store = { get: async key => values.get(key) ?? null, put: async (key, value) => { values.set(key, value); writes.push(key); } };
-  const fetch = mockSources(), original = fetch.getMockImplementation()!;
+  const fetch = mockSources(), original = fetch.getMockImplementation()!, warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   expect(await collectOutages(store, { now })).toBe(0);
   const before = decodeIndex(values.get(indexKey)!).sources.taiwater!; writes.length = 0;
   fetch.mockImplementation(async (input, init) => String(input) === urls.taiwater ? new Response('[]') : original(input, init));
   const failedAt = '2026-11-03T00:00:00.000Z';
-  expect(await collectOutages(store, { now: () => new Date(failedAt) })).toBe(1);
+  expect(await collectOutages(store, { now: () => new Date(failedAt) })).toBe(0);
+  expect(warn).toHaveBeenCalledWith(`outage taiwater unavailable: ${taiwaterEmptyReason}`);
   const failed = decodeIndex(values.get(indexKey)!).sources.taiwater!;
   expect(failed).toMatchObject({ ok: false, reason: taiwaterEmptyReason, fetchedAt: failedAt, lastSuccessAt: before.lastSuccessAt, counties: before.counties });
   expect(writes.some(key => key.startsWith('outage:v1:taiwater:'))).toBe(false);
@@ -134,4 +135,61 @@ it('retries failed live fetches immediately and caches the recovered source', as
   expect((await store.index(['taipower']))!.sources.taipower!.ok).toBe(false);
   expect((await store.index(['taipower']))!.sources.taipower!.ok).toBe(true);
   await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('returns nonzero only on a healthy source regression and still publishes failing-source heartbeats', async () => {
+  const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
+  const fetch = mockSources(), original = fetch.getMockImplementation()!;
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {}), error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect(await collectOutages(store, { now })).toBe(0);
+  fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower) throw Error('offline'); return original(input, init); });
+  expect(await collectOutages(store, { now })).toBe(1); expect(error).toHaveBeenCalledWith('outage taipower failed: offline');
+  const failed = decodeIndex(values.get(indexKey)!); expect(failed.sources.taipower).toMatchObject({ ok: false, reason: 'offline' });
+  error.mockClear();
+  const later = () => new Date('2026-11-01T06:00:00Z');
+  expect(await collectOutages(store, { now: later })).toBe(0);
+  expect(error).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledWith('outage taipower unavailable: offline');
+  expect(decodeIndex(values.get(indexKey)!)).toMatchObject({ generatedAt: later().toISOString(), sources: { taipower: { ok: false, lastSuccessAt: now().toISOString(), counties: failed.sources.taipower!.counties } } });
+});
+it('warns and exits zero for a source without a prior healthy snapshot, but fails an index write', async () => {
+  const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const fetch = async () => { throw Error('offline'); };
+  expect(await collectOutages(store, { now, fetch })).toBe(0); expect(warn).toHaveBeenCalledTimes(3);
+  expect(Object.values(decodeIndex(values.get(indexKey)!).sources).every(s => !s.ok)).toBe(true);
+  store.put = async () => { throw Error('index unavailable'); };
+  expect(await collectOutages(store, { now, fetch })).toBe(1);
+});
+it('stores dropped counts and displays the matching warning for each water source', async () => {
+  const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
+  const fetch = mockSources(), original = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (input, init) => {
+    if (String(input) === urls.taipeiwater) return Response.json([...JSON.parse(fixture('taipeiwater.json')), { SW_Area: '文化路' }]);
+    if (String(input) === urls.taiwater) return Response.json([...JSON.parse(fixture('taiwater.json')), { 停水地區: '文化路' }]);
+    return original(input, init);
+  });
+  expect(await collectOutages(store, { now })).toBe(0);
+  const index = decodeIndex(values.get(indexKey)!);
+  expect(index.sources.taipeiwater!.dropped).toBe(1); expect(index.sources.taiwater!.dropped).toBe(1);
+  const snapshot = { index: async () => index, shard: async (s: Source, c: string, sha: string) => JSON.parse(values.get(shardKey(s, c, sha))!) };
+  const text = (await createOutageService(snapshot, now).schedule({ city: '新北市', type: 'water' })).text;
+  expect(text).toContain('另有 1 筆北水公告無法判定縣市，未納入比對，請至 https://web.water.gov.taipei/ 確認。');
+  expect(text).toContain('另有 1 筆台水公告無法判定縣市，未納入比對，請至 https://web.water.gov.tw/wateroff/ 確認。');
+  const live = localOutageStore(), liveIndex = await live.index(['taiwater', 'taipeiwater']);
+  expect(liveIndex!.sources.taiwater!.dropped).toBe(1); expect(liveIndex!.sources.taipeiwater!.dropped).toBe(1);
+});
+it('rejects oversized Content-Length before reading and cancels an overflowing stream even with a small claimed length', async () => {
+  const fetch = vi.spyOn(globalThis, 'fetch');
+  for (const source of Object.keys(urls) as Source[]) {
+    const cancel = vi.fn(), pull = vi.fn();
+    fetch.mockResolvedValue(new Response(new ReadableStream({ pull, cancel }, { highWaterMark: 0 }), { headers: { 'content-length': String(downloadLimit + 1) } }));
+    await expect(fetchSource(source)).rejects.toThrow('檔案過大'); expect(pull).not.toHaveBeenCalled(); expect(cancel).toHaveBeenCalledOnce();
+  }
+  for (const headers of [undefined, { 'content-length': '1' }]) {
+    const cancel = vi.fn(); let reads = 0;
+    fetch.mockResolvedValue(new Response(new ReadableStream({
+      pull(controller) { reads++; controller.enqueue(new Uint8Array(reads === 1 ? downloadLimit : 1)); }, cancel,
+    }, { highWaterMark: 0 }), { headers }));
+    await expect(fetchSource('taipeiwater')).rejects.toThrow('檔案過大'); expect(cancel).toHaveBeenCalledOnce(); expect(reads).toBe(2);
+  }
 });

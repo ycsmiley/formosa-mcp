@@ -1,6 +1,6 @@
 import type { City, Slot } from './normalize.js';
 import type { Index, Shard } from './snapshot.js';
-import { norm } from './text.js';
+import { norm, stripZeroWidth, validKeyword as valid } from './text.js';
 export interface GarbageStore { index(city?: City): Promise<Index | null>; shard(city: City, gen: string, district: string, keyword: string, filter?: (slot: Slot) => boolean): Promise<Shard | null> }
 export interface Query { city: string; district?: string; keyword?: string; weekday?: string; time?: string }
 const cities: Record<City, { name: string; source: string }> = {
@@ -27,7 +27,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
     try {
       const index = await store.index(city); const info = index?.cities[city];
       if (!info) return { text: '資料更新中，請稍後再試', isError: true };
-      const districts = Object.keys(info.districts); let keyword = norm(q.keyword ?? '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+      const districts = Object.keys(info.districts); let keyword = stripZeroWidth(norm(q.keyword ?? '')).trim();
       let fallback: string | undefined;
       let district = q.district ? districts.find(d => norm(d).replace(/區$/, '') === norm(q.district!).replace(/區$/, '')) : undefined;
       if (!q.district) {
@@ -44,7 +44,6 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
         if (keyword.startsWith(full)) keyword = keyword.slice(full.length).trim();
         else if (short.length >= 2 && keyword.startsWith(short)) { fallback = keyword; keyword = keyword.slice(short.length).trim(); }
       }
-      const valid = (value: string) => [...value].length >= 2 && !/["\\]/.test(value) && !/^[\p{N}]+$/u.test(value) && !/^[\p{P}\p{S}\s]+$/u.test(value);
       if (!valid(keyword) && fallback && valid(fallback)) { keyword = fallback; fallback = undefined; }
       if (!keyword) return { text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false };
       if (!valid(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
