@@ -162,7 +162,7 @@ it('registers the bounded MCP arguments, applies defaults and returns Chinese va
 
 it('limits no-match wording to checked sources and warns about dropped power rows', async () => {
   const { index, service } = setup([]); index.sources.taiwater = { ok: false, reason: taiwaterEmptyReason, counties: {} };
-  index.sources.taipower!.dropped = 3;
+  index.sources.taipower!.droppedBy = { '台電台中區營業處': 3 };
   const text = (await service.schedule({ city: '臺中市', type: 'all' })).text;
   expect(text).toContain('官方公告中查無 臺中市 2026-11-01～2026-11-07 的計畫性停電。');
   expect(text).toContain('已查詢來源：台電。');
@@ -170,7 +170,7 @@ it('limits no-match wording to checked sources and warns about dropped power row
   expect(text.split('\n').slice(-4, -2)).toEqual([
     '台水官方開放資料目前是空的，結果可能不完整，請至 https://web.water.gov.tw/wateroff/ 自行查詢。', notice,
   ]);
-  const matched = setup(); matched.index.sources.taipower!.dropped = 3;
+  const matched = setup(); matched.index.sources.taipower!.droppedBy = { '台電台北南區營業處': 3 };
   const match = (await matched.service.schedule({ city: '臺北市', type: 'power' })).text;
   expect(match).toContain('🔌 停電'); expect(match.split('\n').at(-3)).toBe(notice);
   expect((await service.schedule({ city: '臺中市', type: 'water' })).text).not.toContain('筆台電公告無法判定縣市');
@@ -208,12 +208,14 @@ it('canonicalizes legacy counties and asks for the city or county when a bare na
 });
 it('rejects unknown districts with the available names before reading sources', async () => {
   const { service, store } = setup(), read = vi.spyOn(store, 'index');
-  for (const district of ['不存在區', '社區', '市場', '中山市', ' ']) {
+  for (const district of ['不存在區', '社區', '市場', ' ']) {
     const reply = await service.schedule({ city: '臺北市', district });
     expect(reply.isError).toBe(true); expect(reply.text).toContain('請指定有效行政區');
     expect(reply.text).toContain('中山區'); expect(reply.text).toContain('文山區'); expect(reply.text).not.toContain('查無');
   }
   expect(read).not.toHaveBeenCalled();
+  const reply = await service.schedule({ city: '臺北市', district: '中山市' });
+  expect(reply.isError).toBe(false); expect(reply.text.startsWith('臺北市中山區 ')).toBe(true);
 });
 it('strips zero-width keyword characters and rejects garbage without claiming no matches', async () => {
   const base = all.find(i => i.s === 'taipower')!;
@@ -270,4 +272,19 @@ it('keeps the exact Taiwan Water empty warning and excludes it from no-match cla
     expect(reply.text.includes('桃園區中正路')).toBe(age <= 72);
     expect(reply.text).not.toContain('已查詢來源'); expect(reply.text).not.toContain('官方公告中查無');
   }
+});
+
+it('scopes dropped power rows to covered counties and sorts missing districts last', async () => {
+  const base = all.find(i => i.s === 'taipower' && i.c === '臺北市')!;
+  const items: Item[] = [
+    { ...base, n: 'missing', d: '', a: '未標示範圍', t: [['2026-11-02T08:00', '2026-11-02T09:00']] },
+    { ...base, n: 'named', d: '信義區', a: '臺北市信義區', t: [['2026-11-03T08:00', '2026-11-03T09:00']] },
+  ];
+  const { index, service } = setup(items);
+  index.sources.taipower!.droppedBy = { '台電台北南區營業處': 2, '台電新營區營業處': 3 };
+  const text = (await service.schedule({ city: '臺北市', type: 'power' })).text;
+  expect(text).toContain('另有 2 筆台電公告');
+  expect(text.indexOf('請求號數 named')).toBeLessThan(text.indexOf('請求號數 missing'));
+  expect((await service.schedule({ city: '嘉義縣', type: 'power' })).text).toContain('另有 3 筆台電公告');
+  expect((await service.schedule({ city: '花蓮縣', type: 'power' })).text).not.toContain('筆台電公告');
 });

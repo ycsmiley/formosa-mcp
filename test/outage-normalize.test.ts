@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest';
 import { crc32, readZip } from '../src/outage/zip.js';
-import { canonical, locations, taiwater, taipeiwater, taipower } from '../src/core/outage/normalize.js';
+import { canonical, countiesForOffice, locations, taiwater, taipeiwater, taipower } from '../src/core/outage/normalize.js';
 import { dailyTimes, formatTimes, parseDate } from '../src/core/outage/time.js';
 import { decodeIndex, decodeShard } from '../src/core/outage/model.js';
-import { counties, districts } from '../src/core/outage/districts.js';
+import { counties, districts, resolveDistrict } from '../src/core/outage/districts.js';
 import { fixture, powerCsv, zip } from './outage-fixtures.js';
 it('reads stored/deflated data entries, ignores schema/manifest, and rejects broken ZIPs', () => {
   expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926);
@@ -91,7 +91,7 @@ it('infers county only when a known office covers exactly one county with that d
     '台電台中區營業處,H15648,施工,無,無,北屯區東山路一段,1911',
     '台電台中區營業處,missing,施工,無,無,幸福社區中正路,1911',
     '未知處,unknown,施工,無,無,北屯區松竹路,1911',
-    '台電台中區營業處,outside,施工,無,無,信義區一街,1911',
+    '台電台中區營業處,outside,施工,無,無,板橋區一街,1911',
   ].join('\n');
   const result = taipower(new Map([['191.csv', csv]]), 1);
   expect(result.items).toHaveLength(1);
@@ -155,4 +155,31 @@ it('collapses controls and whitespace, preserves full areas and bounds reasons f
     expect(item.r.endsWith('…')).toBe(true);
     expect(item.a + item.r).not.toMatch(/[\r\n\t\u0000\u0007]/);
   }
+});
+
+it('resolves every live power office and its covered counties', () => {
+  const offices: Record<string, string[]> = {
+    基隆: ['基隆市', '新北市'], 台北市: ['臺北市'], 台北北: ['臺北市', '新北市'], 台北南: ['臺北市', '新北市'], 台北西: ['臺北市', '新北市'],
+    桃園: ['桃園市', '新北市'], 新竹: ['新竹市', '新竹縣', '桃園市'], 苗栗: ['苗栗縣', '臺中市'], 台中: ['臺中市', '南投縣'], 南投: ['南投縣', '臺中市'],
+    彰化: ['彰化縣', '南投縣'], 雲林: ['雲林縣', '嘉義縣'], 嘉義: ['嘉義市', '嘉義縣'], 新營: ['臺南市', '嘉義縣'], 台南: ['臺南市'],
+    高雄: ['高雄市', '臺南市'], 鳳山: ['高雄市'], 屏東: ['屏東縣'], 台東: ['臺東縣'], 花蓮: ['花蓮縣'], 宜蘭: ['宜蘭縣', '新北市'], 澎湖: ['澎湖縣'], 金門: ['金門縣'],
+  };
+  for (const [name, expected] of Object.entries(offices)) expect(countiesForOffice(`${name === '金門' ? '' : '台電'}${name}區營業處`)).toEqual(expected);
+});
+it('validates optional dropped counts by office', () => {
+  const entry = { ok: true, counties: {}, droppedBy: { '台電新營區營業處': 2 } };
+  const index = { v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: entry } };
+  expect(decodeIndex(JSON.stringify(index)).sources.taipower?.droppedBy).toEqual(entry.droppedBy);
+  for (const droppedBy of [null, [], { office: -1 }, { office: 1.5 }, { office: '2' }, { '': 1 }]) expect(() => decodeIndex(JSON.stringify({ ...index, sources: { taipower: { ...entry, droppedBy } } }))).toThrow();
+});
+it('keeps stray unquoted quotes and drops malformed CSV records while continuing', () => {
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const text = [header, '台電台中區營業處,a,施"工,無,無,北屯區一街,1911', '台電台中區營業處,b,"壞"字,無,無,北屯區二街,1911', '台電新營區營業處,c,"未結束', '台電台中區營業處,d,施工,無,無,北屯區三街,1911'].join('\n');
+  const result = taipower(new Map([['101.csv', text]]), 1);
+  expect(result.items.map(i => i.n)).toEqual(['a', 'd']); expect(result.items[0].r).toBe('施"工');
+  expect(result.dropped).toBe(2); expect(result.droppedBy).toMatchObject({ '台電台中區營業處': 1, '台電新營區營業處': 1 });
+});
+it('resolves legacy municipality names without changing existing county districts', () => {
+  for (const [county, old, expected] of [['新北市', '板橋市', '板橋區'], ['高雄市', '鳳山市', '鳳山區'], ['臺中市', '豐原市', '豐原區'], ['臺南市', '新營市', '新營區'], ['新竹縣', '竹北市', '竹北市'], ['彰化縣', '員林市', '員林市']]) expect(resolveDistrict(county, old)).toBe(expected);
+  expect(locations('臺北縣板橋市文化路')).toEqual([{ c: '新北市', d: '板橋區' }]);
 });

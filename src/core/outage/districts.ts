@@ -24,11 +24,19 @@ export const districts: Record<string, readonly string[]> = {
   連江縣: '南竿鄉 北竿鄉 莒光鄉 東引鄉'.split(' '),
 };
 export const counties = Object.keys(districts);
-export const districtAtStart = (county: string, area: string) => districts[county]?.find(d => area.startsWith(d)) ?? '';
+export const districtAtStart = (county: string, area: string) => {
+  const exact = districts[county]?.find(d => area.startsWith(d));
+  if (exact) return exact;
+  const legacy = area.match(/^(.{1,4}?[市鄉鎮])/);
+  return legacy ? resolveDistrict(county, legacy[1]) ?? '' : '';
+};
 export function resolveDistrict(county: string, value: string): string | undefined {
   const available = districts[county] ?? [];
   if (available.includes(value)) return value;
-  if (county === '桃園市' && /[市鄉鎮]$/.test(value)) value = value.slice(0, -1);
+  if (/[市鄉鎮]$/.test(value)) {
+    const district = value.slice(0, -1) + '區';
+    if (available.includes(district)) return district;
+  }
   const matches = available.filter(d => ['區', '鄉', '鎮', '市'].some(suffix => value + suffix === d));
   return matches.length === 1 ? matches[0] : undefined;
 }

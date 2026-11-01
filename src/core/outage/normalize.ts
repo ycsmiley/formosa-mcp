@@ -58,9 +58,12 @@ export function taipeiwater(input: unknown): { items: Item[]; dropped: number; r
 }
 function unique(items: Item[]): Item[] { return [...new Map(items.map(i => [JSON.stringify(i), i])).values()]; }
 function parseCsv(text: string): string[][] {
-  const records: string[][] = []; let record: string[] = [], field = '', quoted = false, closed = false;
+  const records: string[][] = []; let record: string[] = [], field = '', quoted = false, closed = false, invalid = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    if (quoted && (ch === '\n' || ch === '\r' && text[i + 1] === '\n') && /^(?:(?:台電|臺電)[^,\r\n]*區營業處|金門區營業處),/.test(text.slice(i + (ch === '\r' ? 2 : 1)))) {
+      records.push([...record, field, ...Array(8).fill('')]); record = []; field = ''; quoted = false; closed = false; invalid = false; if (ch === '\r') i++; continue;
+    }
     if (quoted) {
       if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
       else if (ch === '"') { quoted = false; closed = true; }
@@ -68,21 +71,22 @@ function parseCsv(text: string): string[][] {
     } else if (ch === '"' && !field && !closed) quoted = true;
     else if (ch === ',' || ch === '\n' || ch === '\r' && text[i + 1] === '\n') {
       record.push(field); field = ''; closed = false;
-      if (ch !== ',') { records.push(record); record = []; if (ch === '\r') i++; }
-    } else if (ch === '"' || closed) throw Error('台電 CSV 資料格式錯誤');
+      if (ch !== ',') { if (invalid) record.push(...Array(8).fill('')); records.push(record); record = []; invalid = false; if (ch === '\r') i++; }
+    } else if (closed) invalid = true;
     else field += ch;
   }
-  if (quoted) throw Error('台電 CSV 資料格式錯誤');
-  record.push(field); records.push(record); return records;
+  record.push(field); if (quoted || invalid) record.push(...Array(8).fill('')); records.push(record); return records;
 }
 const officeCounties: Record<string, string[]> = {
-  臺北市區營業處: ['臺北市'], 臺北區營業處: ['臺北市', '新北市'], 臺北南區營業處: ['臺北市', '新北市'], 臺北西區營業處: ['臺北市', '新北市'],
-  基隆區營業處: ['基隆市', '新北市'], 桃園區營業處: ['桃園市'], 新竹區營業處: ['新竹市', '新竹縣'], 苗栗區營業處: ['苗栗縣'],
-  臺中區營業處: ['臺中市'], 彰化區營業處: ['彰化縣'], 南投區營業處: ['南投縣'], 雲林區營業處: ['雲林縣'], 嘉義區營業處: ['嘉義市', '嘉義縣'],
-  臺南區營業處: ['臺南市'], 新營區營業處: ['臺南市'], 高雄區營業處: ['高雄市'], 鳳山區營業處: ['高雄市'], 屏東區營業處: ['屏東縣'],
-  宜蘭區營業處: ['宜蘭縣'], 花蓮區營業處: ['花蓮縣'], 臺東區營業處: ['臺東縣'], 澎湖區營業處: ['澎湖縣'], 金門區營業處: ['金門縣'],
+  臺北市區營業處: ['臺北市'], 臺北北區營業處: ['臺北市', '新北市'], 臺北南區營業處: ['臺北市', '新北市'], 臺北西區營業處: ['臺北市', '新北市'],
+  基隆區營業處: ['基隆市', '新北市'], 桃園區營業處: ['桃園市', '新北市'], 新竹區營業處: ['新竹市', '新竹縣', '桃園市'], 苗栗區營業處: ['苗栗縣', '臺中市'],
+  臺中區營業處: ['臺中市', '南投縣'], 彰化區營業處: ['彰化縣', '南投縣'], 南投區營業處: ['南投縣', '臺中市'], 雲林區營業處: ['雲林縣', '嘉義縣'], 嘉義區營業處: ['嘉義市', '嘉義縣'],
+  臺南區營業處: ['臺南市'], 新營區營業處: ['臺南市', '嘉義縣'], 高雄區營業處: ['高雄市', '臺南市'], 鳳山區營業處: ['高雄市'], 屏東區營業處: ['屏東縣'],
+  宜蘭區營業處: ['宜蘭縣', '新北市'], 花蓮區營業處: ['花蓮縣'], 臺東區營業處: ['臺東縣'], 澎湖區營業處: ['澎湖縣'], 金門區營業處: ['金門縣'],
 };
-export function taipower(files: Map<string, string>, minimum = 100): { items: Item[]; dropped: number; rows: number } {
+export const countiesForOffice = (office: string): readonly string[] => officeCounties[canonical(office).replace(/^臺電/, '')] ?? [];
+export function taipower(files: Map<string, string>, minimum = 100): { items: Item[]; dropped: number; droppedBy: Record<string, number>; rows: number } {
+  const droppedBy: Record<string, number> = Object.create(null);
   const groups = new Map<string, { item: Item; areas: Set<string> }>(); let rows = 0, dropped = 0;
   for (const [code, text] of files) {
     const lines = parseCsv(text.replace(/^\uFEFF/, '').trim());
@@ -90,11 +94,12 @@ export function taipower(files: Map<string, string>, minimum = 100): { items: It
     if (header?.length !== 7 || header.join(',') !== '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)') throw Error('台電 CSV 欄位格式錯誤');
     for (const fields of lines) {
       if (fields.length === 1 && !fields[0].trim()) continue; rows++;
-      if (fields.length !== 7) { dropped++; continue; }
+      const drop = () => { dropped++; const office = clean(fields[0]); if (office) droppedBy[office] = (droppedBy[office] ?? 0) + 1; };
+      if (fields.length !== 7) { drop(); continue; }
       const [office, n, r, first, second, area] = fields.map(s => clean(s)); let a = canonical(area);
       let c = counties.find(c => a.startsWith(c));
-      if (!c) { const candidates = (officeCounties[canonical(office).replace(/^臺電/, '')] ?? []).filter(county => districtAtStart(county, a)); if (candidates.length === 1) { c = candidates[0]; a = c + a; } }
-      if (!c) { dropped++; continue; }
+      if (!c) { const candidates = countiesForOffice(office).filter(county => districtAtStart(county, a)); if (candidates.length === 1) { c = candidates[0]; a = c + a; } }
+      if (!c) { drop(); continue; }
       const d = districtAtStart(c, a.slice(c.length).trimStart());
       const windows = [first, second].filter(s => s && s !== '無'); const parsed = windows.map(powerWindow);
       const t = windows.length && parsed.every(t => t !== null) ? parsed as [string, string][] : windows.join('；') || '未標示時間';
@@ -105,5 +110,5 @@ export function taipower(files: Map<string, string>, minimum = 100): { items: It
   }
   if (dropped > 20 && dropped / rows > 0.05) throw Error('台電開放資料無法辨識的資料列過多');
   if (rows < minimum || !groups.size) throw Error('台電開放資料筆數不足');
-  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join('、')) })), dropped, rows };
+  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join('、')) })), dropped, droppedBy, rows };
 }

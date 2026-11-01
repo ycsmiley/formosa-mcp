@@ -39,6 +39,7 @@ function decodeIndex2(raw) {
   if (!object(x) || x.v !== 1 || !timestamp(x.generatedAt) || !object(x.sources)) throw Error("\u516C\u544A\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
   for (const [s, v] of Object.entries(x.sources)) {
     if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || !object(v.counties) || v.reason !== void 0 && typeof v.reason !== "string" || v.dropped !== void 0 && (!Number.isSafeInteger(v.dropped) || v.dropped < 0) || [v.fetchedAt, v.lastSuccessAt].some((t) => t !== void 0 && !timestamp(t))) throw Error("\u516C\u544A\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
+    if (v.droppedBy !== void 0 && (!object(v.droppedBy) || Object.entries(v.droppedBy).some(([office, count]) => !office || !Number.isSafeInteger(count) || count < 0))) throw Error("\u516C\u544A\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
     for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0 || shard.writtenAt !== void 0 && !timestamp(shard.writtenAt)) throw Error("\u516C\u544A\u7E23\u5E02\u683C\u5F0F\u932F\u8AA4");
   }
   return x;
@@ -70,11 +71,19 @@ var districts = {
   \u9023\u6C5F\u7E23: "\u5357\u7AFF\u9109 \u5317\u7AFF\u9109 \u8392\u5149\u9109 \u6771\u5F15\u9109".split(" ")
 };
 var counties = Object.keys(districts);
-var districtAtStart = (county, area) => districts[county]?.find((d) => area.startsWith(d)) ?? "";
+var districtAtStart = (county, area) => {
+  const exact = districts[county]?.find((d) => area.startsWith(d));
+  if (exact) return exact;
+  const legacy = area.match(/^(.{1,4}?[市鄉鎮])/);
+  return legacy ? resolveDistrict(county, legacy[1]) ?? "" : "";
+};
 function resolveDistrict(county, value) {
   const available = districts[county] ?? [];
   if (available.includes(value)) return value;
-  if (county === "\u6843\u5712\u5E02" && /[市鄉鎮]$/.test(value)) value = value.slice(0, -1);
+  if (/[市鄉鎮]$/.test(value)) {
+    const district = value.slice(0, -1) + "\u5340";
+    if (available.includes(district)) return district;
+  }
   const matches = available.filter((d) => ["\u5340", "\u9109", "\u93AE", "\u5E02"].some((suffix) => value + suffix === d));
   return matches.length === 1 ? matches[0] : void 0;
 }
@@ -188,9 +197,19 @@ function unique(items) {
 }
 function parseCsv(text) {
   const records2 = [];
-  let record = [], field = "", quoted = false, closed = false;
+  let record = [], field = "", quoted = false, closed = false, invalid = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    if (quoted && (ch === "\n" || ch === "\r" && text[i + 1] === "\n") && /^(?:(?:台電|臺電)[^,\r\n]*區營業處|金門區營業處),/.test(text.slice(i + (ch === "\r" ? 2 : 1)))) {
+      records2.push([...record, field, ...Array(8).fill("")]);
+      record = [];
+      field = "";
+      quoted = false;
+      closed = false;
+      invalid = false;
+      if (ch === "\r") i++;
+      continue;
+    }
     if (quoted) {
       if (ch === '"' && text[i + 1] === '"') {
         field += '"';
@@ -205,44 +224,48 @@ function parseCsv(text) {
       field = "";
       closed = false;
       if (ch !== ",") {
+        if (invalid) record.push(...Array(8).fill(""));
         records2.push(record);
         record = [];
+        invalid = false;
         if (ch === "\r") i++;
       }
-    } else if (ch === '"' || closed) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
+    } else if (closed) invalid = true;
     else field += ch;
   }
-  if (quoted) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
   record.push(field);
+  if (quoted || invalid) record.push(...Array(8).fill(""));
   records2.push(record);
   return records2;
 }
 var officeCounties = {
   \u81FA\u5317\u5E02\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02"],
-  \u81FA\u5317\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
+  \u81FA\u5317\u5317\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
   \u81FA\u5317\u5357\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
   \u81FA\u5317\u897F\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
   \u57FA\u9686\u5340\u71DF\u696D\u8655: ["\u57FA\u9686\u5E02", "\u65B0\u5317\u5E02"],
-  \u6843\u5712\u5340\u71DF\u696D\u8655: ["\u6843\u5712\u5E02"],
-  \u65B0\u7AF9\u5340\u71DF\u696D\u8655: ["\u65B0\u7AF9\u5E02", "\u65B0\u7AF9\u7E23"],
-  \u82D7\u6817\u5340\u71DF\u696D\u8655: ["\u82D7\u6817\u7E23"],
-  \u81FA\u4E2D\u5340\u71DF\u696D\u8655: ["\u81FA\u4E2D\u5E02"],
-  \u5F70\u5316\u5340\u71DF\u696D\u8655: ["\u5F70\u5316\u7E23"],
-  \u5357\u6295\u5340\u71DF\u696D\u8655: ["\u5357\u6295\u7E23"],
-  \u96F2\u6797\u5340\u71DF\u696D\u8655: ["\u96F2\u6797\u7E23"],
+  \u6843\u5712\u5340\u71DF\u696D\u8655: ["\u6843\u5712\u5E02", "\u65B0\u5317\u5E02"],
+  \u65B0\u7AF9\u5340\u71DF\u696D\u8655: ["\u65B0\u7AF9\u5E02", "\u65B0\u7AF9\u7E23", "\u6843\u5712\u5E02"],
+  \u82D7\u6817\u5340\u71DF\u696D\u8655: ["\u82D7\u6817\u7E23", "\u81FA\u4E2D\u5E02"],
+  \u81FA\u4E2D\u5340\u71DF\u696D\u8655: ["\u81FA\u4E2D\u5E02", "\u5357\u6295\u7E23"],
+  \u5F70\u5316\u5340\u71DF\u696D\u8655: ["\u5F70\u5316\u7E23", "\u5357\u6295\u7E23"],
+  \u5357\u6295\u5340\u71DF\u696D\u8655: ["\u5357\u6295\u7E23", "\u81FA\u4E2D\u5E02"],
+  \u96F2\u6797\u5340\u71DF\u696D\u8655: ["\u96F2\u6797\u7E23", "\u5609\u7FA9\u7E23"],
   \u5609\u7FA9\u5340\u71DF\u696D\u8655: ["\u5609\u7FA9\u5E02", "\u5609\u7FA9\u7E23"],
   \u81FA\u5357\u5340\u71DF\u696D\u8655: ["\u81FA\u5357\u5E02"],
-  \u65B0\u71DF\u5340\u71DF\u696D\u8655: ["\u81FA\u5357\u5E02"],
-  \u9AD8\u96C4\u5340\u71DF\u696D\u8655: ["\u9AD8\u96C4\u5E02"],
+  \u65B0\u71DF\u5340\u71DF\u696D\u8655: ["\u81FA\u5357\u5E02", "\u5609\u7FA9\u7E23"],
+  \u9AD8\u96C4\u5340\u71DF\u696D\u8655: ["\u9AD8\u96C4\u5E02", "\u81FA\u5357\u5E02"],
   \u9CF3\u5C71\u5340\u71DF\u696D\u8655: ["\u9AD8\u96C4\u5E02"],
   \u5C4F\u6771\u5340\u71DF\u696D\u8655: ["\u5C4F\u6771\u7E23"],
-  \u5B9C\u862D\u5340\u71DF\u696D\u8655: ["\u5B9C\u862D\u7E23"],
+  \u5B9C\u862D\u5340\u71DF\u696D\u8655: ["\u5B9C\u862D\u7E23", "\u65B0\u5317\u5E02"],
   \u82B1\u84EE\u5340\u71DF\u696D\u8655: ["\u82B1\u84EE\u7E23"],
   \u81FA\u6771\u5340\u71DF\u696D\u8655: ["\u81FA\u6771\u7E23"],
   \u6F8E\u6E56\u5340\u71DF\u696D\u8655: ["\u6F8E\u6E56\u7E23"],
   \u91D1\u9580\u5340\u71DF\u696D\u8655: ["\u91D1\u9580\u7E23"]
 };
+var countiesForOffice = (office) => officeCounties[canonical(office).replace(/^臺電/, "")] ?? [];
 function taipower(files, minimum = 100) {
+  const droppedBy = /* @__PURE__ */ Object.create(null);
   const groups = /* @__PURE__ */ new Map();
   let rows = 0, dropped = 0;
   for (const [code, text] of files) {
@@ -252,22 +275,27 @@ function taipower(files, minimum = 100) {
     for (const fields of lines) {
       if (fields.length === 1 && !fields[0].trim()) continue;
       rows++;
-      if (fields.length !== 7) {
+      const drop = () => {
         dropped++;
+        const office2 = clean(fields[0]);
+        if (office2) droppedBy[office2] = (droppedBy[office2] ?? 0) + 1;
+      };
+      if (fields.length !== 7) {
+        drop();
         continue;
       }
       const [office, n, r, first, second, area] = fields.map((s) => clean(s));
       let a = canonical(area);
       let c = counties.find((c2) => a.startsWith(c2));
       if (!c) {
-        const candidates = (officeCounties[canonical(office).replace(/^臺電/, "")] ?? []).filter((county) => districtAtStart(county, a));
+        const candidates = countiesForOffice(office).filter((county) => districtAtStart(county, a));
         if (candidates.length === 1) {
           c = candidates[0];
           a = c + a;
         }
       }
       if (!c) {
-        dropped++;
+        drop();
         continue;
       }
       const d = districtAtStart(c, a.slice(c.length).trimStart());
@@ -282,7 +310,7 @@ function taipower(files, minimum = 100) {
   }
   if (dropped > 20 && dropped / rows > 0.05) throw Error("\u53F0\u96FB\u958B\u653E\u8CC7\u6599\u7121\u6CD5\u8FA8\u8B58\u7684\u8CC7\u6599\u5217\u904E\u591A");
   if (rows < minimum || !groups.size) throw Error("\u53F0\u96FB\u958B\u653E\u8CC7\u6599\u7B46\u6578\u4E0D\u8DB3");
-  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join("\u3001")) })), dropped, rows };
+  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join("\u3001")) })), dropped, droppedBy, rows };
 }
 
 // src/outage/zip.ts
@@ -455,13 +483,14 @@ async function collectOutages(store, options = {}) {
         }
         counties2[county] = { sha, count: data.items.filter((item) => item.c === county).length, writtenAt };
       }
-      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, dropped };
+      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, dropped, ...data.droppedBy ? { droppedBy: data.droppedBy } : {} };
     } catch (e) {
       const emptyTaiwater = source === "taiwater" && reason(e) === taiwaterEmptyReason;
       const regressed = old?.ok === true && !emptyTaiwater;
-      if (publicationFailed || regressed) failed = true;
-      index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {}, ...old?.dropped !== void 0 ? { dropped: old.dropped } : {} };
-      if (publicationFailed || regressed) console.error(`outage ${source} failed: ${reason(e)}`);
+      const expired = !emptyTaiwater && (!old?.lastSuccessAt || Date.parse(index.generatedAt) - Date.parse(old.lastSuccessAt) > 864e5);
+      if (publicationFailed || regressed || expired) failed = true;
+      index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {}, ...old?.dropped !== void 0 ? { dropped: old.dropped } : {}, ...old?.droppedBy ? { droppedBy: old.droppedBy } : {} };
+      if (publicationFailed || regressed || expired) console.error(`outage ${source} failed: ${reason(e)}`);
       else console.warn(`outage ${source} unavailable: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source].ok} count=${count} largestBytes=${largest} dropped=${dropped}`);

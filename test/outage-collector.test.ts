@@ -32,7 +32,7 @@ it('fetches sources concurrently, writes only changed shards, and publishes the 
   const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v, _at, ttl) => { values.set(k, v); writes.push(k); ttls.set(k, ttl); } };
   mockSources(); const fetch = async (s: Source) => { started.push(s); await Promise.resolve(); expect(started).toHaveLength(3); return fetchSource(s); };
   expect(await collectOutages(store, { fetch, now })).toBe(0); expect(writes.at(-1)).toBe(indexKey); expect(writes.length).toBeGreaterThan(1);
-  const first = decodeIndex(values.get(indexKey)!); expect(first.sources.taipower!.dropped).toBeGreaterThan(0); writes.length = 0;
+  const first = decodeIndex(values.get(indexKey)!); expect(first.sources.taipower!.dropped).toBeGreaterThan(0); expect(first.sources.taipower!.droppedBy?.['台電台中區營業處']).toBe(first.sources.taipower!.dropped); writes.length = 0;
   for (const [source, info] of Object.entries(first.sources)) for (const [county, entry] of Object.entries(info.counties)) {
     const key = shardKey(source as Source, county, entry.sha); expect(key).toBe(`outage:v1:${source}:${county}:${entry.sha.slice(0, 12)}`); expect(values.has(key)).toBe(true); expect(ttls.get(key)).toBe(8 * 86400); expect(entry.writtenAt).toBe(now().toISOString());
   }
@@ -41,7 +41,7 @@ it('fetches sources concurrently, writes only changed shards, and publishes the 
   const second = decodeIndex(values.get(indexKey)!); expect(second.sources.taipower!.counties).toEqual(first.sources.taipower!.counties); expect(second.sources.taipower!.lastSuccessAt).not.toBe(first.sources.taipower!.lastSuccessAt);
   writes.length = 0;
   expect(await collectOutages(store, { now, fetch: async s => { if (s === 'taipower') throw Error('temporarily down'); return fetchSource(s); } })).toBe(1);
-  const failed = decodeIndex(values.get(indexKey)!); expect(failed.sources.taipower).toMatchObject({ ok: false, counties: second.sources.taipower!.counties, lastSuccessAt: second.sources.taipower!.lastSuccessAt }); expect(writes).toEqual([indexKey]);
+  const failed = decodeIndex(values.get(indexKey)!); expect(failed.sources.taipower).toMatchObject({ ok: false, counties: second.sources.taipower!.counties, lastSuccessAt: second.sources.taipower!.lastSuccessAt, droppedBy: second.sources.taipower!.droppedBy }); expect(writes).toEqual([indexKey]);
   writes.length = 0;
   expect(await collectOutages(store, { now, fetch: async s => s === 'taipeiwater' ? { items: [], dropped: 0, rows: 0 } : fetchSource(s) })).toBe(0);
   expect(decodeIndex(values.get(indexKey)!).sources.taipeiwater!.counties).toEqual({}); expect(values.has(shardKey('taipeiwater', '臺北市', first.sources.taipeiwater!.counties['臺北市'].sha))).toBe(true); expect(writes).toEqual([indexKey]);
@@ -166,12 +166,14 @@ it('returns nonzero for upstream unavailability only on a healthy source regress
   expect(await collectOutages(store, { now: later })).toBe(0);
   expect(error).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledWith('outage taipower unavailable: offline');
   expect(decodeIndex(values.get(indexKey)!)).toMatchObject({ generatedAt: later().toISOString(), sources: { taipower: { ok: false, lastSuccessAt: now().toISOString(), counties: failed.sources.taipower!.counties } } });
+  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:00Z') })).toBe(0);
+  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:01Z') })).toBe(1);
 });
-it('warns and exits zero for a source without a prior healthy snapshot, but fails an index write', async () => {
+it('fails for a source without a prior healthy snapshot and for an index write', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
-  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   const fetch = async () => { throw Error('offline'); };
-  expect(await collectOutages(store, { now, fetch })).toBe(0); expect(warn).toHaveBeenCalledTimes(3);
+  expect(await collectOutages(store, { now, fetch })).toBe(1); expect(error).toHaveBeenCalledTimes(3);
   expect(Object.values(decodeIndex(values.get(indexKey)!).sources).every(s => !s.ok)).toBe(true);
   store.put = async () => { throw Error('index unavailable'); };
   expect(await collectOutages(store, { now, fetch })).toBe(1);

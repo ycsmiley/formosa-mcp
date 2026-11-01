@@ -1,5 +1,5 @@
 import { norm, stripZeroWidth, validKeyword } from '../garbage/text.js';
-import { canonical, clean, taiwaterEmptyReason } from './normalize.js';
+import { canonical, clean, countiesForOffice, taiwaterEmptyReason } from './normalize.js';
 import { counties, districts, districtAtStart, resolveDistrict } from './districts.js';
 import { official, type Index, type Item, type Source } from './model.js';
 import { addDays, formatTimes, local, validDay } from './time.js';
@@ -75,10 +75,11 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
       if (emptyTaiwater) unavailable.push(`台水官方開放資料目前是空的，結果可能不完整，請至 ${official.taiwater.url} 自行查詢。`);
       if (!result.items) { if (!emptyTaiwater) unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
       if (result.info?.ok) checked.push(official[source].name);
-      if (result.info?.dropped) unavailable.push(`另有 ${result.info.dropped} 筆${official[source].name}公告無法判定縣市，未納入比對，請至 ${official[source].url} 確認。`);
+      const dropped = source === 'taipower' ? Object.entries(result.info?.droppedBy ?? {}).reduce((sum, [office, count]) => sum + (countiesForOffice(office).includes(city) ? count : 0), 0) : result.info?.dropped ?? 0;
+      if (dropped) unavailable.push(`另有 ${dropped} 筆${official[source].name}公告無法判定縣市，未納入比對，請至 ${official[source].url} 確認。`);
       matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || canonical(item.d) === district) && (!keyword || keywordArea(item.a, city, district).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
     }
-    matched.sort((a, b) => (typeof a.t === 'string' ? '\uffff' : a.t[0][0]).localeCompare(typeof b.t === 'string' ? '\uffff' : b.t[0][0]));
+    matched.sort((a, b) => Number(!a.d) - Number(!b.d) || (typeof a.t === 'string' ? '\uffff' : a.t[0][0]).localeCompare(typeof b.t === 'string' ? '\uffff' : b.t[0][0]));
     // Multi-district announcements remain a single result when querying the whole county.
     const items = [...new Map(matched.map(item => [JSON.stringify([item.s, item.n, item.t, item.a, item.r, item.u]), item])).values()];
     const checkedKind = checked.includes(official.taipower.name) ? (checked.length > 1 ? '停水／停電' : '停電') : '停水';

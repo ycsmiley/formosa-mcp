@@ -7,7 +7,7 @@ export const urls: Record<Source, string> = {
   taipower: 'https://service.taipower.com.tw/data/opendata/apply/file/d077004/001.zip',
 };
 export const downloadLimit = 16 * 1024 * 1024;
-export interface SourceData { items: Item[]; dropped: number; rows: number }
+export interface SourceData { items: Item[]; dropped: number; droppedBy?: Record<string, number>; rows: number }
 export async function fetchSource(source: Source): Promise<SourceData> {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30_000);
   try {
