@@ -96,7 +96,7 @@ var countyPattern = counties.join("|");
 function locations(text) {
   const result = [];
   let c = "";
-  for (const m of canonical(text).matchAll(new RegExp(`(${countyPattern})|([\\u4e00-\\u9fff]{1,3}?[\u5340\u9109\u93AE\u5E02])`, "g"))) {
+  for (const m of canonical(text).matchAll(new RegExp(`(${countyPattern})|([\\u4e00-\\u9fff]{1,3}?\u5340|[\\u4e00-\\u9fff]{1,3}?[\u9109\u93AE\u5E02])`, "g"))) {
     if (m[1]) {
       c = m[1];
       result.push({ c, d: "" });
@@ -160,13 +160,13 @@ function taipower(files, minimum = 100) {
       const fields = line.split(",");
       if (fields.length !== 7) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
       const [office, n, r, first, second, area] = fields.map((s) => s.trim());
-      const a = canonical(area);
+      const a = canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, "\u6843\u5712\u5E02$1\u5340"));
       const c = counties.find((c2) => a.startsWith(c2));
       if (!c) {
         dropped++;
         continue;
       }
-      const d = /^([\u4e00-\u9fff]{1,3}?[區鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? "";
+      const d = /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? "";
       const windows = [first, second].filter((s) => s && s !== "\u7121");
       const parsed = windows.map(powerWindow);
       const t = windows.length && parsed.every((t2) => t2 !== null) ? parsed : windows.join("\uFF1B") || "\u672A\u6A19\u793A\u6642\u9593";

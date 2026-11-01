@@ -7,7 +7,7 @@ const canonical = (s: string) => norm(s).replaceAll('桃園縣', '桃園市');
 const countyPattern = counties.join('|');
 export function locations(text: string): { c: string; d: string }[] {
   const result: { c: string; d: string }[] = []; let c = '';
-  for (const m of canonical(text).matchAll(new RegExp(`(${countyPattern})|([\\u4e00-\\u9fff]{1,3}?[區鄉鎮市])`, 'g'))) {
+  for (const m of canonical(text).matchAll(new RegExp(`(${countyPattern})|([\\u4e00-\\u9fff]{1,3}?區|[\\u4e00-\\u9fff]{1,3}?[鄉鎮市])`, 'g'))) {
     if (m[1]) { c = m[1]; result.push({ c, d: '' }); }
     else if (c) { const previous = result[result.length - 1]; if (previous.c === c && !previous.d) previous.d = m[2]; else result.push({ c, d: m[2] }); }
   }
@@ -55,9 +55,9 @@ export function taipower(files: Map<string, string>, minimum = 100): { items: It
     for (const line of lines) {
       if (!line.trim()) continue; rows++;
       const fields = line.split(','); if (fields.length !== 7) throw Error('台電 CSV 資料格式錯誤');
-      const [office, n, r, first, second, area] = fields.map(s => s.trim()); const a = canonical(area);
+      const [office, n, r, first, second, area] = fields.map(s => s.trim()); const a = canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, '桃園市$1區'));
       const c = counties.find(c => a.startsWith(c)); if (!c) { dropped++; continue; }
-      const d = /^([\u4e00-\u9fff]{1,3}?[區鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? '';
+      const d = /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? '';
       const windows = [first, second].filter(s => s && s !== '無'); const parsed = windows.map(powerWindow);
       const t = windows.length && parsed.every(t => t !== null) ? parsed as [string, string][] : windows.join('；') || '未標示時間';
       const key = JSON.stringify([n, t, c, d]); const found = groups.get(key);

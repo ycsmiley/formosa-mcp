@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { crc32, readZip } from '../src/outage/zip.js';
-import { taiwater, taipeiwater, taipower } from '../src/core/outage/normalize.js';
+import { locations, taiwater, taipeiwater, taipower } from '../src/core/outage/normalize.js';
 import { dailyTimes, formatTimes, parseDate } from '../src/core/outage/time.js';
 import { decodeIndex, decodeShard } from '../src/core/outage/model.js';
 import { fixture, powerCsv, zip } from './outage-fixtures.js';
@@ -17,8 +17,25 @@ it('normalizes BOM, 台, legacy Taoyuan, windows, county-only rows and grouped p
   expect(result.rows).toBe(7); expect(result.dropped).toBe(2); expect(result.items).toHaveLength(4);
   const ke = result.items.find(i => i.n === 'H20520')!; expect(ke.a).toContain('基金一路'); expect(ke.a).toContain('基金二路'); expect(ke.u).toMatch(/\/d101$/);
   expect(result.items.find(i => i.n === 'T1')).toMatchObject({ c: '臺北市', d: '信義區', t: [['2026-11-05T23:20', '2026-11-06T00:49'], ['2026-11-06T10:00', '2026-11-06T11:00']] });
-  expect(result.items.find(i => i.n === 'P1')).toMatchObject({ c: '桃園市', d: '桃園市' }); expect(result.items.find(i => i.n === 'S1')!.d).toBe('');
+  expect(result.items.find(i => i.n === 'P1')).toMatchObject({ c: '桃園市', d: '桃園區' }); expect(result.items.find(i => i.n === 'S1')!.d).toBe('');
   expect(() => taipower(new Map([['101.csv', powerCsv()]]))).toThrow('筆數不足');
+});
+it('converts legacy Taoyuan districts in power areas only', () => {
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const areas = ['桃園縣平鎮市廣泰路', '桃園縣大園鄉中正東路一段', '桃園縣新屋鄉新生五街', '新竹縣竹東鎮中正路'];
+  const csv = [header, ...areas.map((area, i) => `處,${i},施工,無,無,${area},1911`)].join('\n');
+  expect(taipower(new Map([['101.csv', csv]]), 1).items.map(({ c, d, a }) => [c, d, a])).toEqual([
+    ['桃園市', '平鎮區', '桃園市平鎮區廣泰路'], ['桃園市', '大園區', '桃園市大園區中正東路一段'],
+    ['桃園市', '新屋區', '桃園市新屋區新生五街'], ['新竹縣', '竹東鎮', '新竹縣竹東鎮中正路'],
+  ]);
+});
+it('extracts complete districts before falling back to townships and cities', () => {
+  const areas = ['桃園市平鎮區廣泰路', '臺南市新市區中正路', '新竹縣竹東鎮中正路', '嘉義縣太保市中正路'];
+  const expected = [['桃園市', '平鎮區'], ['臺南市', '新市區'], ['新竹縣', '竹東鎮'], ['嘉義縣', '太保市']];
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const csv = [header, ...areas.map((area, i) => `處,${i},施工,無,無,${area},1911`)].join('\n');
+  expect(taipower(new Map([['101.csv', csv]]), 1).items.map(({ c, d }) => [c, d])).toEqual(expected);
+  expect(areas.map(area => locations(area).map(({ c, d }) => [c, d])[0])).toEqual(expected);
 });
 it('expands Taipei Water daily ROC windows and inherits counties across all districts', () => {
   const items = taipeiwater(JSON.parse(fixture('taipeiwater.json')));

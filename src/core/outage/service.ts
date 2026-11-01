@@ -17,7 +17,7 @@ function areaText(item: Item): string {
 }
 function keywordArea(area: string, district: string): string {
   const text = norm(area); if (!district) return text;
-  const mentions = [...text.matchAll(/[\u4e00-\u9fff]{1,3}?[區鄉鎮市]/g)];
+  const mentions = [...text.matchAll(/[\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市]/g)];
   if (!mentions.some(m => m[0] === district)) return text;
   return mentions.flatMap((m, i) => m[0] === district ? [text.slice(m.index, mentions.slice(i + 1).find(next => next[0] !== district)?.index)] : []).join('；');
 }
