@@ -27,11 +27,15 @@ it('runs --out with mocked official fetches and serves those files through local
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 it('fetches sources concurrently, writes only changed shards, and publishes the heartbeat last', async () => {
-  const values = new Map<string, string>(), writes: string[] = [], started: Source[] = [];
-  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } };
+  const values = new Map<string, string>(), writes: string[] = [], started: Source[] = [], ttls = new Map<string, number | undefined>();
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v, _at, ttl) => { values.set(k, v); writes.push(k); ttls.set(k, ttl); } };
   mockSources(); const fetch = async (s: Source) => { started.push(s); await Promise.resolve(); expect(started).toHaveLength(3); return fetchSource(s); };
   expect(await collectOutages(store, { fetch, now })).toBe(0); expect(writes.at(-1)).toBe(indexKey); expect(writes.length).toBeGreaterThan(1);
   const first = decodeIndex(values.get(indexKey)!); writes.length = 0;
+  for (const [source, info] of Object.entries(first.sources)) for (const [county, entry] of Object.entries(info.counties)) {
+    const key = shardKey(source as Source, county, entry.sha); expect(key).toBe(`outage:v1:${source}:${county}:${entry.sha.slice(0, 12)}`); expect(values.has(key)).toBe(true); expect(ttls.get(key)).toBe(8 * 86400); expect(entry.writtenAt).toBe(now().toISOString());
+  }
+  expect(ttls.get(indexKey)).toBeUndefined();
   expect(await collectOutages(store, { now: () => new Date('2026-11-01T06:00:00Z') })).toBe(0); expect(writes).toEqual([indexKey]);
   const second = decodeIndex(values.get(indexKey)!); expect(second.sources.taipower!.counties).toEqual(first.sources.taipower!.counties); expect(second.sources.taipower!.lastSuccessAt).not.toBe(first.sources.taipower!.lastSuccessAt);
   writes.length = 0;
@@ -39,7 +43,31 @@ it('fetches sources concurrently, writes only changed shards, and publishes the 
   const failed = decodeIndex(values.get(indexKey)!); expect(failed.sources.taipower).toMatchObject({ ok: false, counties: second.sources.taipower!.counties, lastSuccessAt: second.sources.taipower!.lastSuccessAt }); expect(writes).toEqual([indexKey]);
   writes.length = 0;
   expect(await collectOutages(store, { now, fetch: async s => s === 'taipeiwater' ? { items: [], dropped: 0, rows: 0 } : fetchSource(s) })).toBe(0);
-  expect(decodeIndex(values.get(indexKey)!).sources.taipeiwater!.counties).toEqual({}); expect(values.has(shardKey('taipeiwater', '臺北市'))).toBe(true); expect(writes).toEqual([indexKey]);
+  expect(decodeIndex(values.get(indexKey)!).sources.taipeiwater!.counties).toEqual({}); expect(values.has(shardKey('taipeiwater', '臺北市', first.sources.taipeiwater!.counties['臺北市'].sha))).toBe(true); expect(writes).toEqual([indexKey]);
+});
+it('renews unchanged shards only after three days and refreshes entries missing writtenAt', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } }; mockSources();
+  expect(await collectOutages(store, { now })).toBe(0); const keys = [...writes]; writes.length = 0;
+  expect(await collectOutages(store, { now: () => new Date('2026-11-04T00:00:00Z') })).toBe(0); expect(writes).toEqual([indexKey]); writes.length = 0;
+  const renewed = '2026-11-04T00:00:01.000Z'; expect(await collectOutages(store, { now: () => new Date(renewed) })).toBe(0); expect(writes).toEqual(keys);
+  const index = decodeIndex(values.get(indexKey)!);
+  for (const info of Object.values(index.sources)) for (const entry of Object.values(info.counties)) expect(entry.writtenAt).toBe(renewed);
+  const entry = index.sources.taipower!.counties['臺北市']; delete entry.writtenAt; values.set(indexKey, JSON.stringify(index)); writes.length = 0;
+  expect(await collectOutages(store, { now: () => new Date(renewed) })).toBe(0); expect(writes).toEqual([shardKey('taipower', '臺北市', entry.sha), indexKey]);
+});
+it.each(['shard', 'index'])('keeps every previous shard readable after a partial %s write failure', async failure => {
+  const values = new Map<string, string>(); let failing = false, shards = 0;
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => {
+    if (failing && (failure === 'index' ? k === indexKey : k.startsWith('outage:v1:taipeiwater:') && ++shards === 2)) throw Error('write failed');
+    values.set(k, v);
+  } }; mockSources();
+  expect(await collectOutages(store, { now })).toBe(0); const before = new Map(values), old = decodeIndex(values.get(indexKey)!); failing = true;
+  expect(await collectOutages(store, { now, fetch: async source => { const data = await fetchSource(source); return source === 'taipeiwater' ? { ...data, items: data.items.map(item => ({ ...item, r: 'changed reason' })) } : data; } })).toBe(1);
+  for (const [source, info] of Object.entries(old.sources)) for (const [county, entry] of Object.entries(info.counties)) { const key = shardKey(source as Source, county, entry.sha); expect(values.get(key)).toBe(before.get(key)); }
+  expect([...values.keys()].some(key => !before.has(key))).toBe(true);
+  if (failure === 'index') expect(values.get(indexKey)).toBe(before.get(indexKey));
+  else expect(decodeIndex(values.get(indexKey)!).sources.taipeiwater).toMatchObject({ ok: false, counties: old.sources.taipeiwater!.counties, lastSuccessAt: old.sources.taipeiwater!.lastSuccessAt });
 });
 it('treats empty Taiwan Water, bad JSON, HTTP failure, and short power datasets as unavailable', async () => {
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('[]'));
@@ -49,14 +77,15 @@ it('treats empty Taiwan Water, bad JSON, HTTP failure, and short power datasets 
   fetch.mockResolvedValue(new Response(null, { status: 503 })); await expect(fetchSource('taipeiwater')).rejects.toThrow('503');
   fetch.mockResolvedValue(new Response(Buffer.from(zip([['101.csv', '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)\n', 0]])))); await expect(fetchSource('taipower')).rejects.toThrow('筆數不足');
 });
-it('uses the same no-TTL KV REST contract and redacts failed index reads', async () => {
+it('uses TTL only for shard KV REST writes and redacts failed index reads', async () => {
   const mock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
     expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer private-token');
-    if (init!.method === 'PUT') { expect(String(_url)).not.toContain('expiration_ttl'); expect((init!.body as FormData).get('value')).toBe('payload'); return Response.json({ success: true }); }
+    if (init!.method === 'PUT') { expect(new URL(String(_url)).searchParams.get('expiration_ttl')).toBe(String(_url).includes(encodeURIComponent(indexKey)) ? null : '691200'); expect((init!.body as FormData).get('value')).toBe('payload'); return Response.json({ success: true }); }
     return new Response(null, { status: 404 });
   });
   const store = kvStore({ CLOUDFLARE_ACCOUNT_ID: 'a', KV_NAMESPACE_ID: 'n', CLOUDFLARE_KV_WRITE_TOKEN: 'private-token' });
   expect(await store.get(indexKey)).toBeNull(); await store.put(indexKey, 'payload', now().toISOString());
+  await store.put(shardKey('taipower', '臺北市', 'a'.repeat(64)), 'payload', now().toISOString(), 8 * 86400);
   const error = vi.spyOn(console, 'error').mockImplementation(() => {}); mock.mockRejectedValue(Error('private-token https://user:pass@example.test/x'));
   expect(await collectOutages(store, { token: 'private-token' })).toBe(1); expect(JSON.stringify(error.mock.calls)).not.toContain('private-token'); expect(JSON.stringify(error.mock.calls)).not.toContain('user:pass');
   expect(await main(['--bad'], {})).toBe(2); expect(await main([], {})).toBe(2);
@@ -68,5 +97,11 @@ it('publishes healthy sources even when one source is empty', async () => {
   finally { await rm(dir, { recursive: true, force: true }); }
 });
 it('caches live stdio source collection for twelve hours', async () => {
-  const fetch = mockSources(), store = localOutageStore(); await store.index(['taipower']); await store.shard('taipower', '臺北市'); await store.index(['taipower']); expect(fetch).toHaveBeenCalledOnce();
+  const fetch = mockSources(), store = localOutageStore(); await store.index(['taipower']); await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledOnce();
+});
+it('retries failed live fetches immediately and caches the recovered source', async () => {
+  const fetch = mockSources(), store = localOutageStore(); fetch.mockRejectedValueOnce(Error('temporarily down'));
+  expect((await store.index(['taipower']))!.sources.taipower!.ok).toBe(false);
+  expect((await store.index(['taipower']))!.sources.taipower!.ok).toBe(true);
+  await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledTimes(2);
 });

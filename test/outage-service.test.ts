@@ -6,11 +6,12 @@ import { createOutageService, reminder, relevantSources, type OutageStore } from
 import { type Index, type Item, type Source } from '../src/core/outage/model.js';
 import { taipeiwater, taiwater, taipower } from '../src/core/outage/normalize.js';
 import { fixture, powerCsv } from './outage-fixtures.js';
+import { dailyTimes } from '../src/core/outage/time.js';
 const now = () => new Date('2026-11-01T00:00:00Z');
 const all = [...taipeiwater(JSON.parse(fixture('taipeiwater.json'))), ...taiwater(JSON.parse(fixture('taiwater.json'))), ...taipower(new Map([['101.csv', powerCsv()]]), 1).items];
 function setup(items = all, time = now().toISOString()) {
   const index: Index = { v: 1, generatedAt: time, sources: {} };
-  for (const source of ['taiwater', 'taipeiwater', 'taipower'] as Source[]) index.sources[source] = { ok: true, fetchedAt: time, lastSuccessAt: time, counties: Object.fromEntries(items.filter(i => i.s === source).map(i => [i.c, { sha: 'a'.repeat(64), count: items.filter(x => x.s === source && x.c === i.c).length }])) };
+  for (const source of ['taiwater', 'taipeiwater', 'taipower'] as Source[]) index.sources[source] = { ok: true, fetchedAt: time, lastSuccessAt: time, counties: Object.fromEntries(items.filter(i => i.s === source).map(i => [i.c, { sha: 'a'.repeat(64), count: items.filter(x => x.s === source && x.c === i.c).length, writtenAt: time }])) };
   const store: OutageStore = { index: async () => index, shard: async (s, c) => items.filter(i => i.s === s && i.c === c) };
   return { index, store, service: createOutageService(store, now) };
 }
@@ -26,6 +27,32 @@ it('filters keywords, uses date overlap across midnight and preserves unparseabl
   expect((await service.schedule({ city: '臺北市', type: 'power', start_date: '2026-11-04', end_date: '2026-11-04' })).text).not.toContain('🔌');
   const raw = (await service.schedule({ city: '臺北市', type: 'water', keyword: '松仁' })).text; expect(raw).toContain('另行公告'); expect(raw).toContain('北水');
 });
+it('shows only overlapping windows, then compresses consecutive daily hours within the query', async () => {
+  const base = all.find(i => i.s === 'taipeiwater')!, item = { ...base, t: dailyTimes('115年11月01日~115年11月08日', '10:00~16:00') };
+  const { service } = setup([item]);
+  const range = (await service.schedule({ city: '臺北市', type: 'water', start_date: '2026-11-02', end_date: '2026-11-07' })).text;
+  expect(range).toContain('💧 停水｜11/02（一）～11/07（六）每日 10:00–16:00'); expect(range).not.toContain('11/01（日）'); expect(range).not.toContain('11/08（日）');
+  const day = (await service.schedule({ city: '臺北市', type: 'water', start_date: '2026-11-03', end_date: '2026-11-03' })).text;
+  expect(day).toContain('💧 停水｜11/03（二）10:00–16:00'); expect(day).not.toContain('每日');
+  const power = (await setup().service.schedule({ city: '臺北市', type: 'power', start_date: '2026-11-05', end_date: '2026-11-05' })).text;
+  expect(power).toContain('11/05（四）23:20–11/06（五）00:49'); expect(power).not.toContain('11/06（五）10:00');
+  const midnight = setup([{ ...base, t: [['2026-11-01T23:00', '2026-11-02T00:00'], ['2026-11-03T00:00', '2026-11-03T01:00']] }]);
+  expect((await midnight.service.schedule({ city: '臺北市', type: 'water', start_date: '2026-11-02', end_date: '2026-11-02' })).text).not.toContain('💧');
+});
+it('shows the Taipei Water reason fallback without repeating area text', async () => {
+  const area = '臺北市中山區新生北路一段';
+  for (const reason of [{ Title: ` ${area}\r\n`, Description: `${area}\n ` }, { Title: '', Description: ' \r\n' }]) {
+    const items = taipeiwater([{ SW_Area: ` ${area}\r\n`, SW_No: ' N1\r\n', Date: '115年11月02日', Time: '10:00~16:00', ...reason }]);
+    const { text } = await setup(items).service.schedule({ city: '臺北市', type: 'water' });
+    expect(text).toContain('原因：北水公告未提供（案件編號 N1）'); expect(text.split(area)).toHaveLength(2); expect(text).not.toContain('\r');
+  }
+});
+it('keeps a repeated county/district prefix once while preserving other districts and counties', async () => {
+  const base = all.find(i => i.s === 'taipower' && i.c === '臺北市')!;
+  for (const [area, expected] of [['臺北市中山區新生北路一段、臺北市中山區林森北路', '臺北市中山區新生北路一段、林森北路'], ['臺北市中山區新生北路一段、臺北市中山區林森北路；臺北市大安區和平東路；新北市永和區中正路', '臺北市中山區新生北路一段、林森北路；臺北市大安區和平東路；新北市永和區中正路'], ['臺北市中山區新生北路一段；臺北市大安區和平東路、臺北市中山區林森北路', '臺北市中山區新生北路一段；臺北市大安區和平東路、臺北市中山區林森北路']]) {
+    const { text } = await setup([{ ...base, d: '中山區', a: area }]).service.schedule({ city: '臺北市', type: 'power' }); expect(text).toContain(`範圍：${expected}`);
+  }
+});
 it('includes county-only power notices for any district and marks the missing district', async () => {
   expect((await setup().service.schedule({ city: '新竹市', district: '香山區', type: 'power' })).text).toContain('內湖里（未標示行政區）');
 });
@@ -35,8 +62,17 @@ it('reports no match only for available sources and always includes the reminder
   expect(text).toContain('官方公告中查無 新北市 2026-11-01～2026-11-07 的計畫性停水／停電（關鍵字「不存在」）。'); expect(text).toContain('已查詢來源：北水、台電'); expect(text).toContain('台水：該來源暫時無法取得（官方開放資料目前回傳空清單）'); expect(text.endsWith(reminder)).toBe(true);
 });
 it('warns on stale index or last successful collection even if this run failed', async () => {
-  const { index, service } = setup(all, '2026-10-30T00:00:00Z'); expect((await service.schedule({ city: '臺北市', type: 'power' })).text).toContain('⚠️ 資料可能過期（最後更新');
-  index.generatedAt = now().toISOString(); index.sources.taipower!.ok = false; expect((await service.schedule({ city: '臺北市', type: 'power' })).text).toContain('最後更新 台電');
+  const { index, service } = setup(all, '2026-10-30T00:00:00Z');
+  const warning = '⚠️ 資料可能過期（最後更新：台電 2026-10-30 08:00（臺北時間））';
+  let text = (await service.schedule({ city: '臺北市', type: 'power' })).text; expect(text).toContain(warning); expect(text.match(/⚠️/g)).toHaveLength(1);
+  index.generatedAt = now().toISOString(); index.sources.taipower!.ok = false; text = (await service.schedule({ city: '臺北市', type: 'power' })).text; expect(text).toContain(warning); expect(text.match(/⚠️/g)).toHaveLength(1);
+});
+it('combines stale sources in one line and uses the index time only when sources are fresh', async () => {
+  const { index, service } = setup(all, '2026-10-30T00:00:00Z');
+  const text = (await service.schedule({ city: '臺北市' })).text; expect(text.match(/⚠️/g)).toHaveLength(1); expect(text).toContain('最後更新：北水 2026-10-30 08:00、台電 2026-10-30 08:00（臺北時間））');
+  for (const info of Object.values(index.sources)) info.lastSuccessAt = now().toISOString();
+  const indexOnly = (await service.schedule({ city: '臺北市' })).text; expect(indexOnly.match(/⚠️/g)).toHaveLength(1); expect(indexOnly).toContain('⚠️ 資料可能過期（最後更新：2026-10-30 08:00（臺北時間））');
+  index.generatedAt = now().toISOString(); expect((await service.schedule({ city: '臺北市' })).text).not.toContain('⚠️');
 });
 it('reports missing/broken index and missing/undecodable shards as unavailable', async () => {
   for (const broken of [false, true]) {

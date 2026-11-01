@@ -35,5 +35,15 @@ export function dailyTimes(date: string, time: string): Times {
 export function formatTimes(t: Times): string {
   if (typeof t === 'string') return `${t}（官方時間原文）`;
   const date = (s: string) => `${s.slice(5, 7)}/${s.slice(8, 10)}（${'日一二三四五六'[new Date(`${s.slice(0, 10)}T00:00:00Z`).getUTCDay()]}）`;
-  return t.map(([a, b]) => `${date(a)}${a.slice(11)}–${a.slice(0, 10) === b.slice(0, 10) ? '' : date(b)}${b.slice(11)}`).join('；');
+  const windows = [...t].sort(([a], [b]) => a.localeCompare(b)), parts: string[] = [];
+  for (let i = 0; i < windows.length; i++) {
+    const [a, b] = windows[i]; let last = i;
+    if (b.slice(0, 10) <= addDays(a.slice(0, 10), 1)) while (last + 1 < windows.length) {
+      const [nextA, nextB] = windows[last + 1];
+      if (nextA.slice(0, 10) !== addDays(windows[last][0].slice(0, 10), 1) || nextB.slice(0, 10) !== addDays(windows[last][1].slice(0, 10), 1) || nextA.slice(11) !== a.slice(11) || nextB.slice(11) !== b.slice(11)) break;
+      last++;
+    }
+    parts.push(last > i ? `${date(a)}～${date(windows[last][0])}每日 ${a.slice(11)}–${a.slice(0, 10) === b.slice(0, 10) ? '' : '翌日 '}${b.slice(11)}` : `${date(a)}${a.slice(11)}–${a.slice(0, 10) === b.slice(0, 10) ? '' : date(b)}${b.slice(11)}`); i = last;
+  }
+  return parts.join('；');
 }

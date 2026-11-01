@@ -482,24 +482,24 @@ it('serves garbage schedules from KV without upstream requests', async () => {
 });
 
 it('serves planned outages from only the index and requested county KV shard', async () => {
-  const { indexKey, shardKey } = await import('../../src/core/outage/model.js');
+  const { outageIndexKey: indexKey, outageShardKey: shardKey } = await import('../../src/worker/snapshot-keys.js');
   const date = '2026-11-01T00:00:00Z';
-  await bindings.SNAPSHOTS.put(indexKey, JSON.stringify({ v: 1, generatedAt: date, sources: { taipower: { ok: true, fetchedAt: date, lastSuccessAt: date, counties: { 臺北市: { sha: 'a'.repeat(64), count: 1 }, 臺中市: { sha: 'b'.repeat(64), count: 1 } } } } }));
-  await bindings.SNAPSHOTS.put(shardKey('taipower', '臺北市'), JSON.stringify([{ s: 'taipower', k: 'power', c: '臺北市', d: '信義區', t: [['2026-11-05T23:20', '2026-11-06T00:49']], a: '臺北市信義區松仁路', r: '改良工程', n: 'T1', u: 'https://service.taipower.com.tw/branch/d102', o: '台電台北區營業處' }]));
+  await bindings.SNAPSHOTS.put(indexKey, JSON.stringify({ v: 1, generatedAt: date, sources: { taipower: { ok: true, fetchedAt: date, lastSuccessAt: date, counties: { 臺北市: { sha: 'a'.repeat(64), count: 1, writtenAt: date }, 臺中市: { sha: 'b'.repeat(64), count: 1, writtenAt: date } } } } }));
+  await bindings.SNAPSHOTS.put(shardKey('taipower', '臺北市', 'a'.repeat(64)), JSON.stringify([{ s: 'taipower', k: 'power', c: '臺北市', d: '信義區', t: [['2026-11-05T23:20', '2026-11-06T00:49']], a: '臺北市信義區松仁路', r: '改良工程', n: 'T1', u: 'https://service.taipower.com.tw/branch/d102', o: '台電台北區營業處' }]));
   const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('outage Worker must not fetch upstream'));
   const get = vi.spyOn(bindings.SNAPSHOTS, 'get'), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   const result = await rpc('tools/call', { name: 'outage_schedule', arguments: { city: '台北', district: '信義區', type: 'power', start_date: '2026-11-06', end_date: '2026-11-06' } });
   expect(result.content[0].text).toContain('松仁路'); expect(result.content[0].text).toContain('11/06（五）00:49');
-  expect(get.mock.calls.map(([key]) => key)).toEqual([indexKey, shardKey('taipower', '臺北市')]); expect(fetch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(Object.keys(cronJobs)).toHaveLength(4);
+  expect(get.mock.calls.map(([key]) => key)).toEqual([indexKey, 'outage:v1:taipower:臺北市:aaaaaaaaaaaa']); expect(fetch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(Object.keys(cronJobs)).toHaveLength(4);
 });
 it('reports missing or undecodable outage KV data without upstream fallback', async () => {
-  const { indexKey, shardKey } = await import('../../src/core/outage/model.js');
+  const { outageIndexKey: indexKey, outageShardKey: shardKey } = await import('../../src/worker/snapshot-keys.js');
   const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('no outage network'));
   const args = { city: '臺北市', type: 'power', start_date: '2026-11-01', end_date: '2026-11-07' };
-  for (const raw of [null, '{}', JSON.stringify({ v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: { ok: true, lastSuccessAt: '2026-11-01T00:00:00Z', counties: { 臺北市: { sha: 'a'.repeat(64), count: 1 } } } } })]) {
+  for (const raw of [null, '{}', JSON.stringify({ v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: { ok: true, lastSuccessAt: '2026-11-01T00:00:00Z', counties: { 臺北市: { sha: 'a'.repeat(64), count: 1, writtenAt: '2026-11-01T00:00:00Z' } } } } })]) {
     if (raw === null) await bindings.SNAPSHOTS.delete(indexKey); else await bindings.SNAPSHOTS.put(indexKey, raw);
     for (const shard of [null, '[{}]']) {
-      if (shard === null) await bindings.SNAPSHOTS.delete(shardKey('taipower', '臺北市')); else await bindings.SNAPSHOTS.put(shardKey('taipower', '臺北市'), shard);
+      if (shard === null) await bindings.SNAPSHOTS.delete(shardKey('taipower', '臺北市', 'a'.repeat(64))); else await bindings.SNAPSHOTS.put(shardKey('taipower', '臺北市', 'a'.repeat(64)), shard);
       const result = await rpc('tools/call', { name: 'outage_schedule', arguments: args }); expect(result.content[0].text).toContain('台電：該來源暫時無法取得'); expect(result.content[0].text).not.toContain('官方公告中查無');
     }
   }

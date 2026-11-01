@@ -39,7 +39,9 @@ export function taipeiwater(input: unknown): Item[] {
   const items: Item[] = []; const rows = records(input);
   for (const row of rows) {
     const v = (key: string) => clean(row[key]);
-    for (const { c, d } of locations(v('SW_Area'))) items.push({ s: 'taipeiwater', k: 'water', c, d, t: dailyTimes(v('Date'), v('Time')), a: v('SW_Area'), r: [v('Title'), v('Description')].filter(Boolean).join('；'), n: v('SW_No'), u: /^https?:\/\//i.test(v('MapUrl')) ? v('MapUrl') : official.taipeiwater.url });
+    const area = v('SW_Area'), same = (s: string) => s.replace(/\s+/g, '');
+    const reason = [...new Set([v('Title'), v('Description')].filter(s => s && same(s) !== same(area)))].join('；');
+    for (const { c, d } of locations(area)) items.push({ s: 'taipeiwater', k: 'water', c, d, t: dailyTimes(v('Date'), v('Time')), a: area, r: reason, n: v('SW_No'), u: /^https?:\/\//i.test(v('MapUrl')) ? v('MapUrl') : official.taipeiwater.url });
   }
   if (rows.length && !items.length) throw Error('官方開放資料未提供可辨識的縣市');
   return unique(items);

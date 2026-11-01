@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { crc32, readZip } from '../src/outage/zip.js';
 import { taiwater, taipeiwater, taipower } from '../src/core/outage/normalize.js';
-import { dailyTimes, parseDate } from '../src/core/outage/time.js';
+import { dailyTimes, formatTimes, parseDate } from '../src/core/outage/time.js';
 import { decodeIndex, decodeShard } from '../src/core/outage/model.js';
 import { fixture, powerCsv, zip } from './outage-fixtures.js';
 it('reads stored/deflated data entries, ignores schema/manifest, and rejects broken ZIPs', () => {
@@ -27,6 +27,17 @@ it('expands Taipei Water daily ROC windows and inherits counties across all dist
   expect(items[0].a).not.toMatch(/\s$/); expect(items[0].u).toContain('N115001'); expect(items.at(-1)!.t).toContain('另行公告'); expect(taipeiwater([])).toEqual([]);
   expect(dailyTimes('115年11月03日', '10:00~18:00')).toEqual([['2026-11-03T10:00', '2026-11-03T18:00']]);
 });
+it('trims Taipei Water fields and removes empty, duplicate and area-only reasons', () => {
+  const row = { SW_No: ' N1\r\n ', Date: ' 115年11月02日\r\n ', Time: ' 10:00~16:00\r\n ', SW_Area: ' 臺北市中山區新生北路一段\r\n ', MapUrl: ' https://example.test/N1\r\n ' };
+  for (const reason of [{ Title: row.SW_Area, Description: '\n臺北市中山區\n新生北路一段 ' }, { Title: '\r\n ', Description: '' }]) expect(taipeiwater([{ ...row, ...reason }])[0]).toMatchObject({ a: '臺北市中山區新生北路一段', r: '', n: 'N1', u: 'https://example.test/N1', t: [['2026-11-02T10:00', '2026-11-02T16:00']] });
+  expect(taipeiwater([{ ...row, Title: row.SW_Area, Description: ' 管線汰換\r\n ' }])[0].r).toBe('管線汰換');
+  expect(taipeiwater([{ ...row, Title: ' 管線汰換 ', Description: '管線汰換\r\n' }])[0].r).toBe('管線汰換');
+});
+it('compresses consecutive daily hours, preserves gaps/different hours and labels overnight hours', () => {
+  expect(formatTimes(dailyTimes('115年11月02日~115年11月07日', '10:00~16:00'))).toBe('11/02（一）～11/07（六）每日 10:00–16:00');
+  expect(formatTimes([['2026-11-02T10:00', '2026-11-02T16:00'], ['2026-11-04T10:00', '2026-11-04T16:00'], ['2026-11-05T11:00', '2026-11-05T16:00'], ['2026-11-06T23:00', '2026-11-07T01:00']])).toBe('11/02（一）10:00–16:00；11/04（三）10:00–16:00；11/05（四）11:00–16:00；11/06（五）23:00–11/07（六）01:00');
+  expect(formatTimes(dailyTimes('115年11月02日~115年11月03日', '23:00~01:00'))).toBe('11/02（一）～11/03（二）每日 23:00–翌日 01:00');
+});
 it.each(['2026-11-03 09:00:00', '2026/11/03 09:00', '115-11-03 09:00', '115/11/03 09:00', '115年11月03日 09:00', '2026-11-03T01:00:00Z', '2026-11-03T09:00:00+08:00'])('parses %s to Taipei local time', value => { expect(parseDate(value)).toBe('2026-11-03T09:00'); });
 it('keeps unknown Taiwan Water times and maps multiple counties/districts with fallback areas', () => {
   const items = taiwater(JSON.parse(fixture('taiwater.json')));
@@ -37,4 +48,6 @@ it('keeps unknown Taiwan Water times and maps multiple counties/districts with f
 });
 it('rejects malformed snapshots rather than treating them as no announcements', () => {
   expect(() => decodeIndex('{}')).toThrow(); expect(() => decodeShard('[{}]', 'taipower', '臺北市')).toThrow();
+  const index = { v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: { ok: true, counties: { 臺北市: { sha: 'a'.repeat(64), count: 1, writtenAt: 'bad' } } } } };
+  expect(() => decodeIndex(JSON.stringify(index))).toThrow('公告縣市格式錯誤'); index.sources.taipower.counties.臺北市.writtenAt = index.generatedAt; expect(decodeIndex(JSON.stringify(index))).toEqual(index);
 });

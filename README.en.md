@@ -119,7 +119,7 @@ The committed bundle also runs without installing npm packages via `node plugin/
 
 `invoice`, `stock`, `garbage` and `outage` toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
 
-For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-outages`, then set `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` for stdio. Without that directory, Node fetches relevant sources with a 12-hour cache. Regenerate and commit collector bundles with `npm run build:collectors` and the plugin bundle with `npm run build:plugin`.
+For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-outages`, then set `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` for stdio. Without that directory, Node fetches relevant sources, caching successes for 12 hours and allowing immediate retries after failures. Regenerate and commit collector bundles with `npm run build:collectors` and the plugin bundle with `npm run build:plugin`.
 
 ### Railway keys
 
@@ -150,7 +150,7 @@ Your own key enables local rail queries, including live train delays. Rail was v
 
 ### Remote (Cloudflare Workers)
 
-Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all three cities at 11:37 Taipei time. The [outage collector](.github/workflows/outage-collect.yml) fetches the three utilities at 06:23, 12:23 and 18:23 Asia/Taipei, writes only changed source/county shards and publishes the index heartbeat last. The Worker only reads outage KV data, without ZIP/CSV processing or additional Worker cron jobs. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
+Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all three cities at 11:37 Taipei time. The [outage collector](.github/workflows/outage-collect.yml) fetches the three utilities at 06:23, 12:23 and 18:23 Asia/Taipei, writes immutable `outage:v1:{source}:{county}:{sha12}` shards (first 12 SHA-256 hex characters, 8-day KV TTL; directory mode ignores TTL), and records county `writtenAt` in the index. Unchanged content renews only after 3 days; failed sources keep previous county entries. Every run publishes `outage:index:v1` last as the heartbeat. The Worker derives shard keys from index hashes and only reads outage KV data, without ZIP/CSV processing or additional Worker cron jobs. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
 
 #### Remote rail
 

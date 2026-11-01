@@ -1,3 +1,4 @@
+// Outage shard keys include the index county SHA's first 12 hex characters.
 export { indexKey as outageIndexKey, shardKey as outageShardKey } from '../core/outage/model.js';
 import { encodeQuotesSnapshot, encodeSnapshot, type MarketSnapshot } from '../core/snapshot.js';
 import type { StockQuote } from '../core/stock/parse.js';

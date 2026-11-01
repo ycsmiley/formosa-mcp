@@ -29,8 +29,9 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
       const shards = buildShards(data.items), counties: SourceIndex['counties'] = {};
       for (const [county, raw] of shards) {
         const sha = createHash('sha256').update(raw).digest('hex'); largest = Math.max(largest, Buffer.byteLength(raw));
-        counties[county] = { sha, count: data.items.filter(item => item.c === county).length };
-        if (old?.counties[county]?.sha !== sha) { await store.put(shardKey(source, county), raw, index.generatedAt); writes++; }
+        const prior = old?.counties[county]; let writtenAt = prior?.writtenAt;
+        if (prior?.sha !== sha || !writtenAt || Date.parse(index.generatedAt) - Date.parse(writtenAt) > 3 * 86400000) { await store.put(shardKey(source, county, sha), raw, index.generatedAt, 8 * 86400); writes++; writtenAt = index.generatedAt; }
+        counties[county] = { sha, count: data.items.filter(item => item.c === county).length, writtenAt };
       }
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties };
     } catch (e) {

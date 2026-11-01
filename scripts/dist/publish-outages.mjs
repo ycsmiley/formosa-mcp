@@ -25,7 +25,7 @@ function buildShards(items) {
 // src/core/outage/model.ts
 var sources = ["taiwater", "taipeiwater", "taipower"];
 var indexKey2 = "outage:index:v1";
-var shardKey2 = (source, county) => `outage:v1:${source}:${county}`;
+var shardKey2 = (source, county, sha) => `outage:v1:${source}:${county}:${sha.slice(0, 12)}`;
 var official = {
   taiwater: { name: "\u53F0\u6C34", url: "https://web.water.gov.tw/wateroff/" },
   taipeiwater: { name: "\u5317\u6C34", url: "https://web.water.gov.taipei/" },
@@ -38,7 +38,7 @@ function decodeIndex2(raw) {
   if (!object(x) || x.v !== 1 || !timestamp(x.generatedAt) || !object(x.sources)) throw Error("\u516C\u544A\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
   for (const [s, v] of Object.entries(x.sources)) {
     if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || !object(v.counties) || v.reason !== void 0 && typeof v.reason !== "string" || [v.fetchedAt, v.lastSuccessAt].some((t) => t !== void 0 && !timestamp(t))) throw Error("\u516C\u544A\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
-    for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0) throw Error("\u516C\u544A\u7E23\u5E02\u683C\u5F0F\u932F\u8AA4");
+    for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0 || shard.writtenAt !== void 0 && !timestamp(shard.writtenAt)) throw Error("\u516C\u544A\u7E23\u5E02\u683C\u5F0F\u932F\u8AA4");
   }
   return x;
 }
@@ -138,7 +138,9 @@ function taipeiwater(input) {
   const rows = records(input);
   for (const row of rows) {
     const v = (key) => clean(row[key]);
-    for (const { c, d } of locations(v("SW_Area"))) items.push({ s: "taipeiwater", k: "water", c, d, t: dailyTimes(v("Date"), v("Time")), a: v("SW_Area"), r: [v("Title"), v("Description")].filter(Boolean).join("\uFF1B"), n: v("SW_No"), u: /^https?:\/\//i.test(v("MapUrl")) ? v("MapUrl") : official.taipeiwater.url });
+    const area = v("SW_Area"), same = (s) => s.replace(/\s+/g, "");
+    const reason = [...new Set([v("Title"), v("Description")].filter((s) => s && same(s) !== same(area)))].join("\uFF1B");
+    for (const { c, d } of locations(area)) items.push({ s: "taipeiwater", k: "water", c, d, t: dailyTimes(v("Date"), v("Time")), a: area, r: reason, n: v("SW_No"), u: /^https?:\/\//i.test(v("MapUrl")) ? v("MapUrl") : official.taipeiwater.url });
   }
   if (rows.length && !items.length) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u672A\u63D0\u4F9B\u53EF\u8FA8\u8B58\u7684\u7E23\u5E02");
   return unique(items);
@@ -307,11 +309,14 @@ async function collectOutages(store, options = {}) {
       for (const [county, raw] of shards) {
         const sha = createHash("sha256").update(raw).digest("hex");
         largest = Math.max(largest, Buffer.byteLength(raw));
-        counties2[county] = { sha, count: data.items.filter((item) => item.c === county).length };
-        if (old?.counties[county]?.sha !== sha) {
-          await store.put(shardKey2(source, county), raw, index.generatedAt);
+        const prior = old?.counties[county];
+        let writtenAt = prior?.writtenAt;
+        if (prior?.sha !== sha || !writtenAt || Date.parse(index.generatedAt) - Date.parse(writtenAt) > 3 * 864e5) {
+          await store.put(shardKey2(source, county, sha), raw, index.generatedAt, 8 * 86400);
           writes++;
+          writtenAt = index.generatedAt;
         }
+        counties2[county] = { sha, count: data.items.filter((item) => item.c === county).length, writtenAt };
       }
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2 };
     } catch (e) {

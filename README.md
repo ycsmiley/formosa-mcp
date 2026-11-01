@@ -130,7 +130,7 @@ claude plugin install formosa@formosa-mcp
 - [財政部 RSS](https://invoice.etax.nat.gov.tw/invoice.xml)：免金鑰，最近 6 期，快取 6 小時；單數月 25 日若新期尚未公布，改為 10 分鐘。依已公布資料回答。
 - [證交所 OpenAPI](https://openapi.twse.com.tw/)及[櫃買中心 OpenAPI](https://www.tpex.org.tw/openapi/)：免金鑰，各資料集快取 1 小時，兩個股票工具共用；單一市場無法連線時仍回覆另一市場並附註。
 
-停水停電本機收集：`npm run collect:outages -- --out /tmp/formosa-outages`；設 `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` 供 stdio 讀取。未設時在 Node 程序抓取相關來源並快取 12 小時。collector bundle 以 `npm run build:collectors` 產生，plugin bundle 以 `npm run build:plugin` 更新後提交。
+停水停電本機收集：`npm run collect:outages -- --out /tmp/formosa-outages`；設 `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` 供 stdio 讀取。未設時在 Node 程序抓取相關來源，成功快取 12 小時，失敗立即允許重試。collector bundle 以 `npm run build:collectors` 產生，plugin bundle 以 `npm run build:plugin` 更新後提交。
 
 驗證：執行 `npm run build`、`npm test`、`npm run live-check` 及 `npm run eval:live`。後兩者需要網路；每日即時評估詳見 [evals/README.md](evals/README.md)。
 
@@ -163,7 +163,7 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，僅在雜湊改變時寫入縣市分片，最後寫入索引心跳；Worker 僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 

@@ -2,10 +2,10 @@ export const sources = ['taiwater', 'taipeiwater', 'taipower'] as const;
 export type Source = typeof sources[number];
 export type Times = [string, string][] | string;
 export interface Item { s: Source; k: 'water' | 'power'; c: string; d: string; t: Times; a: string; r: string; n: string; u: string; o?: string }
-export interface SourceIndex { ok: boolean; reason?: string; fetchedAt?: string; lastSuccessAt?: string; counties: Record<string, { sha: string; count: number }> }
+export interface SourceIndex { ok: boolean; reason?: string; fetchedAt?: string; lastSuccessAt?: string; counties: Record<string, { sha: string; count: number; writtenAt?: string }> }
 export interface Index { v: 1; generatedAt: string; sources: Partial<Record<Source, SourceIndex>> }
 export const indexKey = 'outage:index:v1';
-export const shardKey = (source: Source, county: string) => `outage:v1:${source}:${county}`;
+export const shardKey = (source: Source, county: string, sha: string) => `outage:v1:${source}:${county}:${sha.slice(0, 12)}`;
 export const official: Record<Source, { name: string; url: string }> = {
   taiwater: { name: '台水', url: 'https://web.water.gov.tw/wateroff/' },
   taipeiwater: { name: '北水', url: 'https://web.water.gov.taipei/' },
@@ -18,7 +18,7 @@ export function decodeIndex(raw: string): Index {
   if (!object(x) || x.v !== 1 || !timestamp(x.generatedAt) || !object(x.sources)) throw Error('公告索引格式錯誤');
   for (const [s, v] of Object.entries(x.sources)) {
     if (!sources.includes(s as Source) || !object(v) || typeof v.ok !== 'boolean' || !object(v.counties) || (v.reason !== undefined && typeof v.reason !== 'string') || [v.fetchedAt, v.lastSuccessAt].some(t => t !== undefined && !timestamp(t))) throw Error('公告來源格式錯誤');
-    for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0) throw Error('公告縣市格式錯誤');
+    for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0 || (shard.writtenAt !== undefined && !timestamp(shard.writtenAt))) throw Error('公告縣市格式錯誤');
   }
   return x as unknown as Index;
 }
