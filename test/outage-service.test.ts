@@ -4,7 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp/server.js';
 import { createOutageService, reminder, relevantSources, type OutageStore } from '../src/core/outage/service.js';
 import { type Index, type Item, type Source } from '../src/core/outage/model.js';
-import { taipeiwater, taiwater, taipower } from '../src/core/outage/normalize.js';
+import { taipeiwater, taiwater, taiwaterEmptyReason, taipower } from '../src/core/outage/normalize.js';
 import { fixture, powerCsv } from './outage-fixtures.js';
 import { dailyTimes } from '../src/core/outage/time.js';
 const now = () => new Date('2026-11-01T00:00:00Z');
@@ -66,9 +66,15 @@ it('includes county-only power notices for any district and marks the missing di
   expect((await setup().service.schedule({ city: '新竹市', district: '香山區', type: 'power' })).text).toContain('內湖里（未標示行政區）');
 });
 it('reports no match only for available sources and always includes the reminder', async () => {
-  const { index, service } = setup(); index.sources.taiwater!.ok = false; index.sources.taiwater!.reason = '官方開放資料目前回傳空清單';
+  const { index, service } = setup(); index.sources.taiwater!.ok = false; index.sources.taiwater!.reason = taiwaterEmptyReason;
   const { text } = await service.schedule({ city: '新北市', keyword: '不存在' });
-  expect(text).toContain('官方公告中查無 新北市 2026-11-01～2026-11-07 的計畫性停水／停電（關鍵字「不存在」）。'); expect(text).toContain('已查詢來源：北水、台電'); expect(text).toContain('台水：該來源暫時無法取得（官方開放資料目前回傳空清單）'); expect(text.endsWith(reminder)).toBe(true);
+  expect(text).toContain('官方公告中查無 新北市 2026-11-01～2026-11-07 的計畫性停水／停電（關鍵字「不存在」）。'); expect(text).toContain('已查詢來源：北水、台電'); expect(text).toContain('台水官方開放資料目前是空的，結果可能不完整，請至 https://web.water.gov.tw/wateroff/ 自行查詢。'); expect(text.endsWith(reminder)).toBe(true);
+});
+it('does not claim no outages when Taiwan Water is empty from the start', async () => {
+  const { index, service } = setup(); index.sources.taiwater = { ok: false, reason: taiwaterEmptyReason, counties: {} };
+  const { text } = await service.schedule({ city: '新竹市', district: '東區', type: 'water' });
+  expect(text).toContain('台水官方開放資料目前是空的，結果可能不完整，請至 https://web.water.gov.tw/wateroff/ 自行查詢。');
+  expect(text).not.toContain('查無停水'); expect(text).not.toContain('官方公告中查無'); expect(text).not.toContain('已查詢來源');
 });
 it('warns on stale index or last successful collection even if this run failed', async () => {
   const { index, service } = setup(all, '2026-10-30T00:00:00Z');

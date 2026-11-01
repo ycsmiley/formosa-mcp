@@ -17,8 +17,9 @@ const records = (input: unknown): Record<string, unknown>[] => {
   if (!Array.isArray(input) || input.some(x => !x || typeof x !== 'object' || Array.isArray(x))) throw Error('官方開放資料格式錯誤');
   return input;
 };
+export const taiwaterEmptyReason = '官方開放資料目前回傳空清單';
 export function taiwater(input: unknown): Item[] {
-  const rows = records(input); if (!rows.length) throw Error('官方開放資料目前回傳空清單');
+  const rows = records(input); if (!rows.length) throw Error(taiwaterEmptyReason);
   const items: Item[] = [];
   for (const row of rows) {
     const v = (key: string) => clean(row[key]); const area = [v('停水地區'), v('降壓地區') ? `降壓：${v('降壓地區')}` : ''].filter(Boolean).join('；');

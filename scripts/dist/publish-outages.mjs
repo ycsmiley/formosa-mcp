@@ -112,9 +112,10 @@ var records = (input) => {
   if (!Array.isArray(input) || input.some((x) => !x || typeof x !== "object" || Array.isArray(x))) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
   return input;
 };
+var taiwaterEmptyReason = "\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u76EE\u524D\u56DE\u50B3\u7A7A\u6E05\u55AE";
 function taiwater(input) {
   const rows = records(input);
-  if (!rows.length) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u76EE\u524D\u56DE\u50B3\u7A7A\u6E05\u55AE");
+  if (!rows.length) throw Error(taiwaterEmptyReason);
   const items = [];
   for (const row of rows) {
     const v = (key) => clean(row[key]);
@@ -336,6 +337,7 @@ async function collectOutages(store, options = {}) {
       const data = result.value;
       dropped = data.dropped;
       count = data.items.length;
+      if (source === "taiwater" && data.rows === 0) throw Error(taiwaterEmptyReason);
       const shards = buildShards(data.items), counties2 = {};
       for (const [county, raw] of shards) {
         const sha = createHash("sha256").update(raw).digest("hex");
@@ -352,7 +354,7 @@ async function collectOutages(store, options = {}) {
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2 };
     } catch (e) {
       failed = true;
-      index.sources[source] = { ok: false, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {} };
+      index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {} };
       console.error(`outage ${source} failed: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source].ok} count=${count} largestBytes=${largest} dropped=${dropped}`);

@@ -1,5 +1,5 @@
 import { norm } from '../garbage/text.js';
-import { counties } from './normalize.js';
+import { counties, taiwaterEmptyReason } from './normalize.js';
 import { official, type Index, type Item, type Source } from './model.js';
 import { addDays, formatTimes, local, validDay } from './time.js';
 export interface OutageStore { index(relevant?: Source[]): Promise<Index | null>; shard(source: Source, county: string, sha: string): Promise<Item[] | null> }
@@ -37,7 +37,8 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
     try { index = await store.index(relevant); } catch { /* Each relevant source is reported below. */ }
     const results = await Promise.all(relevant.map(async source => {
       const info = index?.sources[source];
-      if (!info?.ok || !info.lastSuccessAt) return { source, info, items: null, reason: info?.reason || '尚無成功取得的資料' };
+      const previousTaiwater = source === 'taiwater' && !info?.ok && info?.reason === taiwaterEmptyReason;
+      if ((!info?.ok && !previousTaiwater) || !info?.lastSuccessAt) return { source, info, items: null, reason: info?.reason || '尚無成功取得的資料' };
       if (!Object.hasOwn(info.counties, city)) return { source, info, items: [] as Item[] };
       try { const items = await store.shard(source, city, info.counties[city].sha); if (!items || items.length !== info.counties[city].count) throw Error(); return { source, info, items }; }
       catch { return { source, info, items: null, reason: '縣市公告快照遺失或無法解讀' }; }
@@ -50,8 +51,10 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
     if (stale.length) lines.push(`⚠️ 資料可能過期（最後更新：${stale.join('、')}（臺北時間））`);
     for (const result of results) {
       const { source } = result;
-      if (!result.items) { unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
-      checked.push(official[source].name);
+      const emptyTaiwater = source === 'taiwater' && !result.info?.ok && result.info?.reason === taiwaterEmptyReason;
+      if (emptyTaiwater) unavailable.push(`台水官方開放資料目前是空的，結果可能不完整，請至 ${official.taiwater.url} 自行查詢。`);
+      if (!result.items) { if (!emptyTaiwater) unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
+      if (result.info?.ok) checked.push(official[source].name);
       matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || norm(item.d) === district) && (!keyword || keywordArea(item.a, district).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
     }
     matched.sort((a, b) => (typeof a.t === 'string' ? '\uffff' : a.t[0][0]).localeCompare(typeof b.t === 'string' ? '\uffff' : b.t[0][0]));
@@ -61,7 +64,7 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
     for (const item of items.slice(0, 30)) {
       lines.push(`${item.k === 'power' ? '🔌 停電' : '💧 停水'}｜${formatTimes(item.t)}`, `範圍：${areaText(item)}${!item.d ? '（未標示行政區）' : ''}`, `原因：${item.r || (item.s === 'taipeiwater' ? '北水公告未提供' : '未提供')}${item.n ? `（${item.k === 'power' ? '請求號數' : '案件編號'} ${item.n}）` : ''}`);
       const info = index?.sources[item.s];
-      lines.push(`來源：${item.s === 'taipower' ? item.o || official[item.s].name : official[item.s].name + (item.o ? ` ${item.o}` : '')} ${item.u}${item.k === 'power' ? '｜查詢電話 1911' : ''}｜資料取得 ${acquired(info?.fetchedAt ?? info?.lastSuccessAt)}`);
+      lines.push(`來源：${item.s === 'taipower' ? item.o || official[item.s].name : official[item.s].name + (item.o ? ` ${item.o}` : '')} ${item.u}${item.k === 'power' ? '｜查詢電話 1911' : ''}｜資料取得 ${acquired(info?.ok ? info.fetchedAt ?? info.lastSuccessAt : info?.lastSuccessAt)}`);
     }
     if (items.length > 30) lines.push(`另有 ${items.length - 30} 筆，請縮小範圍`);
     lines.push(...unavailable);

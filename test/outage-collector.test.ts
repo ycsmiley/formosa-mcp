@@ -7,6 +7,7 @@ import { decodeIndex, indexKey, shardKey, type Source } from '../src/core/outage
 import { fetchSource, urls } from '../src/outage/source.js';
 import { localOutageStore } from '../src/outage/store.js';
 import { createOutageService } from '../src/core/outage/service.js';
+import { taiwaterEmptyReason } from '../src/core/outage/normalize.js';
 import { fixture, zip } from './outage-fixtures.js';
 const now = () => new Date('2026-11-01T00:00:00Z');
 const mockSources = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -95,6 +96,35 @@ it('publishes healthy sources even when one source is empty', async () => {
   fetch.mockImplementation(async (input, init) => String(input) === urls.taiwater ? new Response('[]') : original(input, init));
   try { expect(await main(['--out', dir], {})).toBe(1); const index = decodeIndex((await directoryStore(dir).get(indexKey))!); expect(index.sources.taiwater).toMatchObject({ ok: false, reason: expect.stringContaining('空清單'), counties: {} }); expect(index.sources.taipower!.ok).toBe(true); }
   finally { await rm(dir, { recursive: true, force: true }); }
+});
+it('retains Taiwan Water snapshots through an empty export and recovers on the next non-empty export', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async key => values.get(key) ?? null, put: async (key, value) => { values.set(key, value); writes.push(key); } };
+  const fetch = mockSources(), original = fetch.getMockImplementation()!;
+  expect(await collectOutages(store, { now })).toBe(0);
+  const before = decodeIndex(values.get(indexKey)!).sources.taiwater!; writes.length = 0;
+  fetch.mockImplementation(async (input, init) => String(input) === urls.taiwater ? new Response('[]') : original(input, init));
+  const failedAt = '2026-11-03T00:00:00.000Z';
+  expect(await collectOutages(store, { now: () => new Date(failedAt) })).toBe(1);
+  const failed = decodeIndex(values.get(indexKey)!).sources.taiwater!;
+  expect(failed).toMatchObject({ ok: false, reason: taiwaterEmptyReason, fetchedAt: failedAt, lastSuccessAt: before.lastSuccessAt, counties: before.counties });
+  expect(writes.some(key => key.startsWith('outage:v1:taiwater:'))).toBe(false);
+  const snapshot = { index: async () => decodeIndex(values.get(indexKey)!), shard: async (source: Source, county: string, sha: string) => JSON.parse(values.get(shardKey(source, county, sha))!) };
+  const query = { city: '桃園市', type: 'water' as const };
+  const oldText = (await createOutageService(snapshot, () => new Date(failedAt)).schedule(query)).text;
+  expect(oldText).toContain('桃園區中正路'); expect(oldText).toContain('台水官方開放資料目前是空的'); expect(oldText).toContain('資料可能過期');
+  fetch.mockImplementation(original);
+  const recoveredAt = '2026-11-03T01:00:00.000Z';
+  expect(await collectOutages(store, { now: () => new Date(recoveredAt) })).toBe(0);
+  expect(decodeIndex(values.get(indexKey)!).sources.taiwater).toMatchObject({ ok: true, lastSuccessAt: recoveredAt });
+  const recovered = (await createOutageService(snapshot, () => new Date(recoveredAt)).schedule(query)).text;
+  expect(recovered).toContain('桃園區中正路'); expect(recovered).not.toContain('台水官方開放資料目前是空的');
+});
+it('reports an empty live Taiwan Water export in the stdio reply', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]'));
+  const text = (await createOutageService(localOutageStore(), now).schedule({ city: '新竹市', district: '東區', type: 'water' })).text;
+  expect(text).toContain('台水官方開放資料目前是空的，結果可能不完整，請至 https://web.water.gov.tw/wateroff/ 自行查詢。');
+  expect(text).not.toContain('官方公告中查無');
 });
 it('caches live stdio source collection for twelve hours', async () => {
   const fetch = mockSources(), store = localOutageStore(); await store.index(['taipower']); await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledOnce();

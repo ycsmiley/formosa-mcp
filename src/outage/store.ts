@@ -12,7 +12,7 @@ export function localOutageStore(dir?: string): OutageStore {
     try {
       const { items } = await fetchSource(source), now = new Date().toISOString(), shards = buildShards(items);
       return { info: { ok: true, fetchedAt: now, lastSuccessAt: now, counties: Object.fromEntries([...shards].map(([c, raw]) => [c, { sha: '0'.repeat(64), count: (JSON.parse(raw) as unknown[]).length, writtenAt: now }])) }, shards };
-    } catch (e) { return { info: { ok: false, reason: e instanceof Error ? e.message : '官方開放資料連線失敗', counties: {} }, shards: new Map<string, string>() }; }
+    } catch (e) { return { info: { ok: false, fetchedAt: new Date().toISOString(), reason: e instanceof Error ? e.message : '官方開放資料連線失敗', counties: {} }, shards: new Map<string, string>() }; }
   });
   const read = async (key: string) => { try { return await readFile(join(dir!, filename(key)), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; } };
   return {

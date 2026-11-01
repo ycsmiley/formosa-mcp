@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { filename } from '../src/garbage/store.js';
 import { buildShards } from '../src/core/outage/build.js';
+import { taiwaterEmptyReason } from '../src/core/outage/normalize.js';
 import { decodeIndex, indexKey, shardKey, sources, type Index, type Source, type SourceIndex } from '../src/core/outage/model.js';
 import { fetchSource, type SourceData } from '../src/outage/source.js';
 export interface Store { get(key: string): Promise<string | null>; put(key: string, value: string, updatedAt: string, ttlSeconds?: number): Promise<void> }
@@ -26,6 +27,7 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
     try {
       const result = results[i]; if (result.status === 'rejected') throw result.reason;
       const data = result.value; dropped = data.dropped; count = data.items.length;
+      if (source === 'taiwater' && data.rows === 0) throw Error(taiwaterEmptyReason);
       const shards = buildShards(data.items), counties: SourceIndex['counties'] = {};
       for (const [county, raw] of shards) {
         const sha = createHash('sha256').update(raw).digest('hex'); largest = Math.max(largest, Buffer.byteLength(raw));
@@ -35,7 +37,7 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
       }
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties };
     } catch (e) {
-      failed = true; index.sources[source] = { ok: false, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {} };
+      failed = true; index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {} };
       console.error(`outage ${source} failed: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source]!.ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
