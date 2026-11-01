@@ -31,7 +31,7 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
   return { async schedule(q: Query): Promise<{ text: string; isError: boolean }> {
     const finish = (lines: string[], isError = false) => ({ text: [...lines, license, reminder].join('\n'), isError });
     const name = canonical(q.city.replace(/\s+/g, '')), candidates = counties.filter(c => c === name || c === name + '縣' || c === name + '市');
-    if (candidates.length > 1) return finish([`請指定${candidates.join('或')}`]);
+    if (candidates.length > 1) return finish([`請指定${candidates.join('或')}。`]);
     const city = candidates[0];
     if (!city) return finish(['請提供完整臺灣縣市名稱，例如「臺北市」、「雲林縣」。'], true);
     const now = clock(), today = local(now).slice(0, 10), start = q.start_date ?? today, end = q.end_date ?? addDays(today, 6);
@@ -68,7 +68,7 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
       if (emptyTaiwater) unavailable.push(`台水官方開放資料目前是空的，結果可能不完整，請至 ${official.taiwater.url} 自行查詢。`);
       if (!result.items) { if (!emptyTaiwater) unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
       if (result.info?.ok) checked.push(official[source].name);
-      if (result.info?.dropped) lines.push(`另有 ${result.info.dropped} 筆${official[source].name}公告無法判定縣市，未納入比對，請至 ${official[source].url} 確認。`);
+      if (result.info?.dropped) unavailable.push(`另有 ${result.info.dropped} 筆${official[source].name}公告無法判定縣市，未納入比對，請至 ${official[source].url} 確認。`);
       matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || canonical(item.d) === district) && (!keyword || keywordArea(item.a, city, district).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
     }
     matched.sort((a, b) => (typeof a.t === 'string' ? '\uffff' : a.t[0][0]).localeCompare(typeof b.t === 'string' ? '\uffff' : b.t[0][0]));
@@ -77,7 +77,7 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
     const checkedKind = checked.includes(official.taipower.name) ? (checked.length > 1 ? '停水／停電' : '停電') : '停水';
     if (!items.length && checked.length) lines.push(`官方公告中查無 ${place} ${dates} 的計畫性${checkedKind}${keyword ? `（關鍵字「${keyword}」）` : ''}。`, `已查詢來源：${checked.join('、')}。`);
     for (const item of items.slice(0, 30)) {
-      lines.push(`${item.k === 'power' ? '🔌 停電' : '💧 停水'}｜${formatTimes(item.t)}`, `範圍：${areaText(item)}${!item.d ? '（未標示行政區）' : ''}`, `原因：${item.r || (item.s === 'taipeiwater' ? '北水公告未提供' : '未提供')}${item.n ? `（${item.k === 'power' ? '請求號數' : '案件編號'} ${item.n}）` : ''}`);
+      lines.push(`${item.k === 'power' ? '🔌 停電' : '💧 停水'}｜${formatTimes(item.t)}`, `範圍：${clean(areaText(item), 200)}${!item.d ? '（未標示行政區）' : ''}`, `原因：${item.r || (item.s === 'taipeiwater' ? '北水公告未提供' : '未提供')}${item.n ? `（${item.k === 'power' ? '請求號數' : '案件編號'} ${item.n}）` : ''}`);
       const info = index?.sources[item.s];
       lines.push(`來源：${item.s === 'taipower' ? item.o || official[item.s].name : official[item.s].name + (item.o ? ` ${item.o}` : '')} ${item.u}${item.k === 'power' ? '｜查詢電話 1911' : ''}｜資料取得 ${acquired(info?.ok ? info.fetchedAt ?? info.lastSuccessAt : info?.lastSuccessAt)}`);
     }

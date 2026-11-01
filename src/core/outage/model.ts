@@ -9,7 +9,7 @@ export const shardKey = (source: Source, county: string, sha: string) => `outage
 export const official: Record<Source, { name: string; url: string }> = {
   taiwater: { name: '台水', url: 'https://web.water.gov.tw/wateroff/' },
   taipeiwater: { name: '北水', url: 'https://web.water.gov.taipei/' },
-  taipower: { name: '台電', url: 'https://www.taipower.com.tw/' },
+  taipower: { name: '台電', url: 'https://service.taipower.com.tw/' },
 };
 const object = (x: unknown): x is Record<string, any> => !!x && typeof x === 'object' && !Array.isArray(x);
 const timestamp = (x: unknown) => typeof x === 'string' && Number.isFinite(Date.parse(x));

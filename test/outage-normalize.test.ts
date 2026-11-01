@@ -141,7 +141,7 @@ it('counts unlocatable notices for both water sources', () => {
   const water = taiwater([{ 影響縣市: '雲林縣', 停水地區: '斗六市中山路' }, { 停水地區: '文化路' }]);
   for (const data of [north, water]) { expect(data.rows).toBe(2); expect(data.dropped).toBe(1); expect(data.items).toHaveLength(1); }
 });
-it('collapses controls and whitespace and bounds area/reason display fields for every source', () => {
+it('collapses controls and whitespace, preserves full areas and bounds reasons for every source', () => {
   const area = '臺北市中山區林森北路\r\n\t\u0000 一段' + '路'.repeat(220), reason = '管線\n\t\u0007 維修' + '修'.repeat(120);
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   const items = [
@@ -150,9 +150,9 @@ it('collapses controls and whitespace and bounds area/reason display fields for 
     ...taipower(new Map([['101.csv', `${header}\n處,1,"${reason}",無,無,"${area}",1911`]]), 1).items,
   ];
   for (const item of items) {
-    expect(item.a).toHaveLength(200); expect(item.r).toHaveLength(100);
+    expect(item.a).toBe('臺北市中山區林森北路 一段' + '路'.repeat(220)); expect(item.r).toHaveLength(100);
     expect(item.a).toContain('林森北路 一段'); expect(item.r).toContain('管線 維修');
-    expect(item.a.endsWith('…')).toBe(true); expect(item.r.endsWith('…')).toBe(true);
+    expect(item.r.endsWith('…')).toBe(true);
     expect(item.a + item.r).not.toMatch(/[\r\n\t\u0000\u0007]/);
   }
 });

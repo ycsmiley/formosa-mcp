@@ -39,7 +39,7 @@ export function taiwater(input: unknown): { items: Item[]; dropped: number; rows
       return (scoped.length ? scoped : fallback.filter(p => p.c === c).map(p => p.d)).map(d => ({ c, d })).concat(!scoped.length && !fallback.some(p => p.c === c) ? [{ c, d: '' }] : []);
     }) : fallback;
     if (!places.length) dropped++;
-    for (const { c, d } of places) items.push({ s: 'taiwater', k: 'water', c, d, t: waterTimes(v('案件日期時間'), v('恢復日期時間')), a: clean(area, 200), r: clean(v('停水原因') || v('降壓原因'), 100), n: v('案件編號'), u: official.taiwater.url, ...(v('案件類型') ? { o: v('案件類型') } : {}) });
+    for (const { c, d } of places) items.push({ s: 'taiwater', k: 'water', c, d, t: waterTimes(v('案件日期時間'), v('恢復日期時間')), a: area, r: clean(v('停水原因') || v('降壓原因'), 100), n: v('案件編號'), u: official.taiwater.url, ...(v('案件類型') ? { o: v('案件類型') } : {}) });
   }
   if (!items.length) throw Error('官方開放資料未提供可辨識的縣市');
   return { items: unique(items), dropped, rows: rows.length };
@@ -51,7 +51,7 @@ export function taipeiwater(input: unknown): { items: Item[]; dropped: number; r
     const area = v('SW_Area'), same = (s: string) => s.replace(/\s+/g, '');
     const reason = [...new Set([v('Title'), v('Description')].filter(s => s && same(s) !== same(area)))].join('；');
     const places = locations(area); if (!places.length) dropped++;
-    for (const { c, d } of places) items.push({ s: 'taipeiwater', k: 'water', c, d, t: dailyTimes(v('Date'), v('Time')), a: clean(area, 200), r: clean(reason, 100), n: v('SW_No'), u: /^https?:\/\//i.test(v('MapUrl')) ? v('MapUrl') : official.taipeiwater.url });
+    for (const { c, d } of places) items.push({ s: 'taipeiwater', k: 'water', c, d, t: dailyTimes(v('Date'), v('Time')), a: area, r: clean(reason, 100), n: v('SW_No'), u: /^https?:\/\//i.test(v('MapUrl')) ? v('MapUrl') : official.taipeiwater.url });
   }
   if (rows.length && !items.length) throw Error('官方開放資料未提供可辨識的縣市');
   return { items: unique(items), dropped, rows: rows.length };
@@ -105,5 +105,5 @@ export function taipower(files: Map<string, string>, minimum = 100): { items: It
   }
   if (dropped > 20 && dropped / rows > 0.05) throw Error('台電開放資料無法辨識的資料列過多');
   if (rows < minimum || !groups.size) throw Error('台電開放資料筆數不足');
-  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join('、'), 200) })), dropped, rows };
+  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join('、')) })), dropped, rows };
 }

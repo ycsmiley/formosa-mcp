@@ -30,7 +30,7 @@ var shardKey2 = (source, county, sha) => `outage:v1:${source}:${county}:${sha.sl
 var official = {
   taiwater: { name: "\u53F0\u6C34", url: "https://web.water.gov.tw/wateroff/" },
   taipeiwater: { name: "\u5317\u6C34", url: "https://web.water.gov.taipei/" },
-  taipower: { name: "\u53F0\u96FB", url: "https://www.taipower.com.tw/" }
+  taipower: { name: "\u53F0\u96FB", url: "https://service.taipower.com.tw/" }
 };
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 var timestamp = (x) => typeof x === "string" && Number.isFinite(Date.parse(x));
@@ -163,7 +163,7 @@ function taiwater(input) {
       return (scoped.length ? scoped : fallback.filter((p) => p.c === c).map((p) => p.d)).map((d) => ({ c, d })).concat(!scoped.length && !fallback.some((p) => p.c === c) ? [{ c, d: "" }] : []);
     }) : fallback;
     if (!places.length) dropped++;
-    for (const { c, d } of places) items.push({ s: "taiwater", k: "water", c, d, t: waterTimes(v("\u6848\u4EF6\u65E5\u671F\u6642\u9593"), v("\u6062\u5FA9\u65E5\u671F\u6642\u9593")), a: clean(area, 200), r: clean(v("\u505C\u6C34\u539F\u56E0") || v("\u964D\u58D3\u539F\u56E0"), 100), n: v("\u6848\u4EF6\u7DE8\u865F"), u: official.taiwater.url, ...v("\u6848\u4EF6\u985E\u578B") ? { o: v("\u6848\u4EF6\u985E\u578B") } : {} });
+    for (const { c, d } of places) items.push({ s: "taiwater", k: "water", c, d, t: waterTimes(v("\u6848\u4EF6\u65E5\u671F\u6642\u9593"), v("\u6062\u5FA9\u65E5\u671F\u6642\u9593")), a: area, r: clean(v("\u505C\u6C34\u539F\u56E0") || v("\u964D\u58D3\u539F\u56E0"), 100), n: v("\u6848\u4EF6\u7DE8\u865F"), u: official.taiwater.url, ...v("\u6848\u4EF6\u985E\u578B") ? { o: v("\u6848\u4EF6\u985E\u578B") } : {} });
   }
   if (!items.length) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u672A\u63D0\u4F9B\u53EF\u8FA8\u8B58\u7684\u7E23\u5E02");
   return { items: unique(items), dropped, rows: rows.length };
@@ -178,7 +178,7 @@ function taipeiwater(input) {
     const reason = [...new Set([v("Title"), v("Description")].filter((s) => s && same(s) !== same(area)))].join("\uFF1B");
     const places = locations(area);
     if (!places.length) dropped++;
-    for (const { c, d } of places) items.push({ s: "taipeiwater", k: "water", c, d, t: dailyTimes(v("Date"), v("Time")), a: clean(area, 200), r: clean(reason, 100), n: v("SW_No"), u: /^https?:\/\//i.test(v("MapUrl")) ? v("MapUrl") : official.taipeiwater.url });
+    for (const { c, d } of places) items.push({ s: "taipeiwater", k: "water", c, d, t: dailyTimes(v("Date"), v("Time")), a: area, r: clean(reason, 100), n: v("SW_No"), u: /^https?:\/\//i.test(v("MapUrl")) ? v("MapUrl") : official.taipeiwater.url });
   }
   if (rows.length && !items.length) throw Error("\u5B98\u65B9\u958B\u653E\u8CC7\u6599\u672A\u63D0\u4F9B\u53EF\u8FA8\u8B58\u7684\u7E23\u5E02");
   return { items: unique(items), dropped, rows: rows.length };
@@ -282,7 +282,7 @@ function taipower(files, minimum = 100) {
   }
   if (dropped > 20 && dropped / rows > 0.05) throw Error("\u53F0\u96FB\u958B\u653E\u8CC7\u6599\u7121\u6CD5\u8FA8\u8B58\u7684\u8CC7\u6599\u5217\u904E\u591A");
   if (rows < minimum || !groups.size) throw Error("\u53F0\u96FB\u958B\u653E\u8CC7\u6599\u7B46\u6578\u4E0D\u8DB3");
-  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join("\u3001"), 200) })), dropped, rows };
+  return { items: [...groups.values()].map(({ item, areas }) => ({ ...item, a: clean([...areas].sort().join("\u3001")) })), dropped, rows };
 }
 
 // src/outage/zip.ts

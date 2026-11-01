@@ -27,6 +27,20 @@ it('filters keywords, uses date overlap across midnight and preserves unparseabl
   expect((await service.schedule({ city: '臺北市', type: 'power', start_date: '2026-11-04', end_date: '2026-11-04' })).text).not.toContain('🔌');
   const raw = (await service.schedule({ city: '臺北市', type: 'water', keyword: '松仁' })).text; expect(raw).toContain('另行公告'); expect(raw).toContain('北水');
 });
+it.each(['taiwater', 'taipeiwater', 'taipower'] as Source[])('matches roads after character 200 in %s areas and truncates only the display', async source => {
+  const first = '新北市中和區' + '中山路'.repeat(75), last = '新北市中和區林森北路', area = `${first}、${last}`;
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const items = source === 'taiwater' ? taiwater([{ 停水地區: area }]).items
+    : source === 'taipeiwater' ? taipeiwater([{ SW_Area: area }]).items
+    : taipower(new Map([['101.csv', `${header}\n處,1,施工,無,無,${first},1911\n處,1,施工,無,無,${last},1911`]]), 1).items;
+  expect(items).toHaveLength(1); expect(items[0].a).toBe(area); expect(items[0].a.indexOf('林森北路')).toBeGreaterThan(200);
+  const { service } = setup(items);
+  for (const district of [undefined, '中和區']) {
+    const { text } = await service.schedule({ city: '新北市', district, type: source === 'taipower' ? 'power' : 'water', keyword: '林森北路' });
+    expect(text).toContain(source === 'taipower' ? '🔌 停電' : '💧 停水');
+    expect(text.split('\n').find(line => line.startsWith('範圍：'))).toBe(`範圍：${first.slice(0, 199)}…`);
+  }
+});
 it('matches keywords within each requested district segment and falls back when it is absent', async () => {
   const base = all.find(i => i.s === 'taipeiwater' && i.c === '臺北市')!;
   const area = '臺北市中山區民生東路、大安區和平東路、中山區林森北路';
@@ -141,7 +155,13 @@ it('limits no-match wording to checked sources and warns about dropped power row
   const text = (await service.schedule({ city: '臺中市', type: 'all' })).text;
   expect(text).toContain('官方公告中查無 臺中市 2026-11-01～2026-11-07 的計畫性停電。');
   expect(text).toContain('已查詢來源：台電。');
-  expect(text).toContain('另有 3 筆台電公告無法判定縣市，未納入比對，請至 https://www.taipower.com.tw/ 確認。');
+  const notice = '另有 3 筆台電公告無法判定縣市，未納入比對，請至 https://service.taipower.com.tw/ 確認。';
+  expect(text.split('\n').slice(-4, -2)).toEqual([
+    '台水官方開放資料目前是空的，結果可能不完整，請至 https://web.water.gov.tw/wateroff/ 自行查詢。', notice,
+  ]);
+  const matched = setup(); matched.index.sources.taipower!.dropped = 3;
+  const match = (await matched.service.schedule({ city: '臺北市', type: 'power' })).text;
+  expect(match).toContain('🔌 停電'); expect(match.split('\n').at(-3)).toBe(notice);
   expect((await service.schedule({ city: '臺中市', type: 'water' })).text).not.toContain('筆台電公告無法判定縣市');
 });
 
@@ -167,7 +187,7 @@ it('canonicalizes legacy counties and asks for the city or county when a bare na
   const { service, store } = setup([]), read = vi.spyOn(store, 'index');
   for (const name of ['新竹', '嘉義']) {
     const reply = await service.schedule({ city: name });
-    expect(reply).toMatchObject({ isError: false, text: expect.stringContaining(`請指定${name}市或${name}縣`) });
+    expect(reply).toMatchObject({ isError: false, text: expect.stringContaining(`請指定${name}市或${name}縣。`) });
     expect(reply.text).not.toContain('查無');
   }
   expect(read).not.toHaveBeenCalled();
