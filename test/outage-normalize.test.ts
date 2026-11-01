@@ -46,6 +46,10 @@ it('keeps unknown Taiwan Water times and maps multiple counties/districts with f
   expect(taiwater([{ 影響縣市: '新北市', 停水地區: '板橋區文化路', 案件日期時間: '115年11月03日 09:00', 恢復日期時間: '2026-11-03 18:00' }])[0]).toMatchObject({ c: '新北市', d: '板橋區' });
   expect(() => taiwater(JSON.parse(fixture('empty.json')))).toThrow('空清單'); expect(() => taiwater({})).toThrow('格式錯誤'); expect(parseDate('2026-02-30 09:00')).toBeNull();
 });
+it('retains explicitly listed districts missing from multi-county area text', () => {
+  const items = taiwater([{ 影響縣市: '新北市、桃園市', 影響行政區: '板橋區、中和區、桃園區', 停水地區: '新北市板橋區文化路、桃園市桃園區中正路' }]);
+  expect(items.map(i => [i.c, i.d])).toEqual([['新北市', '板橋區'], ['新北市', '中和區'], ['桃園市', '中和區'], ['桃園市', '桃園區']]);
+});
 it('rejects malformed snapshots rather than treating them as no announcements', () => {
   expect(() => decodeIndex('{}')).toThrow(); expect(() => decodeShard('[{}]', 'taipower', '臺北市')).toThrow();
   const index = { v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: { ok: true, counties: { 臺北市: { sha: 'a'.repeat(64), count: 1, writtenAt: 'bad' } } } } };

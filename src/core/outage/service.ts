@@ -15,6 +15,12 @@ function areaText(item: Item): string {
   const prefix = item.c + item.d; let seen = false;
   return item.a.split(/([、；])/).map((part, i) => { if (i % 2) return part; if (!norm(part).startsWith(prefix)) { seen = false; return part; } if (seen) return part.trim().slice(prefix.length); seen = true; return part.trim(); }).join('');
 }
+function keywordArea(area: string, district: string): string {
+  const text = norm(area); if (!district) return text;
+  const mentions = [...text.matchAll(/[\u4e00-\u9fff]{1,3}?[區鄉鎮市]/g)];
+  if (!mentions.some(m => m[0] === district)) return text;
+  return mentions.flatMap((m, i) => m[0] === district ? [text.slice(m.index, mentions.slice(i + 1).find(next => next[0] !== district)?.index)] : []).join('；');
+}
 export function createOutageService(store: OutageStore, clock = () => new Date()) {
   return { async schedule(q: Query): Promise<{ text: string; isError: boolean }> {
     const finish = (lines: string[], isError = false) => ({ text: [...lines, license, reminder].join('\n'), isError });
@@ -46,7 +52,7 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
       const { source } = result;
       if (!result.items) { unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
       checked.push(official[source].name);
-      matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || norm(item.d) === district) && (!keyword || norm(item.a).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
+      matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || norm(item.d) === district) && (!keyword || keywordArea(item.a, district).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
     }
     matched.sort((a, b) => (typeof a.t === 'string' ? '\uffff' : a.t[0][0]).localeCompare(typeof b.t === 'string' ? '\uffff' : b.t[0][0]));
     // Multi-district announcements remain a single result when querying the whole county.

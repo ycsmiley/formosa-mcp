@@ -125,7 +125,7 @@ function taiwater(input) {
     const places = cs.length ? cs.flatMap((c) => {
       let scoped = ds.filter((d) => !counties.some((other) => d.includes(other)) || d.includes(c)).map((d) => d.replace(new RegExp(countyPattern, "g"), "")).filter(Boolean);
       const linked = fallback.filter((p) => p.c === c).map((p) => p.d).filter((d) => scoped.includes(d));
-      if (cs.length > 1 && linked.length) scoped = linked;
+      if (cs.length > 1) scoped = scoped.filter((d) => linked.includes(d) || ds.some((raw) => raw.includes(c) && raw.replace(new RegExp(countyPattern, "g"), "") === d) || !fallback.some((p) => p.d === d));
       return (scoped.length ? scoped : fallback.filter((p) => p.c === c).map((p) => p.d)).map((d) => ({ c, d })).concat(!scoped.length && !fallback.some((p) => p.c === c) ? [{ c, d: "" }] : []);
     }) : fallback;
     for (const { c, d } of places) items.push({ s: "taiwater", k: "water", c, d, t: waterTimes(v("\u6848\u4EF6\u65E5\u671F\u6642\u9593"), v("\u6062\u5FA9\u65E5\u671F\u6642\u9593")), a: area, r: v("\u505C\u6C34\u539F\u56E0") || v("\u964D\u58D3\u539F\u56E0"), n: v("\u6848\u4EF6\u7DE8\u865F"), u: official.taiwater.url, ...v("\u6848\u4EF6\u985E\u578B") ? { o: v("\u6848\u4EF6\u985E\u578B") } : {} });

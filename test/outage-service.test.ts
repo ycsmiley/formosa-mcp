@@ -27,6 +27,15 @@ it('filters keywords, uses date overlap across midnight and preserves unparseabl
   expect((await service.schedule({ city: '臺北市', type: 'power', start_date: '2026-11-04', end_date: '2026-11-04' })).text).not.toContain('🔌');
   const raw = (await service.schedule({ city: '臺北市', type: 'water', keyword: '松仁' })).text; expect(raw).toContain('另行公告'); expect(raw).toContain('北水');
 });
+it('matches keywords within each requested district segment and falls back when it is absent', async () => {
+  const base = all.find(i => i.s === 'taipeiwater' && i.c === '臺北市')!;
+  const area = '臺北市中山區民生東路、大安區和平東路、中山區林森北路';
+  const { service } = setup([{ ...base, d: '中山區', a: area }, { ...base, d: '大安區', a: area }, { ...base, d: '信義區', a: area }]);
+  for (const keyword of ['民生東路', '林森北路']) expect((await service.schedule({ city: '臺北市', district: '中山區', type: 'water', keyword })).text).toContain('💧');
+  expect((await service.schedule({ city: '臺北市', district: '中山區', type: 'water', keyword: '和平東路' })).text).not.toContain('💧');
+  expect((await service.schedule({ city: '臺北市', district: '信義區', type: 'water', keyword: '和平東路' })).text).toContain('💧');
+  expect((await service.schedule({ city: '臺北市', type: 'water', keyword: '和平東路' })).text).toContain('💧');
+});
 it('shows only overlapping windows, then compresses consecutive daily hours within the query', async () => {
   const base = all.find(i => i.s === 'taipeiwater')!, item = { ...base, t: dailyTimes('115年11月01日~115年11月08日', '10:00~16:00') };
   const { service } = setup([item]);

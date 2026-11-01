@@ -27,7 +27,7 @@ export function taiwater(input: unknown): Item[] {
     const places = cs.length ? cs.flatMap(c => {
       let scoped = ds.filter(d => !counties.some(other => d.includes(other)) || d.includes(c)).map(d => d.replace(new RegExp(countyPattern, 'g'), '')).filter(Boolean);
       const linked = fallback.filter(p => p.c === c).map(p => p.d).filter(d => scoped.includes(d));
-      if (cs.length > 1 && linked.length) scoped = linked;
+      if (cs.length > 1) scoped = scoped.filter(d => linked.includes(d) || ds.some(raw => raw.includes(c) && raw.replace(new RegExp(countyPattern, 'g'), '') === d) || !fallback.some(p => p.d === d));
       return (scoped.length ? scoped : fallback.filter(p => p.c === c).map(p => p.d)).map(d => ({ c, d })).concat(!scoped.length && !fallback.some(p => p.c === c) ? [{ c, d: '' }] : []);
     }) : fallback;
     for (const { c, d } of places) items.push({ s: 'taiwater', k: 'water', c, d, t: waterTimes(v('案件日期時間'), v('恢復日期時間')), a: area, r: v('停水原因') || v('降壓原因'), n: v('案件編號'), u: official.taiwater.url, ...(v('案件類型') ? { o: v('案件類型') } : {}) });
