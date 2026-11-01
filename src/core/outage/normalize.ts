@@ -72,12 +72,21 @@ export function taipower(files: Map<string, string>, minimum = 100): { items: It
     const lines = parseCsv(text.replace(/^\uFEFF/, '').trim());
     const header = lines.shift();
     if (header?.length !== 7 || header.join(',') !== '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)') throw Error('台電 CSV 欄位格式錯誤');
+    const district = (area: string) => /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(area)?.[1] ?? '';
+    const areaText = (area: string) => canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, '桃園市$1區'));
+    const districtCounties = new Map<string, Set<string>>();
+    for (const fields of lines) {
+      const a = areaText(fields[5]?.trim() ?? ''), c = counties.find(c => a.startsWith(c)), d = c && district(a.slice(c.length));
+      if (c && d) { const found = districtCounties.get(d) ?? new Set<string>(); found.add(c); districtCounties.set(d, found); }
+    }
     for (const fields of lines) {
       if (fields.length === 1 && !fields[0].trim()) continue; rows++;
       if (fields.length !== 7) throw Error('台電 CSV 資料格式錯誤');
-      const [office, n, r, first, second, area] = fields.map(s => s.trim()); const a = canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, '桃園市$1區'));
-      const c = counties.find(c => a.startsWith(c)); if (!c) { dropped++; continue; }
-      const d = /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? '';
+      const [office, n, r, first, second, area] = fields.map(s => s.trim()); let a = areaText(area);
+      let c = counties.find(c => a.startsWith(c));
+      if (!c) { const candidates = districtCounties.get(district(a)); if (candidates?.size === 1) { c = [...candidates][0]; a = c + a; } }
+      if (!c) { dropped++; continue; }
+      const d = district(a.slice(c.length));
       const windows = [first, second].filter(s => s && s !== '無'); const parsed = windows.map(powerWindow);
       const t = windows.length && parsed.every(t => t !== null) ? parsed as [string, string][] : windows.join('；') || '未標示時間';
       const key = JSON.stringify([n, t, c, d]); const found = groups.get(key);

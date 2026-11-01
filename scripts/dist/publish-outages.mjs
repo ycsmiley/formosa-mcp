@@ -37,7 +37,7 @@ function decodeIndex2(raw) {
   const x = JSON.parse(raw);
   if (!object(x) || x.v !== 1 || !timestamp(x.generatedAt) || !object(x.sources)) throw Error("\u516C\u544A\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
   for (const [s, v] of Object.entries(x.sources)) {
-    if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || !object(v.counties) || v.reason !== void 0 && typeof v.reason !== "string" || [v.fetchedAt, v.lastSuccessAt].some((t) => t !== void 0 && !timestamp(t))) throw Error("\u516C\u544A\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
+    if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || !object(v.counties) || v.reason !== void 0 && typeof v.reason !== "string" || v.dropped !== void 0 && (!Number.isSafeInteger(v.dropped) || v.dropped < 0) || [v.fetchedAt, v.lastSuccessAt].some((t) => t !== void 0 && !timestamp(t))) throw Error("\u516C\u544A\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
     for (const [c, shard] of Object.entries(v.counties)) if (!c || !object(shard) || !/^[a-f0-9]{64}$/.test(shard.sha) || !Number.isSafeInteger(shard.count) || shard.count < 0 || shard.writtenAt !== void 0 && !timestamp(shard.writtenAt)) throw Error("\u516C\u544A\u7E23\u5E02\u683C\u5F0F\u932F\u8AA4");
   }
   return x;
@@ -187,18 +187,36 @@ function taipower(files, minimum = 100) {
     const lines = parseCsv(text.replace(/^\uFEFF/, "").trim());
     const header = lines.shift();
     if (header?.length !== 7 || header.join(",") !== "\u71DF\u696D\u5340\u8655,\u8ACB\u6C42\u865F\u6578,\u5DE5\u4F5C\u6982\u8FF0,\u7B2C\u4E00\u6B21\u505C\u96FB\u6642\u9593,\u7B2C\u4E8C\u6B21\u505C\u96FB\u6642\u9593,\u505C\u96FB\u7BC4\u570D,\u67E5\u8A62\u96FB\u8A71(1911)") throw Error("\u53F0\u96FB CSV \u6B04\u4F4D\u683C\u5F0F\u932F\u8AA4");
+    const district = (area) => /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(area)?.[1] ?? "";
+    const areaText = (area) => canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, "\u6843\u5712\u5E02$1\u5340"));
+    const districtCounties = /* @__PURE__ */ new Map();
+    for (const fields of lines) {
+      const a = areaText(fields[5]?.trim() ?? ""), c = counties.find((c2) => a.startsWith(c2)), d = c && district(a.slice(c.length));
+      if (c && d) {
+        const found = districtCounties.get(d) ?? /* @__PURE__ */ new Set();
+        found.add(c);
+        districtCounties.set(d, found);
+      }
+    }
     for (const fields of lines) {
       if (fields.length === 1 && !fields[0].trim()) continue;
       rows++;
       if (fields.length !== 7) throw Error("\u53F0\u96FB CSV \u8CC7\u6599\u683C\u5F0F\u932F\u8AA4");
       const [office, n, r, first, second, area] = fields.map((s) => s.trim());
-      const a = canonical(area.replace(/^桃園縣([\u4e00-\u9fff]{1,3}?)(?:市|鄉|鎮(?!市))/, "\u6843\u5712\u5E02$1\u5340"));
-      const c = counties.find((c2) => a.startsWith(c2));
+      let a = areaText(area);
+      let c = counties.find((c2) => a.startsWith(c2));
+      if (!c) {
+        const candidates = districtCounties.get(district(a));
+        if (candidates?.size === 1) {
+          c = [...candidates][0];
+          a = c + a;
+        }
+      }
       if (!c) {
         dropped++;
         continue;
       }
-      const d = /^([\u4e00-\u9fff]{1,3}?區|[\u4e00-\u9fff]{1,3}?[鄉鎮市])/.exec(a.slice(c.length))?.[1] ?? "";
+      const d = district(a.slice(c.length));
       const windows = [first, second].filter((s) => s && s !== "\u7121");
       const parsed = windows.map(powerWindow);
       const t = windows.length && parsed.every((t2) => t2 !== null) ? parsed : windows.join("\uFF1B") || "\u672A\u6A19\u793A\u6642\u9593";
@@ -351,10 +369,10 @@ async function collectOutages(store, options = {}) {
         }
         counties2[county] = { sha, count: data.items.filter((item) => item.c === county).length, writtenAt };
       }
-      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2 };
+      index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, ...source === "taipower" ? { dropped } : {} };
     } catch (e) {
       failed = true;
-      index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {} };
+      index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {}, ...old?.dropped !== void 0 ? { dropped: old.dropped } : {} };
       console.error(`outage ${source} failed: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source].ok} count=${count} largestBytes=${largest} dropped=${dropped}`);

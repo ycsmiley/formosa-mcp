@@ -128,3 +128,13 @@ it('registers the bounded MCP arguments, applies defaults and returns Chinese va
     const long = await client.callTool({ name: 'outage_schedule', arguments: { city: '臺北市', keyword: '路'.repeat(101) } }); expect(long.isError).toBe(true);
   } finally { await client.close(); await server.close(); }
 });
+
+it('limits no-match wording to checked sources and warns about dropped power rows', async () => {
+  const { index, service } = setup([]); index.sources.taiwater = { ok: false, reason: taiwaterEmptyReason, counties: {} };
+  index.sources.taipower!.dropped = 3;
+  const text = (await service.schedule({ city: '臺中市', type: 'all' })).text;
+  expect(text).toContain('官方公告中查無 臺中市 2026-11-01～2026-11-07 的計畫性停電。');
+  expect(text).toContain('已查詢來源：台電。');
+  expect(text).toContain('另有 3 筆台電公告未標示縣市，未納入比對，請至 https://service.taipower.com.tw/ 確認。');
+  expect((await service.schedule({ city: '臺中市', type: 'water' })).text).not.toContain('筆台電公告未標示縣市');
+});

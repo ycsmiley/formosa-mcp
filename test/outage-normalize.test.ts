@@ -82,3 +82,20 @@ it('rejects malformed snapshots rather than treating them as no announcements', 
   const index = { v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: { ok: true, counties: { 臺北市: { sha: 'a'.repeat(64), count: 1, writtenAt: 'bad' } } } } };
   expect(() => decodeIndex(JSON.stringify(index))).toThrow('公告縣市格式錯誤'); index.sources.taipower.counties.臺北市.writtenAt = index.generatedAt; expect(decodeIndex(JSON.stringify(index))).toEqual(index);
 });
+
+it('infers a district county only from unambiguous rows in the same office file', () => {
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const csv = (areas: string[]) => [header, ...areas.map((area, i) => `處,${i},施工,無,無,${area},1911`)].join('\n');
+  const result = taipower(new Map([
+    ['101.csv', csv(['北屯區東山路一段', '臺中市北屯區松竹路', '中山區中正路', '臺北市中山區一街', '基隆市中山區二街', '東區三街'])],
+    ['102.csv', csv(['新竹市東區四街'])],
+  ]), 1);
+  expect(result.items.find(i => i.a.includes('東山路'))).toMatchObject({ c: '臺中市', d: '北屯區', a: '臺中市北屯區東山路一段' });
+  expect(result.dropped).toBe(2);
+});
+it('validates the optional dropped row count in the index', () => {
+  const entry = { ok: true, counties: {}, dropped: 2 };
+  const index = { v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: entry } };
+  expect(decodeIndex(JSON.stringify(index)).sources.taipower?.dropped).toBe(2);
+  for (const dropped of [-1, 1.5, '2', null]) expect(() => decodeIndex(JSON.stringify({ ...index, sources: { taipower: { ...entry, dropped } } }))).toThrow();
+});

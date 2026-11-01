@@ -32,7 +32,7 @@ it('fetches sources concurrently, writes only changed shards, and publishes the 
   const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v, _at, ttl) => { values.set(k, v); writes.push(k); ttls.set(k, ttl); } };
   mockSources(); const fetch = async (s: Source) => { started.push(s); await Promise.resolve(); expect(started).toHaveLength(3); return fetchSource(s); };
   expect(await collectOutages(store, { fetch, now })).toBe(0); expect(writes.at(-1)).toBe(indexKey); expect(writes.length).toBeGreaterThan(1);
-  const first = decodeIndex(values.get(indexKey)!); writes.length = 0;
+  const first = decodeIndex(values.get(indexKey)!); expect(first.sources.taipower!.dropped).toBeGreaterThan(0); writes.length = 0;
   for (const [source, info] of Object.entries(first.sources)) for (const [county, entry] of Object.entries(info.counties)) {
     const key = shardKey(source as Source, county, entry.sha); expect(key).toBe(`outage:v1:${source}:${county}:${entry.sha.slice(0, 12)}`); expect(values.has(key)).toBe(true); expect(ttls.get(key)).toBe(8 * 86400); expect(entry.writtenAt).toBe(now().toISOString());
   }
@@ -127,7 +127,7 @@ it('reports an empty live Taiwan Water export in the stdio reply', async () => {
   expect(text).not.toContain('官方公告中查無');
 });
 it('caches live stdio source collection for twelve hours', async () => {
-  const fetch = mockSources(), store = localOutageStore(); await store.index(['taipower']); await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledOnce();
+  const fetch = mockSources(), store = localOutageStore(); expect((await store.index(['taipower']))!.sources.taipower!.dropped).toBeGreaterThan(0); await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledOnce();
 });
 it('retries failed live fetches immediately and caches the recovered source', async () => {
   const fetch = mockSources(), store = localOutageStore(); fetch.mockRejectedValueOnce(Error('temporarily down'));

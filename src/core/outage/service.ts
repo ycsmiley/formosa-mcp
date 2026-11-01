@@ -54,13 +54,17 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
       const emptyTaiwater = source === 'taiwater' && !result.info?.ok && result.info?.reason === taiwaterEmptyReason;
       if (emptyTaiwater) unavailable.push(`台水官方開放資料目前是空的，結果可能不完整，請至 ${official.taiwater.url} 自行查詢。`);
       if (!result.items) { if (!emptyTaiwater) unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
-      if (result.info?.ok) checked.push(official[source].name);
+      if (result.info?.ok) {
+        checked.push(official[source].name);
+        if (source === 'taipower' && result.info.dropped) lines.push(`另有 ${result.info.dropped} 筆台電公告未標示縣市，未納入比對，請至 https://service.taipower.com.tw/ 確認。`);
+      }
       matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || norm(item.d) === district) && (!keyword || keywordArea(item.a, district).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
     }
     matched.sort((a, b) => (typeof a.t === 'string' ? '\uffff' : a.t[0][0]).localeCompare(typeof b.t === 'string' ? '\uffff' : b.t[0][0]));
     // Multi-district announcements remain a single result when querying the whole county.
     const items = [...new Map(matched.map(item => [JSON.stringify([item.s, item.n, item.t, item.a, item.r, item.u]), item])).values()];
-    if (!items.length && checked.length) lines.push(`官方公告中查無 ${place} ${dates} 的計畫性${kind}${keyword ? `（關鍵字「${keyword}」）` : ''}。`, `已查詢來源：${checked.join('、')}。`);
+    const checkedKind = checked.includes(official.taipower.name) ? (checked.length > 1 ? '停水／停電' : '停電') : '停水';
+    if (!items.length && checked.length) lines.push(`官方公告中查無 ${place} ${dates} 的計畫性${checkedKind}${keyword ? `（關鍵字「${keyword}」）` : ''}。`, `已查詢來源：${checked.join('、')}。`);
     for (const item of items.slice(0, 30)) {
       lines.push(`${item.k === 'power' ? '🔌 停電' : '💧 停水'}｜${formatTimes(item.t)}`, `範圍：${areaText(item)}${!item.d ? '（未標示行政區）' : ''}`, `原因：${item.r || (item.s === 'taipeiwater' ? '北水公告未提供' : '未提供')}${item.n ? `（${item.k === 'power' ? '請求號數' : '案件編號'} ${item.n}）` : ''}`);
       const info = index?.sources[item.s];
