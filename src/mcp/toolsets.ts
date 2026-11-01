@@ -1,3 +1,5 @@
+import { outage } from './outage.js';
+import type { OutageStore } from '../core/outage/service.js';
 import { garbage } from './garbage.js';
 import type { GarbageStore } from '../core/garbage/service.js';
 import type { z } from 'zod';
@@ -14,6 +16,7 @@ export interface ToolRegistrar {
 }
 export interface ToolsetContext extends InvoiceServiceOptions {
   garbageStore?: GarbageStore;
+  outageStore?: OutageStore;
   env?: Record<string, string | undefined>;
   railHttp?: RailHttp;
   railService?: ReturnType<typeof createRailService>;
@@ -27,7 +30,7 @@ export interface Toolset {
   requiredEnv?: string[];
   register(server: ToolRegistrar, ctx: ToolsetContext): void;
 }
-export const toolsets: Toolset[] = [invoice, stock, garbage, rail];
+export const toolsets: Toolset[] = [invoice, stock, garbage, outage, rail];
 export function registerToolsets(server: ToolRegistrar, selected: Toolset[], env: Record<string, string | undefined>, ctx: ToolsetContext = {}): void {
   const log = ctx.log ?? console.error;
   for (const toolset of selected) {

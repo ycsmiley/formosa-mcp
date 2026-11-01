@@ -114,11 +114,11 @@ it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failu
     expect(warn).toHaveBeenCalledExactlyOnceWith('mcp rate limit unavailable');
   },
 );
-it('lists exactly eight tools and serves seeded snapshots without upstream fetch', async () => {
+it('lists exactly nine tools and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
   try {
-    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'stock_dividends', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
+    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
     for (const [name, args, expected] of [ ['stock_quote', { query: '2330' }, '台積電'], ['stock_quote', { query: '6488' }, '環球晶'], ['stock_dividends', {}, '近期除權息'], ['invoice_get_winning_numbers', {}, '統一發票中獎號碼'], ['invoice_check', { number: '54348835' }, '頭獎'] ] as const) {
       const result = await rpc('tools/call', { name, arguments: args }); const text = result.content[0].text;
       expect(text).toContain(expected); expect(text).not.toMatch(/undefined|null|NaN|\[object/);
@@ -479,4 +479,29 @@ it('serves garbage schedules from KV without upstream requests', async () => {
   const result = await rpc('tools/call', { name: 'garbage_schedule', arguments: { city: '新北', keyword: '板橋文化路' } });
   expect(result.content[0].text).toContain('文化路');
   expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+it('serves planned outages from only the index and requested county KV shard', async () => {
+  const { indexKey, shardKey } = await import('../../src/core/outage/model.js');
+  const date = '2026-11-01T00:00:00Z';
+  await bindings.SNAPSHOTS.put(indexKey, JSON.stringify({ v: 1, generatedAt: date, sources: { taipower: { ok: true, fetchedAt: date, lastSuccessAt: date, counties: { 臺北市: { sha: 'a'.repeat(64), count: 1 }, 臺中市: { sha: 'b'.repeat(64), count: 1 } } } } }));
+  await bindings.SNAPSHOTS.put(shardKey('taipower', '臺北市'), JSON.stringify([{ s: 'taipower', k: 'power', c: '臺北市', d: '信義區', t: [['2026-11-05T23:20', '2026-11-06T00:49']], a: '臺北市信義區松仁路', r: '改良工程', n: 'T1', u: 'https://service.taipower.com.tw/branch/d102', o: '台電台北區營業處' }]));
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('outage Worker must not fetch upstream'));
+  const get = vi.spyOn(bindings.SNAPSHOTS, 'get'), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  const result = await rpc('tools/call', { name: 'outage_schedule', arguments: { city: '台北', district: '信義區', type: 'power', start_date: '2026-11-06', end_date: '2026-11-06' } });
+  expect(result.content[0].text).toContain('松仁路'); expect(result.content[0].text).toContain('11/06（五）00:49');
+  expect(get.mock.calls.map(([key]) => key)).toEqual([indexKey, shardKey('taipower', '臺北市')]); expect(fetch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(Object.keys(cronJobs)).toHaveLength(4);
+});
+it('reports missing or undecodable outage KV data without upstream fallback', async () => {
+  const { indexKey, shardKey } = await import('../../src/core/outage/model.js');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('no outage network'));
+  const args = { city: '臺北市', type: 'power', start_date: '2026-11-01', end_date: '2026-11-07' };
+  for (const raw of [null, '{}', JSON.stringify({ v: 1, generatedAt: '2026-11-01T00:00:00Z', sources: { taipower: { ok: true, lastSuccessAt: '2026-11-01T00:00:00Z', counties: { 臺北市: { sha: 'a'.repeat(64), count: 1 } } } } })]) {
+    if (raw === null) await bindings.SNAPSHOTS.delete(indexKey); else await bindings.SNAPSHOTS.put(indexKey, raw);
+    for (const shard of [null, '[{}]']) {
+      if (shard === null) await bindings.SNAPSHOTS.delete(shardKey('taipower', '臺北市')); else await bindings.SNAPSHOTS.put(shardKey('taipower', '臺北市'), shard);
+      const result = await rpc('tools/call', { name: 'outage_schedule', arguments: args }); expect(result.content[0].text).toContain('台電：該來源暫時無法取得'); expect(result.content[0].text).not.toContain('官方公告中查無');
+    }
+  }
+  expect(fetch).not.toHaveBeenCalled();
 });

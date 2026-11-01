@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-Taiwan e-invoice lottery and TWSE/TPEx end-of-day stock data and garbage truck schedules for New Taipei, Taipei and Taichung for AI assistants, with no API key; remote HSR and TRA provide timetables for today and tomorrow.
+Taiwan e-invoice lottery, TWSE/TPEx end-of-day stocks, garbage schedules for New Taipei/Taipei/Taichung, and planned water/power outages for AI assistants, with no API key; remote HSR and TRA provide timetables for today and tomorrow.
 
 ## Get started
 
@@ -48,6 +48,7 @@ A keyless public URL is coming soon; you will be able to paste it into a Claude 
 - “What is the P/E ratio for OTC stock GlobalWafers 6488?”
 - “When is TSMC's ex-dividend date?”
 - “When does the garbage truck reach Wenhua Road in Banqiao?”
+- “Are there planned power outages in Xinyi District next week?”（「信義區下週有沒有停電？」）
 
 ## Features
 
@@ -55,6 +56,7 @@ A keyless public URL is coming soon; you will be able to paste it into a Claude 
 - Stocks: TWSE and TPEx end-of-day data; quotes show the data date.
 - HSR / TRA: remote timetables for today and tomorrow, plus TRA live data within quota; for local use, see the [rail section](#railway-keys).
 - Garbage trucks: scheduled stops in New Taipei, Taipei and Taichung; give a district plus a village, road or place.
+- Outages: the `outage` toolset searches planned Taiwan Water, Taipei Water and Taipower notices by county, district, road and a date range of up to 31 days. All tool replies are in Traditional Chinese.
 - Weather: planned.
 
 Tools:
@@ -65,6 +67,8 @@ Tools:
 - `stock_dividends {query?}`: recent ex-dividend dates, defaulting to 20 results; optionally filter by code or name.
 - `thsr_timetable {origin, destination, date?, time?}`: HSR timetables.
 - `tra_timetable {origin, destination, date?, time?}`: TRA timetables, train types, cancellations and extra trains.
+- `garbage_schedule {city, district?, keyword?, weekday?, time?}`: scheduled collection stops.
+- `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`: planned outages; `type` is `water`, `power` or `all` (default). Dates default to today through today + 6 in Asia/Taipei; at most 30 notices are displayed.
 - `tra_live {train_no?, station?}`: provide exactly one to check train location and delay or a station board.
 
 Stock dates can lag on holidays; company announcements govern dividends.
@@ -113,7 +117,9 @@ From-source configuration (replace the path with your absolute path):
 
 The committed bundle also runs without installing npm packages via `node plugin/server/formosa-mcp.mjs`. Install the Claude Code plugin with `claude plugin marketplace add ycsmiley/formosa-mcp`, then `claude plugin install formosa@formosa-mcp`.
 
-Invoice and stock toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
+`invoice`, `stock`, `garbage` and `outage` toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
+
+For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-outages`, then set `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` for stdio. Without that directory, Node fetches relevant sources with a 12-hour cache. Regenerate and commit collector bundles with `npm run build:collectors` and the plugin bundle with `npm run build:plugin`.
 
 ### Railway keys
 
@@ -144,7 +150,7 @@ Your own key enables local rail queries, including live train delays. Rail was v
 
 ### Remote (Cloudflare Workers)
 
-Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all three cities at 11:37 Taipei time. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
+Invoices, stocks, and project-key rail timetables read KV snapshots. TRA live requests use a shared TDX gateway and fall back to scheduled trains when unavailable. Worker cron refreshes TWSE and invoices; the [TPEx collector](.github/workflows/tpex-collect.yml) and [rail collector](.github/workflows/rail-snapshot.yml) write snapshots through GitHub Actions. The [garbage collector](.github/workflows/garbage-collect.yml) collects all three cities at 11:37 Taipei time. The [outage collector](.github/workflows/outage-collect.yml) fetches the three utilities at 06:23, 12:23 and 18:23 Asia/Taipei, writes only changed source/county shards and publishes the index heartbeat last. The Worker only reads outage KV data, without ZIP/CSV processing or additional Worker cron jobs. Workers Free keeps its 10 ms CPU limit; rail compaction runs in the collector. The limit is 30 requests per IP per minute.
 
 #### Remote rail
 
@@ -188,6 +194,8 @@ Verify with `npm run typecheck:worker` and `npm run test:worker`. `@modelcontext
 
 ## Data sources and licence
 
+- Planned outage sources: [Taiwan Water](https://data.gov.tw/dataset/6050), [Taipei Water](https://data.gov.tw/dataset/128236) and [Taipower](https://data.gov.tw/dataset/26144), under OGDL-1. Taipei Water covers Taipei and parts of New Taipei; Taiwan Water is queried outside Taipei. Taipower open data does not cover Lienchiang County.
+- Planned announcements only: no real-time supply status, emergency repairs, accidents, typhoon outages, notifications or water quality. Taiwan Water exports sometimes return an empty array; this is reported as unavailable, never as no outages. Unparseable times remain visible as official raw text and match any date query. Data older than 24 hours is flagged. Confirm with Taipower 1911, Taiwan Water 1910, Taipei Water 1999 (outside Taipei: 02-27371999) and official websites.
 - The project code is licensed under [MIT](LICENSE).
 - Data is used under the [Open Government Data License, version 1.0 (政府資料開放授權條款第1版)](https://data.gov.tw/license). Sources: Ministry of Finance (e-invoice winning numbers), Taiwan Stock Exchange (TWSE OpenAPI), Taipei Exchange (TPEx OpenAPI), and MOTC TDX (資料介接「交通部TDX平臺」).
 - Garbage schedules use [New Taipei](https://data.gov.tw/dataset/125664), [Taipei](https://data.gov.tw/dataset/136515) and [Taichung](https://data.gov.tw/dataset/84004) environmental protection bureaus’ open data (OGDL-1). Taipei weekdays follow the bureau rule. Tainan and Kaohsiung are not yet supported because their open-data sites only accept connections from Taiwan, which the cloud collector cannot reach.

@@ -23,7 +23,7 @@ function output(result: Awaited<ReturnType<Client['callTool']>>) {
 it('calls both tools end-to-end with SDK client and caches the feed', async () => {
   const fetchFeed = vi.fn(async () => xml);
   const client = await setup(undefined, fetchFeed);
-  expect((await client.listTools()).tools.map(t => t.name)).toEqual(['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_dividends', 'garbage_schedule']);
+  expect((await client.listTools()).tools.map(t => t.name)).toEqual(['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_dividends', 'garbage_schedule', 'outage_schedule']);
   expect(output(await client.callTool({ name: 'invoice_get_winning_numbers', arguments: {} }))).toContain('統一發票中獎號碼｜115年07-08月');
   const result = output(await client.callTool({ name: 'invoice_check', arguments: { number: '54348835' } }));
   expect(result).toContain('【115年07-08月】恭喜！中了 頭獎');

@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Planned water/power outages (`outage_schedule`, default `outage` toolset) from Taiwan Water, Taipei Water and Taipower (OGDL-1). Actions collects at 06:23/12:23/18:23 Asia/Taipei (`23 22,4,10 * * *`), writes changed `outage:v1:{source}:{county}` KV shards without TTL, then `outage:index:v1` as the run heartbeat; failed sources retain previous county hashes and last success. Worker reads KV only; local stdio supports `FORMOSA_OUTAGE_DIR` or a 12-hour live cache. Empty Taiwan Water exports are unavailable, unknown times stay visible, and notices older than 24 hours warn.
+
 - Garbage collection schedules (`garbage_schedule`, toolset `garbage`) for New Taipei, Taipei and Taichung: GitHub Actions collects all cities at 11:37 Taipei time, writing per-district KV shards (`garbage:v2:${city}:${gen}:${district}`, 14-day TTL, index `garbage:index:v2` last); the Worker reads KV only and local stdio fetches live with a 12-hour cache.
 - Remote rail: project-key KV timetables, GitHub Actions snapshot collection, shared live cache and quota gateway with timetable fallback; optional per-request TDX key headers.
 - Dependency-free offline TDX mock and rail abuse harness, manual multi-runner abuse workflow with optional KV usage comparison, and bilingual remote rail documentation.

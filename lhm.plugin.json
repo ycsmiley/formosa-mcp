@@ -122,6 +122,55 @@
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
+    },
+    {
+      "name": "outage_schedule",
+      "description": "查詢計畫性停水、停電公告；緊急搶修、事故、颱風造成的停水停電不會事先公告。Planned water/power outages only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "description": "縣市名稱"
+          },
+          "district": {
+            "description": "行政區名稱",
+            "type": "string",
+            "maxLength": 30
+          },
+          "keyword": {
+            "description": "路名或地區關鍵字",
+            "type": "string",
+            "maxLength": 100
+          },
+          "type": {
+            "default": "all",
+            "description": "停水、停電或全部",
+            "type": "string",
+            "enum": [
+              "water",
+              "power",
+              "all"
+            ]
+          },
+          "start_date": {
+            "description": "起日 YYYY-MM-DD，預設臺北時間今天",
+            "type": "string",
+            "maxLength": 10
+          },
+          "end_date": {
+            "description": "迄日 YYYY-MM-DD，預設今天加六天；最多 31 天",
+            "type": "string",
+            "maxLength": 10
+          }
+        },
+        "required": [
+          "city"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
     }
   ]
 }

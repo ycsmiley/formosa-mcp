@@ -1,6 +1,6 @@
 ---
 name: formosa-taiwan
-description: Use Taiwan invoice lottery and end-of-day stock tools for 發票, 對獎, 統一發票, 台股, 股價, 本益比, and 除權息 questions.
+description: Use Taiwan invoice lottery and end-of-day stock tools for 發票, 對獎, 統一發票, 台股, 股價, 本益比, 除權息, 停水, and 停電 questions.
 ---
 
 # 台灣發票與台股
@@ -13,3 +13,5 @@ description: Use Taiwan invoice lottery and end-of-day stock tools for 發票, �
 高鐵／台鐵工具開發中。
 
 For garbage collection schedules in New Taipei, Taipei and Taichung, use `garbage_schedule` with a city and district or keyword.
+
+For planned water/power outages, use `outage_schedule` (toolset `outage`) with `city`, optional `district`/`keyword`, `type` (`water`, `power`, `all`) and optional `start_date`/`end_date` (YYYY-MM-DD, at most 31 days; default seven days in Asia/Taipei). Preserve the tool’s unavailable/stale source notes, official links and emergency reminder. Empty Taiwan Water exports mean unavailable, not no outages. Emergency repairs, accidents and typhoon outages are not announced in advance. Replies are Traditional Chinese.

@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
+讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻、計畫性停水停電，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
 Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
 
 ## 開始使用
@@ -49,6 +49,7 @@ claude plugin install formosa@formosa-mcp
 - 「上櫃環球晶 6488 本益比多少？」
 - 「台積電什麼時候除息？」
 - 「板橋文化路垃圾車幾點來？」
+- 「信義區下週有沒有停電？」
 
 ## 功能
 
@@ -56,6 +57,7 @@ claude plugin install formosa@formosa-mcp
 - 台股：可用，涵蓋上市＋上櫃；盤後資料，非即時，行情顯示資料日期。
 - 高鐵／台鐵：遠端版預設提供今天與明天的時刻表、額度內的臺鐵即時資料；本機版見[鐵路說明](#鐵路金鑰)。
 - 垃圾車：查詢新北、臺北、臺中定點收運時刻；請提供行政區與里名、路名或地點。
+- 停水停電：`outage` 工具集查台水、北水、台電計畫性公告，支援縣市、行政區、路名與最多 31 天的日期區間。
 - 氣象：規劃中。
 
 工具：
@@ -66,6 +68,8 @@ claude plugin install formosa@formosa-mcp
 - `stock_dividends {query?}`：列出近期除權息，預設前 20 筆；可指定股票代號或名稱。
 - `thsr_timetable {origin, destination, date?, time?}`：高鐵起迄站時刻。
 - `tra_timetable {origin, destination, date?, time?}`：台鐵時刻、車種、停駛與加班車。
+- `garbage_schedule {city, district?, keyword?, weekday?, time?}`：定點收運時刻。
+- `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`：計畫性停水停電，`type` 為 `water`、`power` 或 `all`（預設）；省略日期時查臺北時間今天起七天，最多顯示 30 筆。
 - `tra_live {train_no?, station?}`：恰填一項，查車次目前位置／誤點或車站即時看板。
 
 行情資料日期遇假日可能落後；除權息以公司公告為準。
@@ -119,12 +123,14 @@ claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
 
-`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用這兩組，鐵路須明確啟用。`--help` 顯示用法。
+`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage` 四組，鐵路須明確啟用。`--help` 顯示用法。
 
 資料來源與快取：
 
 - [財政部 RSS](https://invoice.etax.nat.gov.tw/invoice.xml)：免金鑰，最近 6 期，快取 6 小時；單數月 25 日若新期尚未公布，改為 10 分鐘。依已公布資料回答。
 - [證交所 OpenAPI](https://openapi.twse.com.tw/)及[櫃買中心 OpenAPI](https://www.tpex.org.tw/openapi/)：免金鑰，各資料集快取 1 小時，兩個股票工具共用；單一市場無法連線時仍回覆另一市場並附註。
+
+停水停電本機收集：`npm run collect:outages -- --out /tmp/formosa-outages`；設 `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` 供 stdio 讀取。未設時在 Node 程序抓取相關來源並快取 12 小時。collector bundle 以 `npm run build:collectors` 產生，plugin bundle 以 `npm run build:plugin` 更新後提交。
 
 驗證：執行 `npm run build`、`npm test`、`npm run live-check` 及 `npm run eval:live`。後兩者需要網路；每日即時評估詳見 [evals/README.md](evals/README.md)。
 
@@ -157,7 +163,7 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，僅在雜湊改變時寫入縣市分片，最後寫入索引心跳；Worker 僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 
@@ -201,6 +207,8 @@ npm run remote-check
 
 ## 資料來源與授權
 
+- 計畫性停水停電：[台水](https://data.gov.tw/dataset/6050)、[北水](https://data.gov.tw/dataset/128236)、[台電](https://data.gov.tw/dataset/26144)，採政府資料開放授權條款第1版（OGDL-1）。北水涵蓋臺北與部分新北，台水用於臺北市以外；台電開放資料未涵蓋連江縣。
+- 僅提供計畫性公告，不包含即時供應狀態、緊急搶修、事故、颱風、通知或水質。台水開放資料匯出有時回傳空清單，會標為來源暫時無法取得，不代表沒有停水；無法解析的公告時間保留原文，仍列入日期查詢，資料超過 24 小時會警示。請以台電 1911、台水 1910、北水 1999（臺北市外 02-27371999）及官方網站為準。
 - 本專案程式碼採 [MIT](LICENSE) 授權。
 - 資料依[政府資料開放授權條款第1版](https://data.gov.tw/license)使用，來源：財政部（統一發票中獎號碼）、臺灣證券交易所（TWSE OpenAPI）、證券櫃檯買賣中心（TPEx OpenAPI）、交通部 TDX 運輸資料流通服務平臺（資料介接「交通部TDX平臺」）。
 - 垃圾車時刻資料來自[新北](https://data.gov.tw/dataset/125664)、[臺北](https://data.gov.tw/dataset/136515)、[臺中](https://data.gov.tw/dataset/84004)市環保局開放資料（OGDL-1）；臺北收運日依環保局公告。臺南、高雄尚未支援：市府開放資料站只接受台灣連線，雲端收集器無法取得資料。

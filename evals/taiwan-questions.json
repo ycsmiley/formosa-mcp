@@ -571,5 +571,79 @@
     "notes": "臺南市已從垃圾車服務下架。",
     "daily_ci": false,
     "requires_key": null
+  },
+  {
+    "id": "outage-001",
+    "question": "臺北市信義區下週有沒有計畫停電？",
+    "toolset": "outage",
+    "expected_tool": "outage_schedule",
+    "expected_args": {
+      "city": "臺北市",
+      "district": "信義區",
+      "type": "power"
+    },
+    "expected_key_facts": [
+      "計畫性停電",
+      "1911"
+    ],
+    "notes": "執行時依臺北時間將下週換成 start_date/end_date；公告會變動，不固定預期筆數。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "outage-002",
+    "question": "新北市永和區中正路最近七天會停水嗎？",
+    "toolset": "outage",
+    "expected_tool": "outage_schedule",
+    "expected_args": {
+      "city": "新北市",
+      "district": "永和區",
+      "keyword": "中正路",
+      "type": "water"
+    },
+    "expected_key_facts": [
+      "北水",
+      "台水",
+      "計畫性停水"
+    ],
+    "notes": "新北須同時查北水與台水；台水空清單屬來源不可用，不能推論沒有停水。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "outage-003",
+    "question": "雲林縣斗六市中山路這週有計畫停水停電嗎？",
+    "toolset": "outage",
+    "expected_tool": "outage_schedule",
+    "expected_args": {
+      "city": "雲林縣",
+      "district": "斗六市",
+      "keyword": "中山路",
+      "type": "all"
+    },
+    "expected_key_facts": [
+      "計畫性",
+      "緊急搶修"
+    ],
+    "notes": "以查詢當週日期區間呼叫；時間原文無法解析的台水公告仍應列入。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "outage-004",
+    "question": "連江縣未來七天有計畫停電嗎？",
+    "toolset": "outage",
+    "expected_tool": "outage_schedule",
+    "expected_args": {
+      "city": "連江縣",
+      "type": "power"
+    },
+    "expected_key_facts": [
+      "台電開放資料未涵蓋連江縣",
+      "1911"
+    ],
+    "notes": "資料未涵蓋必須明說，不能宣稱沒有停電。",
+    "daily_ci": false,
+    "requires_key": null
   }
 ]

@@ -52,7 +52,8 @@
     "rail-demo": "npm run build && tsx scripts/rail-demo.ts",
     "eval:live": "tsx scripts/eval-live.ts",
     "build:collectors": "node scripts/build-collectors.mjs",
-    "collect:garbage": "tsx scripts/collect-garbage.ts"
+    "collect:garbage": "tsx scripts/collect-garbage.ts",
+    "collect:outages": "tsx scripts/collect-outages.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

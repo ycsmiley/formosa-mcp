@@ -1,3 +1,5 @@
+import { decodeIndex as decodeOutageIndex, decodeShard as decodeOutageShard } from '../core/outage/model.js';
+import { outageIndexKey, outageShardKey } from './snapshot-keys.js';
 import { decodeIndex, decodeShard, indexKey, shardKey } from '../core/garbage/snapshot.js';
 import { McpServer } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
@@ -60,6 +62,7 @@ export default {
       const handler = createMcpHandler(() => {
         const server = new McpServer({ name: 'formosa-mcp', version: '0.1.0' });
         registerToolsets(server, toolsets, {}, {
+          outageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(outageIndexKey); return raw ? decodeOutageIndex(raw) : null; }, shard: async (source, county) => { const raw = await env.SNAPSHOTS.get(outageShardKey(source, county)); return raw ? decodeOutageShard(raw, source, county) : null; } },
           garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword, filter) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword, filter) : null; } },
           railService,
           loadDraws: async () => (await read<InvoiceSnapshot>(env, keys.invoice))?.draws ?? null,
