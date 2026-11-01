@@ -72,7 +72,10 @@ function parseCsv(text: string): string[][] {
     }
     if (quoted) {
       if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
-      else if (ch === '"') { quoted = false; closed = true; recovery = -1; }
+      else if (ch === '"') {
+        if (recovery >= 0 && text[i + 1] !== undefined && !',\r\n'.includes(text[i + 1])) return [...parseCsv(text.slice(0, recovery)), ...parseCsv(text.slice(recovery + (text[recovery] === '\r' ? 2 : 1)))];
+        quoted = false; closed = true; recovery = -1;
+      }
       else field += ch;
     } else if (ch === '"' && !field && !closed) quoted = true;
     else if (ch === ',' || ch === '\n' || ch === '\r' && text[i + 1] === '\n') {

@@ -210,6 +210,7 @@ function parseCsv(text) {
         field += '"';
         i++;
       } else if (ch === '"') {
+        if (recovery >= 0 && text[i + 1] !== void 0 && !",\r\n".includes(text[i + 1])) return [...parseCsv(text.slice(0, recovery)), ...parseCsv(text.slice(recovery + (text[recovery] === "\r" ? 2 : 1)))];
         quoted = false;
         closed = true;
         recovery = -1;

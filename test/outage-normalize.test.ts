@@ -35,7 +35,7 @@ it('parses quoted commas, escaped quotes and line breaks in power CSV fields', (
 it('keeps office-like lines inside closed quoted fields and recovers an unterminated row', () => {
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   const text = [header, '台電台中區營業處,a,"施工\n台電台中區營業處,文字",無,無,北屯區一街,1911',
-    '台電新營區營業處,b,"未結束', '台電台中區營業處,c,施工,無,無,北屯區二街,1911'].join('\n');
+    '台電新營區營業處,b,"未結束', '台電台中區營業處,"c",施工,無,無,北屯區二街,1911'].join('\n');
   const result = taipower(new Map([['101.csv', text]]), 1);
   expect(result.rows).toBe(3); expect(result.dropped).toBe(1);
   expect(result.items.map(i => [i.n, i.r])).toEqual([['a', '施工 台電台中區營業處,文字'], ['c', '施工']]);
