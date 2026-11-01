@@ -16,6 +16,13 @@ function areaText(item: Item): string {
   const prefix = item.c + item.d; let seen = false;
   return item.a.split(/([、；])/).map((part, i) => { if (i % 2) return part; if (!norm(part).startsWith(prefix)) { seen = false; return part; } if (seen) return part.trim().slice(prefix.length); seen = true; return part.trim(); }).join('');
 }
+function displayArea(item: Item, keyword: string, district: string): string {
+  const text = clean(areaText(item)), match = keyword || district;
+  const at = match ? norm(text).indexOf(match) : -1;
+  if (text.length <= 200 || at < 0 || at + match.length <= 199) return clean(text, 200);
+  const start = Math.max(0, Math.min(at - 50, text.length - 198)), end = Math.min(text.length, start + 198);
+  return `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
+}
 function keywordArea(area: string, city: string, district: string): string {
   const text = stripZeroWidth(norm(area)); if (!district) return text;
   let county = city, current = ''; const parts: string[] = [];
@@ -77,7 +84,7 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
     const checkedKind = checked.includes(official.taipower.name) ? (checked.length > 1 ? '停水／停電' : '停電') : '停水';
     if (!items.length && checked.length) lines.push(`官方公告中查無 ${place} ${dates} 的計畫性${checkedKind}${keyword ? `（關鍵字「${keyword}」）` : ''}。`, `已查詢來源：${checked.join('、')}。`);
     for (const item of items.slice(0, 30)) {
-      lines.push(`${item.k === 'power' ? '🔌 停電' : '💧 停水'}｜${formatTimes(item.t)}`, `範圍：${clean(areaText(item), 200)}${!item.d ? '（未標示行政區）' : ''}`, `原因：${item.r || (item.s === 'taipeiwater' ? '北水公告未提供' : '未提供')}${item.n ? `（${item.k === 'power' ? '請求號數' : '案件編號'} ${item.n}）` : ''}`);
+      lines.push(`${item.k === 'power' ? '🔌 停電' : '💧 停水'}｜${formatTimes(item.t)}`, `範圍：${displayArea(item, keyword, district)}${!item.d ? '（未標示行政區）' : ''}`, `原因：${item.r || (item.s === 'taipeiwater' ? '北水公告未提供' : '未提供')}${item.n ? `（${item.k === 'power' ? '請求號數' : '案件編號'} ${item.n}）` : ''}`);
       const info = index?.sources[item.s];
       lines.push(`來源：${item.s === 'taipower' ? item.o || official[item.s].name : official[item.s].name + (item.o ? ` ${item.o}` : '')} ${item.u}${item.k === 'power' ? '｜查詢電話 1911' : ''}｜資料取得 ${acquired(info?.ok ? info.fetchedAt ?? info.lastSuccessAt : info?.lastSuccessAt)}`);
     }

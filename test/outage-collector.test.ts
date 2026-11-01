@@ -70,6 +70,22 @@ it.each(['shard', 'index'])('keeps every previous shard readable after a partial
   if (failure === 'index') expect(values.get(indexKey)).toBe(before.get(indexKey));
   else expect(decodeIndex(values.get(indexKey)!).sources.taipeiwater).toMatchObject({ ok: false, counties: old.sources.taipeiwater!.counties, lastSuccessAt: old.sources.taipeiwater!.lastSuccessAt });
 });
+it.each(['missing', 'unavailable'])('fails shard publication with a %s previous source snapshot', async previous => {
+  const values = new Map<string, string>();
+  if (previous === 'unavailable') values.set(indexKey, JSON.stringify({ v: 1, generatedAt: now().toISOString(), sources: { taiwater: { ok: false, reason: 'offline', counties: {} } } }));
+  const put = vi.fn(async (key: string, value: string) => {
+    if (key.startsWith('outage:v1:taiwater:')) throw Error('shard write failed');
+    values.set(key, value);
+  });
+  const store: Store = { get: async key => values.get(key) ?? null, put };
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {}); mockSources();
+  expect(await collectOutages(store, { now })).toBe(1);
+  expect(error).toHaveBeenCalledWith('outage taiwater failed: shard write failed');
+  expect(put.mock.calls.at(-1)?.[0]).toBe(indexKey);
+  const index = decodeIndex(values.get(indexKey)!);
+  expect(index.sources.taiwater).toMatchObject({ ok: false, reason: 'shard write failed', counties: {} });
+  expect(index.sources.taipeiwater!.ok).toBe(true); expect(index.sources.taipower!.ok).toBe(true);
+});
 it('treats empty Taiwan Water, bad JSON, HTTP failure, and short power datasets as unavailable', async () => {
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('[]'));
   await expect(fetchSource('taiwater')).rejects.toThrow('空清單'); expect((await fetchSource('taipeiwater')).items).toEqual([]);
@@ -137,7 +153,7 @@ it('retries failed live fetches immediately and caches the recovered source', as
   await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledTimes(2);
 });
 
-it('returns nonzero only on a healthy source regression and still publishes failing-source heartbeats', async () => {
+it('returns nonzero for upstream unavailability only on a healthy source regression and still publishes failing-source heartbeats', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
   const fetch = mockSources(), original = fetch.getMockImplementation()!;
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {}), error = vi.spyOn(console, 'error').mockImplementation(() => {});

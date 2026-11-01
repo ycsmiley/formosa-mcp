@@ -27,19 +27,30 @@ it('filters keywords, uses date overlap across midnight and preserves unparseabl
   expect((await service.schedule({ city: '臺北市', type: 'power', start_date: '2026-11-04', end_date: '2026-11-04' })).text).not.toContain('🔌');
   const raw = (await service.schedule({ city: '臺北市', type: 'water', keyword: '松仁' })).text; expect(raw).toContain('另行公告'); expect(raw).toContain('北水');
 });
-it.each(['taiwater', 'taipeiwater', 'taipower'] as Source[])('matches roads after character 200 in %s areas and truncates only the display', async source => {
-  const first = '新北市中和區' + '中山路'.repeat(75), last = '新北市中和區林森北路', area = `${first}、${last}`;
+it.each(['taiwater', 'taipeiwater', 'taipower'] as Source[])('keeps matched roads after character 250 visible in long %s areas', async source => {
+  const first = '新北市中和區' + '中山路'.repeat(85), last = '新北市中和區林森北路' + '文化路'.repeat(75), area = `${first}、${last}`;
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   const items = source === 'taiwater' ? taiwater([{ 停水地區: area }]).items
     : source === 'taipeiwater' ? taipeiwater([{ SW_Area: area }]).items
     : taipower(new Map([['101.csv', `${header}\n處,1,施工,無,無,${first},1911\n處,1,施工,無,無,${last},1911`]]), 1).items;
-  expect(items).toHaveLength(1); expect(items[0].a).toBe(area); expect(items[0].a.indexOf('林森北路')).toBeGreaterThan(200);
+  expect(items).toHaveLength(1); expect(items[0].a).toBe(area); expect(items[0].a.indexOf('林森北路')).toBeGreaterThan(250);
   const { service } = setup(items);
   for (const district of [undefined, '中和區']) {
     const { text } = await service.schedule({ city: '新北市', district, type: source === 'taipower' ? 'power' : 'water', keyword: '林森北路' });
     expect(text).toContain(source === 'taipower' ? '🔌 停電' : '💧 停水');
-    expect(text.split('\n').find(line => line.startsWith('範圍：'))).toBe(`範圍：${first.slice(0, 199)}…`);
+    const displayed = text.split('\n').find(line => line.startsWith('範圍：'))!.slice(3);
+    expect(displayed).toContain('林森北路'); expect(displayed.length).toBeLessThanOrEqual(200);
+    expect(displayed.startsWith('…')).toBe(true); expect(displayed.endsWith('…')).toBe(true);
   }
+});
+it('keeps a matching district beyond the prefix visible when no keyword is given', async () => {
+  const base = all.find(i => i.s === 'taipeiwater')!;
+  const area = '臺北市大安區' + '和平東路'.repeat(65) + '；臺北市中山區林森北路';
+  const { service } = setup([{ ...base, c: '臺北市', d: '中山區', a: area }]);
+  const { text } = await service.schedule({ city: '臺北市', district: '中山區', type: 'water' });
+  const displayed = text.split('\n').find(line => line.startsWith('範圍：'))!.slice(3);
+  expect(displayed).toContain('中山區'); expect(displayed.startsWith('…')).toBe(true);
+  expect(displayed.length).toBeLessThanOrEqual(200);
 });
 it('matches keywords within each requested district segment and falls back when it is absent', async () => {
   const base = all.find(i => i.s === 'taipeiwater' && i.c === '臺北市')!;

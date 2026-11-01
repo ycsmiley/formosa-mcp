@@ -24,6 +24,7 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
   const index: Index = { v: 1, generatedAt: (options.now ?? (() => new Date()))().toISOString(), sources: {} };
   for (const [i, source] of sources.entries()) {
     const old = previous.sources[source]; let dropped = 0, count = 0, largest = 0;
+    let publicationFailed = false;
     try {
       const result = results[i]; if (result.status === 'rejected') throw result.reason;
       const data = result.value; dropped = data.dropped; count = data.items.length;
@@ -32,16 +33,20 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
       for (const [county, raw] of shards) {
         const sha = createHash('sha256').update(raw).digest('hex'); largest = Math.max(largest, Buffer.byteLength(raw));
         const prior = old?.counties[county]; let writtenAt = prior?.writtenAt;
-        if (prior?.sha !== sha || !writtenAt || Date.parse(index.generatedAt) - Date.parse(writtenAt) > 3 * 86400000) { await store.put(shardKey(source, county, sha), raw, index.generatedAt, 8 * 86400); writes++; writtenAt = index.generatedAt; }
+        if (prior?.sha !== sha || !writtenAt || Date.parse(index.generatedAt) - Date.parse(writtenAt) > 3 * 86400000) {
+          try { await store.put(shardKey(source, county, sha), raw, index.generatedAt, 8 * 86400); }
+          catch (e) { publicationFailed = true; throw e; }
+          writes++; writtenAt = index.generatedAt;
+        }
         counties[county] = { sha, count: data.items.filter(item => item.c === county).length, writtenAt };
       }
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties, dropped };
     } catch (e) {
       const emptyTaiwater = source === 'taiwater' && reason(e) === taiwaterEmptyReason;
       const regressed = old?.ok === true && !emptyTaiwater;
-      if (regressed) failed = true;
+      if (publicationFailed || regressed) failed = true;
       index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {}, ...(old?.dropped !== undefined ? { dropped: old.dropped } : {}) };
-      if (regressed) console.error(`outage ${source} failed: ${reason(e)}`);
+      if (publicationFailed || regressed) console.error(`outage ${source} failed: ${reason(e)}`);
       else console.warn(`outage ${source} unavailable: ${reason(e)}`);
     }
     console.log(`outage ${source} ok=${index.sources[source]!.ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
