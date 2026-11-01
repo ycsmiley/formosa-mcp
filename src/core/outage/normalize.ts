@@ -9,6 +9,11 @@ export const clean = (s: unknown, limit = Infinity) => {
 };
 export const canonical = (s: string) => stripZeroWidth(norm(s))
   .replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區]/g, '桃園市$1區')
+  .replace(/(臺北縣|臺中縣|臺南縣|高雄縣)(.{1,4}?[市鄉鎮])/g, (match, oldCounty: string, oldDistrict: string) => {
+    const county = oldCounty === '臺北縣' ? '新北市' : oldCounty.replace('縣', '市');
+    const district = resolveDistrict(county, oldDistrict);
+    return district ? county + district : match;
+  })
   .replace(/桃園縣/g, '桃園市').replace(/臺北縣/g, '新北市').replace(/(臺中|臺南|高雄)縣/g, '$1市');
 const countyPattern = counties.join('|');
 export function locations(text: string): { c: string; d: string }[] {
@@ -59,14 +64,15 @@ export function taipeiwater(input: unknown): { items: Item[]; dropped: number; r
 function unique(items: Item[]): Item[] { return [...new Map(items.map(i => [JSON.stringify(i), i])).values()]; }
 function parseCsv(text: string): string[][] {
   const records: string[][] = []; let record: string[] = [], field = '', quoted = false, closed = false, invalid = false;
+  let recovery = -1;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (quoted && (ch === '\n' || ch === '\r' && text[i + 1] === '\n') && /^(?:(?:台電|臺電)[^,\r\n]*區營業處|金門區營業處),/.test(text.slice(i + (ch === '\r' ? 2 : 1)))) {
-      records.push([...record, field, ...Array(8).fill('')]); record = []; field = ''; quoted = false; closed = false; invalid = false; if (ch === '\r') i++; continue;
+      if (recovery < 0) recovery = i;
     }
     if (quoted) {
       if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
-      else if (ch === '"') { quoted = false; closed = true; }
+      else if (ch === '"') { quoted = false; closed = true; recovery = -1; }
       else field += ch;
     } else if (ch === '"' && !field && !closed) quoted = true;
     else if (ch === ',' || ch === '\n' || ch === '\r' && text[i + 1] === '\n') {
@@ -75,10 +81,11 @@ function parseCsv(text: string): string[][] {
     } else if (closed) invalid = true;
     else field += ch;
   }
+  if (quoted && recovery >= 0) return [...parseCsv(text.slice(0, recovery)), ...parseCsv(text.slice(recovery + (text[recovery] === '\r' ? 2 : 1)))];
   record.push(field); if (quoted || invalid) record.push(...Array(8).fill('')); records.push(record); return records;
 }
 const officeCounties: Record<string, string[]> = {
-  臺北市區營業處: ['臺北市'], 臺北北區營業處: ['臺北市', '新北市'], 臺北南區營業處: ['臺北市', '新北市'], 臺北西區營業處: ['臺北市', '新北市'],
+  臺北市區營業處: ['臺北市'], 臺北區營業處: ['臺北市', '新北市'], 臺北北區營業處: ['臺北市', '新北市'], 臺北南區營業處: ['臺北市', '新北市'], 臺北西區營業處: ['臺北市', '新北市'],
   基隆區營業處: ['基隆市', '新北市'], 桃園區營業處: ['桃園市', '新北市'], 新竹區營業處: ['新竹市', '新竹縣', '桃園市'], 苗栗區營業處: ['苗栗縣', '臺中市'],
   臺中區營業處: ['臺中市', '南投縣'], 彰化區營業處: ['彰化縣', '南投縣'], 南投區營業處: ['南投縣', '臺中市'], 雲林區營業處: ['雲林縣', '嘉義縣'], 嘉義區營業處: ['嘉義市', '嘉義縣'],
   臺南區營業處: ['臺南市'], 新營區營業處: ['臺南市', '嘉義縣'], 高雄區營業處: ['高雄市', '臺南市'], 鳳山區營業處: ['高雄市'], 屏東區營業處: ['屏東縣'],

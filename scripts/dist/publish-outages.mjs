@@ -72,10 +72,7 @@ var districts = {
 };
 var counties = Object.keys(districts);
 var districtAtStart = (county, area) => {
-  const exact = districts[county]?.find((d) => area.startsWith(d));
-  if (exact) return exact;
-  const legacy = area.match(/^(.{1,4}?[市鄉鎮])/);
-  return legacy ? resolveDistrict(county, legacy[1]) ?? "" : "";
+  return districts[county]?.find((d) => area.startsWith(d)) ?? "";
 };
 function resolveDistrict(county, value) {
   const available = districts[county] ?? [];
@@ -138,7 +135,11 @@ var clean = (s, limit = Infinity) => {
   const text = typeof s === "string" || typeof s === "number" ? stripZeroWidth(String(s)).replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim() : "";
   return text.length > limit ? text.slice(0, limit - 1) + "\u2026" : text;
 };
-var canonical = (s) => stripZeroWidth(norm(s)).replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區]/g, "\u6843\u5712\u5E02$1\u5340").replace(/桃園縣/g, "\u6843\u5712\u5E02").replace(/臺北縣/g, "\u65B0\u5317\u5E02").replace(/(臺中|臺南|高雄)縣/g, "$1\u5E02");
+var canonical = (s) => stripZeroWidth(norm(s)).replace(/桃園縣(桃園|中壢|平鎮|八德|楊梅|蘆竹|大溪|龍潭|龜山|大園|觀音|新屋|復興)[市鄉鎮區]/g, "\u6843\u5712\u5E02$1\u5340").replace(/(臺北縣|臺中縣|臺南縣|高雄縣)(.{1,4}?[市鄉鎮])/g, (match, oldCounty, oldDistrict) => {
+  const county = oldCounty === "\u81FA\u5317\u7E23" ? "\u65B0\u5317\u5E02" : oldCounty.replace("\u7E23", "\u5E02");
+  const district = resolveDistrict(county, oldDistrict);
+  return district ? county + district : match;
+}).replace(/桃園縣/g, "\u6843\u5712\u5E02").replace(/臺北縣/g, "\u65B0\u5317\u5E02").replace(/(臺中|臺南|高雄)縣/g, "$1\u5E02");
 var countyPattern = counties.join("|");
 function locations(text) {
   const area = canonical(text), matches = [...area.matchAll(new RegExp(countyPattern, "g"))];
@@ -198,17 +199,11 @@ function unique(items) {
 function parseCsv(text) {
   const records2 = [];
   let record = [], field = "", quoted = false, closed = false, invalid = false;
+  let recovery = -1;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (quoted && (ch === "\n" || ch === "\r" && text[i + 1] === "\n") && /^(?:(?:台電|臺電)[^,\r\n]*區營業處|金門區營業處),/.test(text.slice(i + (ch === "\r" ? 2 : 1)))) {
-      records2.push([...record, field, ...Array(8).fill("")]);
-      record = [];
-      field = "";
-      quoted = false;
-      closed = false;
-      invalid = false;
-      if (ch === "\r") i++;
-      continue;
+      if (recovery < 0) recovery = i;
     }
     if (quoted) {
       if (ch === '"' && text[i + 1] === '"') {
@@ -217,6 +212,7 @@ function parseCsv(text) {
       } else if (ch === '"') {
         quoted = false;
         closed = true;
+        recovery = -1;
       } else field += ch;
     } else if (ch === '"' && !field && !closed) quoted = true;
     else if (ch === "," || ch === "\n" || ch === "\r" && text[i + 1] === "\n") {
@@ -233,6 +229,7 @@ function parseCsv(text) {
     } else if (closed) invalid = true;
     else field += ch;
   }
+  if (quoted && recovery >= 0) return [...parseCsv(text.slice(0, recovery)), ...parseCsv(text.slice(recovery + (text[recovery] === "\r" ? 2 : 1)))];
   record.push(field);
   if (quoted || invalid) record.push(...Array(8).fill(""));
   records2.push(record);
@@ -240,6 +237,7 @@ function parseCsv(text) {
 }
 var officeCounties = {
   \u81FA\u5317\u5E02\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02"],
+  \u81FA\u5317\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
   \u81FA\u5317\u5317\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
   \u81FA\u5317\u5357\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],
   \u81FA\u5317\u897F\u5340\u71DF\u696D\u8655: ["\u81FA\u5317\u5E02", "\u65B0\u5317\u5E02"],

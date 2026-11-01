@@ -32,6 +32,14 @@ it('parses quoted commas, escaped quotes and line breaks in power CSV fields', (
   expect(result.items[2].a).toBe('臺北市信義區中正路 一段');
   expect(() => taipower(new Map([['101.csv', csv]]), 4)).toThrow('筆數不足');
 });
+it('keeps office-like lines inside closed quoted fields and recovers an unterminated row', () => {
+  const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
+  const text = [header, '台電台中區營業處,a,"施工\n台電台中區營業處,文字",無,無,北屯區一街,1911',
+    '台電新營區營業處,b,"未結束', '台電台中區營業處,c,施工,無,無,北屯區二街,1911'].join('\n');
+  const result = taipower(new Map([['101.csv', text]]), 1);
+  expect(result.rows).toBe(3); expect(result.dropped).toBe(1);
+  expect(result.items.map(i => [i.n, i.r])).toEqual([['a', '施工 台電台中區營業處,文字'], ['c', '施工']]);
+});
 it('converts legacy Taoyuan districts without corrupting 平鎮區', () => {
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
   const areas = ['桃園縣平鎮市廣泰路', '桃園縣平鎮區廣泰路', '桃園縣大園鄉中正東路一段', '桃園縣新屋鄉新生五街', '新竹縣竹東鎮中正路'];
@@ -118,13 +126,13 @@ it('includes all 368 current districts across the 22 counties with 臺 spelling'
   expect(canonical('桃園縣平鎮區')).toBe('桃園市平鎮區');
 });
 it('uses listed districts at the start of an area rather than community or market words', () => {
-  const areas = ['臺北市幸福社區市場', '臺北市市場周邊', '臺北市中山區幸福社區市場', '臺中市新社區中正路'];
+  const areas = ['臺北市幸福社區市場', '臺北市市場周邊', '臺北市中山市場旁', '臺北市中山區幸福社區市場', '臺中市新社區中正路'];
   expect(areas.map(locations)).toEqual([
-    [{ c: '臺北市', d: '' }], [{ c: '臺北市', d: '' }],
+    [{ c: '臺北市', d: '' }], [{ c: '臺北市', d: '' }], [{ c: '臺北市', d: '' }],
     [{ c: '臺北市', d: '中山區' }], [{ c: '臺中市', d: '新社區' }],
   ]);
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
-  expect(taipower(new Map([['101.csv', [header, ...areas.map((a, i) => `處,${i},施工,無,無,${a},1911`)].join('\n')]]), 1).items.map(i => i.d)).toEqual(['', '', '中山區', '新社區']);
+  expect(taipower(new Map([['101.csv', [header, ...areas.map((a, i) => `處,${i},施工,無,無,${a},1911`)].join('\n')]]), 1).items.map(i => i.d)).toEqual(['', '', '', '中山區', '新社區']);
 });
 it('drops wrong-field-count CSV rows and fails only above both the absolute and percentage caps', () => {
   const header = '營業區處,請求號數,工作概述,第一次停電時間,第二次停電時間,停電範圍,查詢電話(1911)';
@@ -159,7 +167,7 @@ it('collapses controls and whitespace, preserves full areas and bounds reasons f
 
 it('resolves every live power office and its covered counties', () => {
   const offices: Record<string, string[]> = {
-    基隆: ['基隆市', '新北市'], 台北市: ['臺北市'], 台北北: ['臺北市', '新北市'], 台北南: ['臺北市', '新北市'], 台北西: ['臺北市', '新北市'],
+    基隆: ['基隆市', '新北市'], 台北: ['臺北市', '新北市'], 台北市: ['臺北市'], 台北北: ['臺北市', '新北市'], 台北南: ['臺北市', '新北市'], 台北西: ['臺北市', '新北市'],
     桃園: ['桃園市', '新北市'], 新竹: ['新竹市', '新竹縣', '桃園市'], 苗栗: ['苗栗縣', '臺中市'], 台中: ['臺中市', '南投縣'], 南投: ['南投縣', '臺中市'],
     彰化: ['彰化縣', '南投縣'], 雲林: ['雲林縣', '嘉義縣'], 嘉義: ['嘉義市', '嘉義縣'], 新營: ['臺南市', '嘉義縣'], 台南: ['臺南市'],
     高雄: ['高雄市', '臺南市'], 鳳山: ['高雄市'], 屏東: ['屏東縣'], 台東: ['臺東縣'], 花蓮: ['花蓮縣'], 宜蘭: ['宜蘭縣', '新北市'], 澎湖: ['澎湖縣'], 金門: ['金門縣'],

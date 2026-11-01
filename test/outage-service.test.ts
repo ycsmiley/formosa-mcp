@@ -180,12 +180,14 @@ it('resolves shortened districts, Taoyuan legacy names, and bare county names be
   const base = all.find(i => i.s === 'taipower')!;
   const items: Item[] = [
     { ...base, c: '臺北市', d: '中山區', a: '臺北市中山區林森北路', n: 'zhongshan' },
+    { ...base, c: '新北市', d: '板橋區', a: '新北市板橋區文化路', n: 'banqiao' },
     { ...base, c: '桃園市', d: '平鎮區', a: '桃園市平鎮區廣泰路', n: 'pingzhen' },
     { ...base, c: '雲林縣', d: '斗六市', a: '雲林縣斗六市中山路', n: 'yunlin' },
   ];
   const { service } = setup(items);
   for (const [city, district, place, road] of [
     ['臺北市', '中山', '臺北市中山區', '林森北路'],
+    ['臺北縣', '板橋市', '新北市板橋區', '文化路'],
     ['桃園縣', '平鎮市', '桃園市平鎮區', '廣泰路'],
     ['雲林', '斗六', '雲林縣斗六市', '中山路'],
     [' 台\u200b北 市 ', ' 中\u200b 山 ', '臺北市中山區', '林森北路'],
