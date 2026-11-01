@@ -162,7 +162,7 @@ it('registers the bounded MCP arguments, applies defaults and returns Chinese va
 
 it('limits no-match wording to checked sources and warns about dropped power rows', async () => {
   const { index, service } = setup([]); index.sources.taiwater = { ok: false, reason: taiwaterEmptyReason, counties: {} };
-  index.sources.taipower!.droppedBy = { '台電台中區營業處': 3 };
+  index.sources.taipower!.dropped = 3; index.sources.taipower!.droppedBy = { '台電台中區營業處': 3 };
   const text = (await service.schedule({ city: '臺中市', type: 'all' })).text;
   expect(text).toContain('官方公告中查無 臺中市 2026-11-01～2026-11-07 的計畫性停電。');
   expect(text).toContain('已查詢來源：台電。');
@@ -170,7 +170,7 @@ it('limits no-match wording to checked sources and warns about dropped power row
   expect(text.split('\n').slice(-4, -2)).toEqual([
     '台水官方開放資料目前是空的，結果可能不完整，請至 https://web.water.gov.tw/wateroff/ 自行查詢。', notice,
   ]);
-  const matched = setup(); matched.index.sources.taipower!.droppedBy = { '台電台北南區營業處': 3 };
+  const matched = setup(); matched.index.sources.taipower!.dropped = 3; matched.index.sources.taipower!.droppedBy = { '台電台北南區營業處': 3 };
   const match = (await matched.service.schedule({ city: '臺北市', type: 'power' })).text;
   expect(match).toContain('🔌 停電'); expect(match.split('\n').at(-3)).toBe(notice);
   expect((await service.schedule({ city: '臺中市', type: 'water' })).text).not.toContain('筆台電公告無法判定縣市');
@@ -281,10 +281,24 @@ it('scopes dropped power rows to covered counties and sorts missing districts la
     { ...base, n: 'named', d: '信義區', a: '臺北市信義區', t: [['2026-11-03T08:00', '2026-11-03T09:00']] },
   ];
   const { index, service } = setup(items);
-  index.sources.taipower!.droppedBy = { '台電台北南區營業處': 2, '台電新營區營業處': 3 };
+  index.sources.taipower!.dropped = 5; index.sources.taipower!.droppedBy = { '台電台北南區營業處': 2, '台電新營區營業處': 3 };
   const text = (await service.schedule({ city: '臺北市', type: 'power' })).text;
   expect(text).toContain('另有 2 筆台電公告');
   expect(text.indexOf('請求號數 named')).toBeLessThan(text.indexOf('請求號數 missing'));
   expect((await service.schedule({ city: '嘉義縣', type: 'power' })).text).toContain('另有 3 筆台電公告');
+  expect((await service.schedule({ city: '花蓮縣', type: 'power' })).text).not.toContain('筆台電公告');
+});
+
+it('warns every county about unattributed dropped power rows', async () => {
+  const { index, service } = setup([]), power = index.sources.taipower!;
+  power.dropped = 4;
+  for (const city of ['臺北市', '花蓮縣']) {
+    expect((await service.schedule({ city, type: 'power' })).text).toContain('另有 4 筆台電公告');
+  }
+  // One row has a blank office and therefore is absent from droppedBy.
+  power.droppedBy = { '未知營業處': 1, '台電台北南區營業處': 2 };
+  expect((await service.schedule({ city: '臺北市', type: 'power' })).text).toContain('另有 4 筆台電公告');
+  expect((await service.schedule({ city: '花蓮縣', type: 'power' })).text).toContain('另有 2 筆台電公告');
+  power.dropped = 2; power.droppedBy = { '台電台北南區營業處': 2 };
   expect((await service.schedule({ city: '花蓮縣', type: 'power' })).text).not.toContain('筆台電公告');
 });

@@ -75,7 +75,16 @@ export function createOutageService(store: OutageStore, clock = () => new Date()
       if (emptyTaiwater) unavailable.push(`台水官方開放資料目前是空的，結果可能不完整，請至 ${official.taiwater.url} 自行查詢。`);
       if (!result.items) { if (!emptyTaiwater) unavailable.push(`${official[source].name}：該來源暫時無法取得（${result.reason}），請至 ${official[source].url} 查詢`); continue; }
       if (result.info?.ok) checked.push(official[source].name);
-      const dropped = source === 'taipower' ? Object.entries(result.info?.droppedBy ?? {}).reduce((sum, [office, count]) => sum + (countiesForOffice(office).includes(city) ? count : 0), 0) : result.info?.dropped ?? 0;
+      let dropped = result.info?.dropped ?? 0;
+      if (source === 'taipower') {
+        let attributed = 0, scoped = 0;
+        for (const [office, count] of Object.entries(result.info?.droppedBy ?? {})) {
+          const covered = countiesForOffice(office);
+          if (covered.length) attributed += count;
+          if (covered.includes(city)) scoped += count;
+        }
+        dropped = scoped + Math.max(0, dropped - attributed);
+      }
       if (dropped) unavailable.push(`另有 ${dropped} 筆${official[source].name}公告無法判定縣市，未納入比對，請至 ${official[source].url} 確認。`);
       matched.push(...result.items.filter(item => item.c === city && (!district || !item.d || canonical(item.d) === district) && (!keyword || keywordArea(item.a, city, district).includes(keyword))).map(item => ({ ...item, t: typeof item.t === 'string' ? item.t : item.t.filter(overlaps) })).filter(item => typeof item.t === 'string' || item.t.length));
     }
