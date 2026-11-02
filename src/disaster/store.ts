@@ -4,17 +4,32 @@ import { TtlCache } from '../core/cache.js';
 import { filename } from '../garbage/store.js';
 import { collectDisaster, type Store } from '../core/disaster/collect.js';
 import { fetchText } from '../core/disaster/http.js';
-import { decodeIndex, decodeShard, indexKey, shardKey, type Writer } from '../core/disaster/model.js';
+import { decodeIndex, decodeShard, indexKey, shardKey, sources, type Source, type Writer, type Index } from '../core/disaster/model.js';
 import type { DisasterStore } from '../core/disaster/service.js';
 export function localDisasterStore(dir?: string): DisasterStore {
-  const values = new Map<string, string>();
-  const cache = new TtlCache<Awaited<ReturnType<typeof collectDisaster>>>(result => Object.values(result.index.sources).every(s => s.ok) ? 10 * 60000 : 0);
-  const memory: Store = { get: async key => values.get(key) ?? null, put: async (key, value) => { values.set(key, value); } };
-  const read = async (key: string) => { if (!dir) return memory.get(key); try { return await readFile(join(dir, filename(key)), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; } };
-  const refresh = async () => { if (!dir) await cache.getOrLoad('disaster', () => collectDisaster({ writer: 'gha', store: memory, fetchText: url => fetchText(url, 30000), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 6 })); };
-  const index = async (writer: Writer) => { try { const raw = await read(indexKey(writer)); return raw ? decodeIndex(raw) : null; } catch { return null; } };
+  const memoryStore = (): Store => {
+    const values = new Map<string, string>();
+    return { get: async key => values.get(key) ?? null, put: async (key, value) => { values.set(key, value); } };
+  };
+  // Separate stores isolate index writes: DGPA never waits on an in-flight NCDR run.
+  const memory = { dgpa: memoryStore(), ncdr: memoryStore() };
+  // Source keys keep TTLs and in-flight promises independent too.
+  const cache = new TtlCache<Awaited<ReturnType<typeof collectDisaster>>>(result => Object.values(result.index.sources).every(s => s.ok) ? 10 * 60000 : 2 * 60000);
+  const read = async (key: string, source: Source) => { if (!dir) return memory[source].get(key); try { return await readFile(join(dir, filename(key)), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; } };
+  const refresh = async (source: Source) => { if (!dir) await cache.getOrLoad(source, () => collectDisaster({ writer: 'gha', store: memory[source], only: [source], fetchText: url => fetchText(url, 12000), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 6 })); };
+  const index = async (writer: Writer, source: Source) => { try { const raw = await read(indexKey(writer), source); return raw ? decodeIndex(raw) : null; } catch { return null; } };
   return {
-    async indexes() { await refresh(); const [worker, gha] = await Promise.all([index('worker'), index('gha')]); return { worker, gha }; },
-    async shard(source, sha) { const raw = await read(shardKey(source, sha)); return raw ? decodeShard(raw, source) : null; },
+    async indexes(source) {
+      const selected = source ? [source] : sources;
+      await Promise.all(selected.map(refresh));
+      const load = async (writer: Writer): Promise<Index | null> => {
+        if (dir) return index(writer, selected[0]);
+        const indexes = await Promise.all(selected.map(s => index(writer, s)));
+        const first = indexes.find((i): i is Index => i !== null);
+        return first ? { ...first, sources: Object.assign({}, ...indexes.map(i => i?.sources)) } : null;
+      };
+      const [worker, gha] = await Promise.all([load('worker'), load('gha')]); return { worker, gha };
+    },
+    async shard(source, sha) { const raw = await read(shardKey(source, sha), source); return raw ? decodeShard(raw, source) : null; },
   };
 }
