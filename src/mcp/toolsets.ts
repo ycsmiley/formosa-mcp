@@ -1,3 +1,5 @@
+import { disaster } from './disaster.js';
+import type { DisasterStore } from '../core/disaster/service.js';
 import { outage } from './outage.js';
 import type { OutageStore } from '../core/outage/service.js';
 import { garbage } from './garbage.js';
@@ -17,6 +19,7 @@ export interface ToolRegistrar {
 export interface ToolsetContext extends InvoiceServiceOptions {
   garbageStore?: GarbageStore;
   outageStore?: OutageStore;
+  disasterStore?: DisasterStore;
   env?: Record<string, string | undefined>;
   railHttp?: RailHttp;
   railService?: ReturnType<typeof createRailService>;
@@ -31,7 +34,7 @@ export interface Toolset {
   register(server: ToolRegistrar, ctx: ToolsetContext): void;
 }
 export const DEFAULT_TOOLSETS = ['invoice', 'stock', 'garbage', 'outage'];
-export const toolsets: Toolset[] = [invoice, stock, garbage, outage, rail];
+export const toolsets: Toolset[] = [invoice, stock, garbage, outage, disaster, rail];
 export function registerToolsets(server: ToolRegistrar, selected: Toolset[], env: Record<string, string | undefined>, ctx: ToolsetContext = {}): void {
   const log = ctx.log ?? console.error;
   for (const toolset of selected) {
