@@ -90,7 +90,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
       else {
         const instant = clock().getTime();
         const live = data.filter(e => !e.expires || Date.parse(e.expires) > instant);
-        const incomplete = data.some(e => e.complete !== true);
+        const incomplete = live.some(e => e.complete !== true);
         const verified = data.length > 0 || chosen?.empty === true;
         const reliable = !stale && attempt?.ok === true && verified && !incomplete;
         const sort = (a: Alert, b: Alert) => severities.indexOf(a.severity ?? 'Unknown') - severities.indexOf(b.severity ?? 'Unknown') || (Date.parse(b.effective ?? '') || 0) - (Date.parse(a.effective ?? '') || 0);

@@ -10,6 +10,19 @@ function setup() {
   const read = () => decodeIndex(values.get(indexKey(options.writer))!);
   return { values, writes, store, calls, fetchText, options, read, advance: (ms: number) => { clock += ms; } };
 }
+it.each(['{broken', '{}', ''])('rebuilds a corrupt own index and publishes fresh shards (%s)', async raw => {
+  const s = setup(); s.options.warn = vi.fn(); s.values.set(indexKey(s.options.writer), raw);
+  const result = await collectDisaster(s.options), rebuilt = s.read();
+  expect(s.options.warn).toHaveBeenCalledOnce(); expect(s.fetchText).toHaveBeenCalledWith(official.dgpa);
+  expect(result.previous.sources).toEqual({}); expect(result.exitCode).toBe(0);
+  expect(rebuilt).toMatchObject({ writer: s.options.writer, heartbeatAt: new Date(at).toISOString(), sources: { dgpa: { ok: true }, ncdr: { ok: true } } });
+  expect(s.writes.map(w => w.key)).toEqual([shardKey('dgpa', rebuilt.sources.dgpa!.sha!), shardKey('ncdr', rebuilt.sources.ncdr!.sha!), indexKey(s.options.writer)]);
+});
+it('rejects a valid own index belonging to the other writer before fetching or writing', async () => {
+  const s = setup(); s.options.warn = vi.fn(); s.values.set(indexKey(s.options.writer), JSON.stringify(index({})));
+  await expect(collectDisaster(s.options)).rejects.toThrow('災防索引寫入者不符');
+  expect(s.fetchText).not.toHaveBeenCalled(); expect(s.writes).toEqual([]); expect(s.options.warn).not.toHaveBeenCalled();
+});
 it('keeps good DGPA sha, timestamps and lines after empty or failed responses', async () => {
   const s = setup(); await collectDisaster(s.options); const old = s.read().sources.dgpa!;
   for (const [i, text] of ['', '<html>maintenance</html>'].entries()) {
@@ -80,7 +93,7 @@ it('retains own previous fields when skipped and fetches if peer cannot be decod
   const s = setup(); await collectDisaster(s.options); const old = s.read().sources;
   s.options.peerIndex = async () => index(old); s.fetchText.mockClear(); await collectDisaster(s.options);
   expect(s.read().sources.dgpa).toEqual({ ...old.dgpa, skipped: true }); expect(s.fetchText).not.toHaveBeenCalled();
-  s.options.peerIndex = async () => { throw Error('bad peer'); }; await collectDisaster(s.options); expect(s.fetchText).toHaveBeenCalled();
+  s.options.peerIndex = async () => decodeIndex('{broken'); await collectDisaster(s.options); expect(s.fetchText).toHaveBeenCalled();
 });
 it.each([['00:04:29.999', 0], ['00:04:30.000', 150000], ['00:05:00.000', 120000], ['00:06:59.999', 1], ['00:07:00.000', 0], ['00:14:30.000', 150000], ['00:59:59.000', 0]])('quietDelayMs %s', (value, expected) => { expect(quietDelayMs(new Date(`2026-11-02T${value}Z`))).toBe(expected); });
 it('waits out the quiet window before requests and applies deadline after sleeping', async () => {

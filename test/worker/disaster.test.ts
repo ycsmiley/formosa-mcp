@@ -58,12 +58,32 @@ it('uses the GHA peer source revision to prevent an older Worker publication', a
 });
 it('reports corrupt Worker KV indexes through disaster tools', async () => {
   await bindings.SNAPSHOTS.put(indexKey('worker'), '{broken');
-  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('upstream forbidden'));
-  for (const name of ['work_school_closure', 'disaster_alerts']) {
-    const response = await worker.fetch(new Request('http://localhost/mcp', { method: 'POST', headers: { Host: 'localhost', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'CF-Connecting-IP': '203.0.113.136' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { city: '臺北市' } } }) }), bindings, createExecutionContext());
-    const text = await response.text(); expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料');
+  try {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('upstream forbidden'));
+    for (const name of ['work_school_closure', 'disaster_alerts']) {
+      const response = await worker.fetch(new Request('http://localhost/mcp', { method: 'POST', headers: { Host: 'localhost', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'CF-Connecting-IP': '203.0.113.136' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { city: '臺北市' } } }) }), bindings, createExecutionContext());
+      const text = await response.text(); expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料');
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { await bindings.SNAPSHOTS.delete(indexKey('worker')); }
+});
+it('fetches DGPA and rebuilds a corrupt Worker index during a scheduled disaster run', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:15:00+08:00'));
+  const peer = await bindings.SNAPSHOTS.get(indexKey('gha'));
+  await bindings.SNAPSHOTS.put(indexKey('worker'), '{broken');
+  await bindings.SNAPSHOTS.delete(indexKey('gha'));
+  try {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input) === official.dgpa ? new Response(none) : new Response('unavailable', { status: 503 }));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await worker.scheduled(createScheduledController({ cron, scheduledTime: Date.now() }), bindings, createExecutionContext());
+    expect(fetch).toHaveBeenCalledWith(official.dgpa, expect.anything());
+    const rebuilt = decodeIndex((await bindings.SNAPSHOTS.get(indexKey('worker')))!);
+    expect(rebuilt.writer).toBe('worker'); expect(rebuilt.sources.dgpa?.ok).toBe(true);
+    expect(await bindings.SNAPSHOTS.get(shardKey('dgpa', rebuilt.sources.dgpa!.sha!))).not.toBeNull();
+  } finally {
+    await bindings.SNAPSHOTS.delete(indexKey('worker'));
+    if (peer !== null) await bindings.SNAPSHOTS.put(indexKey('gha'), peer);
   }
-  expect(fetch).not.toHaveBeenCalled();
 });
 it('does not send NCDR requests after a delayed scheduled deadline', async () => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:16:01+08:00'));

@@ -15,12 +15,17 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
   const now = o.now ?? (() => new Date()), started = now().getTime(), scheduled = o.scheduledAt ?? started;
   const guardEnd = Math.floor(scheduled / 600000) * 600000 + 7 * 60000;
   const raw = await o.store.get(indexKey(o.writer));
-  const previous: Index = raw ? decodeIndex(raw) : { v: 1, writer: o.writer, heartbeatAt: new Date(started).toISOString(), sources: {} };
+  let stored: Index | null = null;
+  if (raw !== null) {
+    try { stored = decodeIndex(raw); }
+    catch { o.warn?.(`disaster ${o.writer} 索引無法解讀，重新建立`); }
+  }
+  const previous: Index = stored ?? { v: 1, writer: o.writer, heartbeatAt: new Date(started).toISOString(), sources: {} };
   if (previous.writer !== o.writer) throw Error('災防索引寫入者不符');
   let peer: Index | null = null;
   if (o.peerIndex) { try { peer = await o.peerIndex(); } catch { /* Independent fallback still fetches when peer is unavailable. */ } }
   // A 55m heartbeat becomes ~60–70m on cron cadence, within the 90m freshness window.
-  const heartbeatDue = !raw || started - Date.parse(previous.heartbeatAt) >= 55 * 60000;
+  const heartbeatDue = !stored || started - Date.parse(previous.heartbeatAt) >= 55 * 60000;
   const index: Index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: { ...previous.sources }, ...(previous.budget ? { budget: previous.budget } : {}) };
   const shards = new Map<Source, { encoded: string; sha: string }>();
   let writes = 0, exitCode = 0, finished = responseTimes.get(o.store);

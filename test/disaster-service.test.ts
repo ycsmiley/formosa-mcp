@@ -73,6 +73,13 @@ it('distinguishes no active alerts, source failure, expired alerts and a closed 
   s.indexes.gha = index({ ncdr: { ok: false, closed: true, fetchedAt: '2026-11-02T09:16:00+08:00', reason: '請先登入會員。' } }, 'gha');
   const closed = await s.service.alerts({ city: '新竹' }); expect(closed.text).toContain('disaster_alerts 尚未支援'); expect(closed.text).toContain('本服務不使用金鑰'); expect(closed.text).not.toContain('目前沒有'); expect(closed.text).toContain('來源更新時間：');
 });
+it('confirms no active alerts when a fresh verified snapshot contains an expired incomplete alert', async () => {
+  const s = setup(none, at);
+  s.shards.set('ncdr', [{ ...alerts()[0], counties: ['臺北市'], expires: at, complete: false }]);
+  s.worker.sources.ncdr!.count = 1; delete s.worker.sources.ncdr!.empty;
+  const text = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(text).toContain('目前沒有臺北市生效中的告警'); expect(text).not.toContain('告警範圍資料不完整');
+});
 it('sorts severity then effective, labels earthquake/water, limits output, and shows source times and missing details', async () => {
   const s = setup(none, at), base = alerts()[0];
   const entries: Alert[] = Array.from({ length: 23 }, (_, i) => ({ ...base, id: String(i), title: `公告${i}`, type: i === 0 ? '地震' : i === 1 ? '停水' : '強風', severity: i < 2 ? 'Extreme' : 'Minor', counties: ['臺北市'], effective: '2026-11-02T08:00:00+08:00' }));
