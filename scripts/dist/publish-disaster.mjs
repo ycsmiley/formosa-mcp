@@ -110,7 +110,7 @@ function decodeAlerts(raw) {
   if (!Array.isArray(x)) throw Error("\u544A\u8B66\u5FEB\u7167\u683C\u5F0F\u932F\u8AA4");
   const ids = /* @__PURE__ */ new Set();
   for (const v of x) {
-    if (!object(v) || !["id", "type", "text", "link"].every((k) => typeof v[k] === "string") || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== "boolean" || !strings(v.counties) || v.counties.some((c) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || ["title", "sender", "level", "color"].some((k) => v[k] !== void 0 && typeof v[k] !== "string") || v.text.length > 400 || v.severity !== void 0 && !severities.includes(v.severity) || ["effective", "expires"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.areas !== void 0 && (!strings(v.areas) || v.areas.length > 30 || v.areas.some((a) => a.length > 100)) || !/^https?:\/\//.test(v.link)) throw Error("\u544A\u8B66\u9805\u76EE\u683C\u5F0F\u932F\u8AA4");
+    if (!object(v) || !["id", "type", "text", "link"].every((k) => typeof v[k] === "string") || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== "boolean" || !strings(v.counties) || v.counties.some((c) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || ["title", "sender", "level", "color"].some((k) => v[k] !== void 0 && typeof v[k] !== "string") || v.text.length > 400 || v.severity !== void 0 && !severities.includes(v.severity) || ["effective", "expires"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.areas !== void 0 && (!strings(v.areas) || v.areas.length > 200 || v.areas.some((a) => a.length > 100)) || !/^https?:\/\//.test(v.link)) throw Error("\u544A\u8B66\u9805\u76EE\u683C\u5F0F\u932F\u8AA4");
     ids.add(v.id);
   }
   return x;
@@ -211,7 +211,23 @@ function xml(s, root) {
   }
   if (!roots || stack.length || input.slice(end).trim() || !new RegExp(`<(?:[\\w-]+:)?${root}\\b`).test(input) || input.replace(/<[^>]+>/g, "").includes("<")) throw Error("NCDR XML \u683C\u5F0F\u932F\u8AA4");
 }
-var mentioned = (s) => counties.filter((c) => canonical(s).includes(c));
+var districtNames;
+function mentioned(s) {
+  if (!districtNames) {
+    const owners = /* @__PURE__ */ new Map();
+    for (const [county, names] of Object.entries(districts)) for (const name of names) {
+      const full = canonical(name), stem = full.replace(/[鄉鎮市區]$/, "");
+      for (const key of [full, ...stem.length >= 2 ? [stem] : []]) {
+        if (!owners.has(key)) owners.set(key, /* @__PURE__ */ new Set());
+        owners.get(key).add(county);
+      }
+    }
+    districtNames = [...owners].filter(([, cs]) => cs.size === 1).map(([name, cs]) => [name, [...cs][0]]);
+  }
+  const summary = canonical(s), matched = new Set(counties.filter((c) => summary.includes(c)));
+  for (const [name, county] of districtNames) if (summary.includes(name)) matched.add(county);
+  return counties.filter((c) => matched.has(c));
+}
 function entry(v) {
   if (typeof v.id !== "string" || !v.id || typeof v.title !== "string" || !v.title || v.summary !== void 0 && typeof v.summary !== "string" && (!object(v.summary) || typeof v.summary["#text"] !== "string") || typeof v.status !== "string" || typeof v.msgType !== "string") throw Error("NCDR \u544A\u8B66\u9805\u76EE\u683C\u5F0F\u932F\u8AA4");
   const summary = text(typeof v.summary === "string" ? v.summary : v.summary?.["#text"] ?? "");
@@ -254,9 +270,11 @@ function parseCap(s) {
     if (v && !timestamp(v)) throw Error("CAP \u6642\u9593\u683C\u5F0F\u932F\u8AA4");
     if (v) times[key] = v;
   }
-  const allAreas = [...new Set(tags(info, "areaDesc").map(text).filter(Boolean))];
+  const allAreas = [...new Set(tags(info, "areaDesc").map(text).filter(Boolean))].map((a) => ({ original: a, canonical: canonical(a) }));
+  const matched = counties.filter((c) => allAreas.some((a) => a.canonical.startsWith(c)));
+  const areas = allAreas.filter((a) => matched.some((c) => a.canonical.startsWith(c))).slice(0, 200).map((a) => clean(a.original, 100));
   const parameters = Object.fromEntries(tags(info, "parameter").map((p) => [text(tag(p, "valueName")), text(tag(p, "value"))]));
-  return { id, type, title: text(tag(info, "headline")), sender: text(tag(info, "senderName")), severity, ...times, ...parameters.severity_level ? { level: parameters.severity_level } : {}, ...parameters.alert_color ? { color: parameters.alert_color } : {}, counties: counties.filter((c) => allAreas.some((a) => canonical(a).startsWith(c))), areas: allAreas.slice(0, 30).map((a) => clean(a, 100)), text: clean(text(tag(info, "description")), 400), web: text(tag(info, "web")) || official.ncdr, status: text(tag(body, "status")), msgType: text(tag(body, "msgType")) };
+  return { id, type, title: text(tag(info, "headline")), sender: text(tag(info, "senderName")), severity, ...times, ...parameters.severity_level ? { level: parameters.severity_level } : {}, ...parameters.alert_color ? { color: parameters.alert_color } : {}, counties: matched, areas, text: clean(text(tag(info, "description")), 400), web: text(tag(info, "web")) || official.ncdr, status: text(tag(body, "status")), msgType: text(tag(body, "msgType")) };
 }
 
 // src/core/disaster/collect.ts
@@ -280,7 +298,7 @@ async function collectDisaster(o) {
     }
   }
   const heartbeatDue = !raw || started - Date.parse(previous.heartbeatAt) >= 19 * 6e4;
-  const index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: {} };
+  const index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: { ...previous.sources } };
   let writes = 0, exitCode = 0, finished = responseTimes.get(o.store);
   async function request(url) {
     if (finished !== void 0) {
@@ -329,40 +347,43 @@ async function collectDisaster(o) {
       } catch {
       }
     }
-    let caps = 0;
-    const data = [];
-    for (const e of feed2.entries) {
+    const data = feed2.entries.map((e) => {
       const { status: _status, msgType: _msgType, ...base } = e;
-      const retained = detailed.get(e.id);
-      if (retained) {
-        data.push(retained);
-        continue;
-      }
-      let item = base;
+      return detailed.get(e.id) ?? base;
+    });
+    const pending = feed2.entries.flatMap((e, i) => {
+      if (detailed.has(e.id)) return [];
       let safe = false;
       try {
         const url = new URL(e.link);
         safe = url.protocol === "https:" && url.hostname === "alerts.ncdr.nat.gov.tw" && !url.port && !url.username && !url.password;
       } catch {
       }
-      if (safe && caps < o.maxCaps && (o.ncdrDeadlineMs === void 0 || now().getTime() - started <= o.ncdrDeadlineMs)) {
-        caps++;
+      return safe ? [i] : [];
+    });
+    const offset = pending.length ? Math.floor(started / 6e5) * o.maxCaps % pending.length : 0;
+    for (let n = 0; n < Math.min(o.maxCaps, pending.length); n++) {
+      const i = pending[(offset + n) % pending.length], e = feed2.entries[i], base = data[i];
+      if (o.ncdrDeadlineMs === void 0 || now().getTime() - started <= o.ncdrDeadlineMs) {
         try {
           const body = await request(e.link);
           if (new TextEncoder().encode(body).length > 256 * 1024) throw Error("CAP \u8D85\u904E\u5927\u5C0F\u4E0A\u9650");
           const cap = parseCap(body);
           if (cap.id !== e.id) throw Error("CAP \u8B58\u5225\u78BC\u4E0D\u7B26");
-          if (cap.status !== "Actual" || cap.msgType === "Cancel") continue;
+          if (cap.status !== "Actual" || cap.msgType === "Cancel") {
+            data[i] = null;
+            continue;
+          }
           const { status: _s, msgType: _m, onset: _o, web: _w, ...detail } = cap;
-          item = { ...detail, ...detail.effective || base.effective ? { effective: detail.effective ?? base.effective } : {}, ...detail.expires || base.expires ? { expires: detail.expires ?? base.expires } : {}, link: e.link, detail: true };
+          data[i] = { ...detail, ...detail.effective || base.effective ? { effective: detail.effective ?? base.effective } : {}, ...detail.expires || base.expires ? { expires: detail.expires ?? base.expires } : {}, link: e.link, detail: true };
         } catch {
         }
       }
-      data.push(item);
     }
-    return { data, updated: feed2.updated };
+    return { data: data.filter((e) => e !== null), updated: feed2.updated };
   }
   for (const source of sources) {
+    if (o.only && !o.only.includes(source)) continue;
     const old = previous.sources[source], peerState = peer?.sources[source];
     if (o.writer === "gha" && peer?.writer === "worker" && peerState?.lastSuccessAt && now().getTime() - Date.parse(peerState.lastSuccessAt) <= 25 * 6e4 && now().getTime() >= Date.parse(peerState.lastSuccessAt)) {
       index.sources[source] = { ...old ?? { ok: false }, skipped: true };
