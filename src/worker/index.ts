@@ -1,3 +1,6 @@
+import { collectDisaster, reason as disasterReason } from '../core/disaster/collect.js';
+import { fetchText as disasterFetchText } from '../core/disaster/http.js';
+import { decodeIndex as decodeDisasterIndex, decodeShard as decodeDisasterShard, indexKey as disasterIndexKey, shardKey as disasterShardKey, type Writer } from '../core/disaster/model.js';
 import { decodeIndex as decodeOutageIndex, decodeShard as decodeOutageShard } from '../core/outage/model.js';
 import { outageIndexKey, outageShardKey } from './snapshot-keys.js';
 import { decodeIndex, decodeShard, indexKey, shardKey } from '../core/garbage/snapshot.js';
@@ -24,6 +27,7 @@ export const cronJobs = {
   '0 */6 * * SAT,SUN': 'twse',
   '0 */3 * * *': 'invoice',
   '*/10 5-15 25 1,3,5,7,9,11 *': 'invoice',
+  '5,15,25,35,45,55 * * * *': 'disaster',
 } as const;
 async function read<T>(env: Env, key: string): Promise<T | null> {
   const { value, metadata } = await env.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(key);
@@ -62,6 +66,7 @@ export default {
       const handler = createMcpHandler(() => {
         const server = new McpServer({ name: 'formosa-mcp', version: '0.1.0' });
         registerToolsets(server, toolsets, {}, {
+          disasterStore: { indexes: async () => { const load = async (writer: Writer) => { try { const raw = await env.SNAPSHOTS.get(disasterIndexKey(writer)); return raw ? decodeDisasterIndex(raw) : null; } catch { return null; } }; const [worker, gha] = await Promise.all([load('worker'), load('gha')]); return { worker, gha }; }, shard: async (source, sha) => { const raw = await env.SNAPSHOTS.get(disasterShardKey(source, sha)); return raw ? decodeDisasterShard(raw, source) : null; } },
           outageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(outageIndexKey); return raw ? decodeOutageIndex(raw) : null; }, shard: async (source, county, sha) => { const raw = await env.SNAPSHOTS.get(outageShardKey(source, county, sha)); return raw ? decodeOutageShard(raw, source, county) : null; } },
           garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword, filter) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword, filter) : null; } },
           railService,
@@ -87,6 +92,14 @@ export default {
     const jobs = job ? [job] : ['invoice', 'twse'] as const;
     const minute = Math.floor(controller.scheduledTime / 60000) % 1440;
     await Promise.all([controller.cron === '0,30 * * * MON-FRI' && (minute === 660 || minute === 750) ? tpexFallback(env, controller.scheduledTime) : undefined, ...jobs.map(async job => {
+      if (job === 'disaster') {
+        try {
+          const result = await collectDisaster({ writer: 'worker', store: { get: key => env.SNAPSHOTS.get(key), put: (key, value, ttl) => env.SNAPSHOTS.put(key, value, ttl === undefined ? undefined : { expirationTtl: ttl }) }, fetchText: url => disasterFetchText(url, 15000), now: () => new Date(), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 4, ncdrDeadlineMs: 60000 });
+          for (const [source, state] of Object.entries(result.index.sources)) if (!state.ok) console.warn(`disaster ${source} fail ${disasterReason(state.reason)}`);
+          if (result.exitCode) console.warn('disaster collection or publication failed');
+        } catch (e) { console.warn(`disaster fail ${disasterReason(e)}`); }
+        return;
+      }
       if (job === 'invoice') {
         try {
           const snapshot = await buildInvoiceSnapshot(fetchInvoiceFeed);
