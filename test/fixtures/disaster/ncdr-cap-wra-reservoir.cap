@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+                       <alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+	                    <identifier>WRA_ReservoirWarn_20261102081840_0001</identifier>
+	                    <sender>ddmt01@wra.gov.tw</sender>
+	                    <sent>2026-11-02T08:18:40+08:00</sent>
+                        <status>Actual</status>
+	                    <msgType>Update</msgType>
+	                    <scope>Public</scope>
+	                    <references>ddmt01@wra.gov.tw,WRA_ReservoirWarn_20261102061840_0000,2026-11-02T06:18:40+08:00</references>
+	                    <info>
+		                    <language>zh-tw</language>
+		                    <category>Infra</category>
+		                    <event>水庫放流</event>
+		                    <responseType>Monitor</responseType>
+		                    <urgency>Immediate</urgency>
+                            <severity>Minor</severity>
+		                    <certainty>Observed</certainty>
+		                    <eventCode>
+			                    <valueName>profile:CAP-TWP:Event:1.0</valueName>
+			                    <value>ReservoirDis</value>
+		                    </eventCode>
+		                    <effective>2026-11-02T08:18:40+08:00</effective>
+                            <expires>2026-11-02T11:18:40+08:00</expires>
+                            <senderName>水利署</senderName>
+		                    <headline>湖山水庫(放流至 北港溪)：自由溢流</headline>
+		                    <description>水利署訊湖山水庫:(洩洪至北港溪):自由溢流,影響範圍:雲林縣，古坑鄉、虎尾鎮、水林鄉、斗六市、莿桐鄉、土庫鎮、斗南鎮、北港鎮、元長鄉、口湖鄉、大埤鄉；嘉義縣，新港鄉、溪口鄉、六腳鄉、東石鄉</description>
+		                    <instruction>請沿岸附近民眾加強注意並遠離河床</instruction>
+		                    <web>https://fhy.wra.gov.tw/fhyv2/Alert/Reservoir</web>
+		                    <parameter>
+			                    <valueName>alert_title</valueName>
+			                    <value>庫放流警戒</value>
+		                    </parameter>
+		                    <parameter>
+			                    <valueName>severity_level</valueName>
+			                    <value>一級警戒</value>
+		                    </parameter>
+		                    <parameter>
+			                    <valueName>alert_title</valueName>
+			                    <value>紅色</value>
+		                    </parameter>
+		                   
+		                    <area>
+			                    <areaDesc>雲林縣古坑鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000907</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣虎尾鎮</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000903</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣水林鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000920</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣斗六市</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000901</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>嘉義縣新港鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1001007</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣莿桐鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000909</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣土庫鎮</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000905</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>嘉義縣溪口鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1001006</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣斗南鎮</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000902</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣北港鎮</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000906</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣元長鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000917</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>嘉義縣六腳鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1001008</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣口湖鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000919</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>雲林縣大埤鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1000908</value>
+			                    </geocode>
+		                    </area>
+                
+		                    <area>
+			                    <areaDesc>嘉義縣東石鄉</areaDesc>
+			                    <geocode>
+				                    <valueName>Taiwan_Geocode_103</valueName>
+				                    <value>1001009</value>
+			                    </geocode>
+		                    </area>
+                
+	                    </info>
+                    </alert>
+
