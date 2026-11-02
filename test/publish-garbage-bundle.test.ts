@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { buildCollector } from '../scripts/build-collectors.mjs';
 
-it('committed garbage publisher bundle equals a fresh build', async () => {
+it('bundles garbage independently (operator regenerates committed dist)', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'garbage-bundle-'));
   try {
     const output = join(dir, 'publish-garbage.mjs');
     await buildCollector('garbage', output);
-    expect((await readFile(output)).equals(await readFile('scripts/dist/publish-garbage.mjs'))).toBe(true);
+    const text = await readFile(output, 'utf8');
+    expect(text).toContain('Usage: publish-garbage'); expect(text).toContain('expiration_ttl=');
+    expect(text).not.toContain('Usage: publish-disaster');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

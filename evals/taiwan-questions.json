@@ -663,5 +663,88 @@
     "notes": "以來源健康但綠島鄉無相符公告的快照為準；來源不可用時不得宣稱查無，實際公告會變動。",
     "daily_ci": false,
     "requires_key": null
+  },
+  {
+    "id": "disaster-001",
+    "question": "花蓮 有沒有地震告警",
+    "toolset": "disaster",
+    "expected_tool": "disaster_alerts",
+    "expected_args": {
+      "city": "花蓮"
+    },
+    "expected_key_facts": [
+      "地震",
+      "最大震度3級地區",
+      "中央氣象署"
+    ],
+    "notes": "Fixture scenario: ncdr-cap-cwa-earthquake.cap during its effective window with fresh successful fetch evidence; geocode 10015 maps intensity 3 to 花蓮縣.",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "disaster-002",
+    "question": "臺北現在有災防告警嗎？資料過期的話請告訴我。",
+    "toolset": "disaster",
+    "expected_tool": "disaster_alerts",
+    "expected_args": {
+      "city": "臺北市"
+    },
+    "expected_key_facts": [
+      "資料已過期",
+      "無法確認臺北市目前是否有告警"
+    ],
+    "notes": "Stale-fetch scenario: lastSuccessAt is at least 90 minutes old; never infer absence from stale data.",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "disaster-003",
+    "question": "臺北明天停班停課嗎？",
+    "toolset": "disaster",
+    "expected_tool": "work_school_closure",
+    "expected_args": {
+      "city": "臺北市"
+    },
+    "expected_key_facts": [
+      "官方頁面更新時間",
+      "本服務抓取時間",
+      "停班停課以各縣市政府及人事行政總處公告為準"
+    ],
+    "notes": "Quote the dated DGPA statement without inferring attendance; missing tomorrow rows remain unannounced.",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "disaster-004",
+    "question": "花蓮市今天有停班停課嗎？如果資料太舊呢？",
+    "toolset": "disaster",
+    "expected_tool": "work_school_closure",
+    "expected_args": {
+      "city": "花蓮市"
+    },
+    "expected_key_facts": [
+      "花蓮縣",
+      "資料可能過期",
+      "請以官方公告為準"
+    ],
+    "notes": "Stale DGPA page scenario: older than 90 minutes; suppress stale 照常 lines, retain historical stopping statements.",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "disaster-005",
+    "question": "馬祖現在有颱風或海嘯告警嗎？",
+    "toolset": "disaster",
+    "expected_tool": "disaster_alerts",
+    "expected_args": {
+      "city": "馬祖"
+    },
+    "expected_key_facts": [
+      "連江縣",
+      "無法確認是否涵蓋本縣市"
+    ],
+    "notes": "Summary-only typhoon/tsunami scenario names another county; unresolved coverage blocks absence for 馬祖 (連江縣).",
+    "daily_ci": false,
+    "requires_key": null
   }
 ]

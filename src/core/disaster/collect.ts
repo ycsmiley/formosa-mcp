@@ -1,7 +1,7 @@
 import { decodeIndex, decodeAlerts, indexKey, shardKey, official, safeLink, feedUrls, sources, type Index, type State, type Writer, type Alert, type Source } from './model.js';
 import { parseDgpa, parseNcdrJson, parseNcdrAtom, parseCap, LoginRequired, type Feed } from './parse.js';
 export interface Store { get(key: string): Promise<string | null>; put(key: string, value: string, ttlSeconds?: number): Promise<void> }
-export interface Options { writer: Writer; store: Store; fetchText: (url: string) => Promise<{ status: number; text: string }>; now?: () => Date; sleep: (ms: number) => Promise<void>; peerIndex?: () => Promise<Index | null>; maxCaps: number; ncdrDeadlineMs?: number; quietWindow?: boolean; token?: string; only?: Source[]; budget?: { perHour: number; burst: number }; warn?: (message: string) => void }
+export interface Options { writer: Writer; store: Store; fetchText: (url: string) => Promise<{ status: number; text: string }>; now?: () => Date; sleep: (ms: number) => Promise<void>; peerIndex?: () => Promise<Index | null>; maxCaps: number; ncdrDeadlineMs?: number; scheduledAt?: number; quietWindow?: boolean; token?: string; only?: Source[]; budget?: { perHour: number; burst: number }; warn?: (message: string) => void }
 export const reason = (e: unknown, token?: string) => (token ? String(e instanceof Error ? e.message : e).replaceAll(token, '[redacted]') : String(e instanceof Error ? e.message : e)).replace(/https?:\/\/[^\s]+/gi, '[url]').replace(/(?:Bearer\s+)[^\s]+/gi, 'Bearer [redacted]').replace(/(?:token|key|secret)=\S+/gi, '[redacted]').replace(/\s+/g, ' ').slice(0, 200);
 // Worker starts at x5, starts NCDR requests within 60s; hourly Actions starts at :20.
 // Delayed Actions avoid x4:30–x7:00; this is staggering, not a distributed lock.
@@ -12,7 +12,8 @@ export function quietDelayMs(date: Date): number {
 const responseTimes = new WeakMap<Store, number>();
 const changed = (a?: State, b?: State) => ['ok', 'closed', 'sha', 'reason', 'empty', 'skipped'].some(k => a?.[k as keyof State] !== b?.[k as keyof State]);
 export async function collectDisaster(o: Options): Promise<{ index: Index; previous: Index; writes: number; exitCode: number }> {
-  const now = o.now ?? (() => new Date()), started = now().getTime();
+  const now = o.now ?? (() => new Date()), started = now().getTime(), scheduled = o.scheduledAt ?? started;
+  const guardEnd = Math.floor(scheduled / 600000) * 600000 + 7 * 60000;
   const raw = await o.store.get(indexKey(o.writer));
   const previous: Index = raw ? decodeIndex(raw) : { v: 1, writer: o.writer, heartbeatAt: new Date(started).toISOString(), sources: {} };
   if (previous.writer !== o.writer) throw Error('災防索引寫入者不符');
@@ -27,7 +28,7 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     // Every NCDR request starts >=3.1s after the preceding response (including errors).
     if (finished !== undefined) { const delay = finished + 3100 - now().getTime(); if (delay > 0) await o.sleep(delay); }
     if (o.quietWindow) { const delay = quietDelayMs(now()); if (delay) await o.sleep(delay); }
-    if (o.ncdrDeadlineMs !== undefined && now().getTime() - started > o.ncdrDeadlineMs) throw Error('NCDR 本輪請求時間已用完');
+    if ((o.ncdrDeadlineMs !== undefined && now().getTime() - scheduled >= o.ncdrDeadlineMs) || (o.scheduledAt !== undefined && now().getTime() >= guardEnd)) throw Error('NCDR 本輪請求時間已用完');
     try {
       const response = await o.fetchText(url);
       if (response.text.includes('請先登入會員')) throw new LoginRequired();
@@ -36,11 +37,18 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     } finally { finished = now().getTime(); responseTimes.set(o.store, finished); }
   }
   async function ncdr(old?: State): Promise<{ data: Alert[]; updated: string }> {
+    // Legacy CAP shards must be refreshed once to recover geocode-only coverage.
+    const detailed = new Map<string, Alert>();
+    for (const state of [old, peer?.sources.ncdr]) {
+      if (!state?.sha) continue;
+      try { const raw = await o.store.get(shardKey('ncdr', state.sha)); if (raw) for (const item of decodeAlerts(raw)) if (item.detail && item.complete !== undefined && item.areaCounties !== undefined) detailed.set(item.id, item); } catch { /* Retry CAP if the prior shard is unavailable. */ }
+    }
+    const retainedIds = new Set(detailed.keys());
     const emptyError = () => Error('NCDR 回傳 0 筆告警，無法確認為有效空清單');
     let feed: Feed | undefined, primary: Feed | undefined, login = 0, failure: unknown;
     for (const [i, url] of feedUrls.entries()) {
       try {
-        const parsed = (i === 0 ? parseNcdrJson : parseNcdrAtom)(await request(url), now());
+        const parsed = (i === 0 ? parseNcdrJson : parseNcdrAtom)(await request(url), now(), retainedIds);
         if (i === 0) {
           primary = parsed;
           if (parsed.entries.length) { feed = parsed; break; }
@@ -57,11 +65,6 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
       } catch (e) { if (e instanceof LoginRequired) login++; failure = e; }
     }
     if (!feed) { if (login === 2) throw new LoginRequired(); if (primary && !primary.entries.length) throw emptyError(); throw Error(failure instanceof LoginRequired ? 'NCDR 備援來源無法取得' : reason(failure, o.token)); }
-    const detailed = new Map<string, Alert>();
-    for (const state of [old, peer?.sources.ncdr]) {
-      if (!state?.sha) continue;
-      try { const raw = await o.store.get(shardKey('ncdr', state.sha)); if (raw) for (const item of decodeAlerts(raw)) if (item.detail && item.complete !== undefined) detailed.set(item.id, item); } catch { /* Retry CAP if the prior shard is unavailable. */ }
-    }
     // Update feed slots in place so rotating the fetch order preserves output order.
     const data: (Alert | null)[] = feed.entries.map(e => {
       const { status: _status, msgType: _msgType, ...base } = e;
@@ -75,7 +78,7 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     const offset = pending.length ? (Math.floor(started / 600000) * o.maxCaps) % pending.length : 0;
     for (let n = 0; n < Math.min(o.maxCaps, pending.length); n++) {
       const i = pending[(offset + n) % pending.length], e = feed.entries[i], base = data[i]!;
-      if (o.ncdrDeadlineMs === undefined || now().getTime() - started <= o.ncdrDeadlineMs) {
+      if (o.ncdrDeadlineMs === undefined || now().getTime() - scheduled < o.ncdrDeadlineMs) {
         try {
           const body = await request(e.link);
           if (new TextEncoder().encode(body).length > 256 * 1024) throw Error('CAP 超過大小上限');
@@ -95,7 +98,7 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     if (o.only && !o.only.includes(source)) continue;
     const old = previous.sources[source], peerState = peer?.sources[source];
     const current = now().getTime();
-    if (o.writer === 'gha' && peer?.writer === 'worker' && peerState?.ok === true && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 60000 && current - Date.parse(peerState.sourceUpdatedAt) < 90 * 60000 && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 60000 && await o.store.get(shardKey(source, peerState.sha)) !== null) {
+    if (o.writer === 'gha' && peer?.writer === 'worker' && peerState?.ok === true && !peerState.skipped && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 60000 && (source === 'ncdr' ? current - Date.parse(peerState.sourceUpdatedAt) <= 24 * 3600000 : current - Date.parse(peerState.sourceUpdatedAt) < 90 * 60000) && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 60000 && await o.store.get(shardKey(source, peerState.sha)) !== null) {
       index.sources[source] = { ...(old ?? { ok: false }), skipped: true }; continue;
     }
     try {

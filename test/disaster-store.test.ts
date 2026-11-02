@@ -92,3 +92,15 @@ it('directory adapter preserves heartbeat-last ordering and never expires local 
   const dir = await mkdtemp(join(tmpdir(), 'disaster-store-'));
   try { const store = directoryStore(dir); await store.put(shardKey('ncdr', 'a'.repeat(12)), '[]', at, 1); await store.put(indexKey('gha'), JSON.stringify(index({ ncdr: state() }, 'gha')), at); expect(await store.get(shardKey('ncdr', 'a'.repeat(12)))).toBe('[]'); } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+it('surfaces corrupt directory indexes instead of treating them as absent', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'disaster-corrupt-'));
+  try {
+    const store = directoryStore(dir);
+    await store.put('disaster:index:worker:v1', '{broken', at);
+    const local = localDisasterStore(dir);
+    expect((await local.indexes()).error).toBe(true);
+    const service = createDisasterService(local, () => new Date(at));
+    for (const tool of [service.closure, service.alerts]) expect((await tool({ city: '臺北市' })).text).toContain('索引無法解讀');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

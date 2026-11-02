@@ -6,7 +6,7 @@ import { createDisasterService, type DisasterStore } from '../src/core/disaster/
 import { counties } from '../src/core/outage/districts.js';
 import { parseDgpa, parseNcdrJson, parseCap } from '../src/core/disaster/parse.js';
 import type { Alert, Dgpa, Index } from '../src/core/disaster/model.js';
-import { fixture, htmlFiles, none, json, wind, at, state, index } from './disaster-fixtures.js';
+import { fixture, htmlFiles, none, json, wind, earthquake, at, state, index } from './disaster-fixtures.js';
 function setup(html = none, date?: string) {
   const { updatedAt, ...snapshot } = parseDgpa(html), now = date ?? updatedAt;
   const worker = index({ dgpa: state({ lastSuccessAt: updatedAt, fetchedAt: updatedAt, sourceUpdatedAt: updatedAt, count: Object.keys(snapshot.counties).length }), ncdr: state({ sourceUpdatedAt: at, empty: true }) });
@@ -153,23 +153,25 @@ it.each(['fetch', 'page'])('qualifies stale no-event DGPA text when %s is older 
 });
 
 it.each(['sourceUpdatedAt', 'lastSuccessAt'] as const)('checks %s age and clock skew for both tools', async key => {
-  for (const minutes of [-1440, -91, 10, 3]) {
+  for (const minutes of [-1500, -91, 10, 3]) {
     const s = setup(none, at);
     for (const source of ['ncdr', 'dgpa'] as const) s.worker.sources[source]![key] = new Date(Date.parse(at) + minutes * 60000).toISOString();
     const alert = (await s.service.alerts({ city: '臺北市' })).text;
     const closure = (await s.service.closure({ city: '臺北市' })).text;
     if (minutes === 3) { expect(alert).toContain('目前沒有'); expect(closure).toContain('官方頁面：「無停班停課訊息。」'); }
     else {
-      expect(alert).not.toContain('目前沒有'); expect(alert).toContain('https://alerts.ncdr.nat.gov.tw/');
+      if (key === 'sourceUpdatedAt' && minutes === -91) expect(alert).toContain('目前沒有');
+      else expect(alert).not.toContain('目前沒有');
+      expect(alert).toContain('https://alerts.ncdr.nat.gov.tw/');
       expect(closure).not.toContain('官方頁面：「無停班停課訊息。」');
       if (minutes === 10) { expect(alert).toContain('資料時間異常'); expect(closure).toContain('資料時間異常'); }
     }
   }
 });
-it('expires source evidence at 91 minutes even when fetched at source age 89 minutes', async () => {
+it('uses successful fetch freshness during quiet feeds, requiring a source timestamp', async () => {
   const s = setup(none, at); s.worker.sources.ncdr!.sourceUpdatedAt = new Date(Date.parse(at) - 89 * 60000).toISOString();
   expect((await s.service.alerts({ city: '臺北市' })).text).toContain('目前沒有');
-  const later = createDisasterService(s.store, () => new Date(Date.parse(at) + 2 * 60000));
+  const later = createDisasterService(s.store, () => new Date(Date.parse(at) + 90 * 60000));
   expect((await later.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
   delete s.worker.sources.ncdr!.sourceUpdatedAt;
   expect((await s.service.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
@@ -237,4 +239,46 @@ it('requires a recorded non-skipped attempt, and treats tied failed attempts con
   s.indexes.gha = index({ ncdr: { ok: false, fetchedAt: at, reason: 'timeout' } }, 'gha');
   text = (await s.service.alerts({ city: '臺北市' })).text;
   expect(text).toContain('最近一次抓取失敗（timeout）'); expect(text).not.toContain('目前沒有');
+});
+
+it('shows real earthquake coverage and county-specific intensity areas, allowing absence outside geocodes', async () => {
+  const cap = parseCap(earthquake), when = cap.effective!;
+  const s = setup(none, when);
+  const { status: _, msgType: __, onset: ___, web: ____, ...detail } = cap;
+  s.shards.set('ncdr', [{ ...detail, detail: true, link: 'https://alerts.ncdr.nat.gov.tw/eq.cap' }]);
+  s.worker.sources.ncdr = state({ count: 1, sourceUpdatedAt: when, lastSuccessAt: when, fetchedAt: when });
+  for (const city of ['花蓮縣', '臺北市']) {
+    const text = (await s.service.alerts({ city })).text;
+    expect(text).toContain('【地震】'); expect(text).not.toContain('目前沒有');
+    expect(text).toContain(`範圍：最大震度${city === '花蓮縣' ? 3 : 2}級地區`);
+  }
+  for (const city of ['澎湖縣', '金門縣']) expect((await s.service.alerts({ city })).text).toContain(`目前沒有${city}生效中的告警`);
+});
+it.each(['地震', '颱風', '海嘯'])('treats summary-only %s alerts as undetermined for unnamed counties', async type => {
+  const s = setup(none, at), item = { ...alerts()[0], type, title: `${type}資訊`, counties: ['宜蘭縣'], detail: false, complete: false };
+  s.shards.set('ncdr', [item]); s.worker.sources.ncdr!.count = 1;
+  const text = (await s.service.alerts({ city: '花蓮縣' })).text;
+  expect(text).toContain('無法確認是否涵蓋本縣市'); expect(text).not.toContain('目前沒有');
+});
+it.each([['花蓮市', '花蓮縣'], ['馬祖', '連江縣']])('resolves %s to %s for both tools', async (city, county) => {
+  const s = setup(none, at);
+  for (const tool of [s.service.closure, s.service.alerts]) expect((await tool({ city })).text).toContain(`「${city}」屬${county}`);
+  expect((await s.service.alerts({ city: '金馬' })).isError).toBe(true);
+});
+it('reports corrupt indexes distinctly and does not claim absence with an unreadable peer', async () => {
+  const s = setup(none, at);
+  s.store.indexes = async () => ({ worker: s.worker, gha: null, error: true });
+  for (const tool of [s.service.closure, s.service.alerts]) {
+    const text = (await tool({ city: '臺北市' })).text;
+    expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料'); expect(text).not.toContain('目前沒有');
+  }
+});
+it('accepts a three-hour source with a fresh fetch, but makes 25-hour source evidence unusable', async () => {
+  const s = setup(none, at);
+  for (const hours of [3, 25]) {
+    s.worker.sources.ncdr!.sourceUpdatedAt = new Date(Date.parse(at) - hours * 3600000).toISOString();
+    const text = (await s.service.alerts({ city: '臺北市' })).text;
+    if (hours === 3) expect(text).toContain('目前沒有');
+    else { expect(text).toContain('24 小時'); expect(text).not.toContain('目前沒有'); }
+  }
 });

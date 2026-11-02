@@ -49,7 +49,7 @@ it('collects in order, retains failures, and writes shards before the index', as
   writes.length = 0;
   expect(await collectGarbage(store, { ...options, now: () => new Date('2026-10-31T00:00:00Z'), fetch: async c => { if (c === 'ntpc') throw Error('failure'); return fixture(c); } })).toBe(1);
   expect(decodeIndex(values.get(indexKey)!).cities.ntpc).toEqual(old.cities.ntpc);
-  expect(writes).toEqual([...Object.keys(old.cities.taipei!.districts).map(d => shardKey('taipei', new Date('2026-10-31T00:00:00Z').getTime().toString(36), d)), indexKey]);
+  expect(writes).toEqual([]);
   expect(decodeIndex(values.get(indexKey)!).cities.taipei!.updatedAt).toBe(old.cities.taipei!.updatedAt);
   expect(await collectGarbage(store, { ...options, minimum: { ...minimum, ntpc: 999999 } })).toBe(1);
 });
@@ -80,7 +80,7 @@ it('logs bounded failure reasons with the token redacted', async () => {
   } finally { error.mockRestore(); }
 });
 
-it('publishes all KV shards before the index even when unchanged', async () => {
+it('publishes KV shards before the index and skips unchanged runs', async () => {
   const { kvStore } = await import('../scripts/publish-garbage.js');
   const values = new Map<string, string>(), writes: string[] = [];
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
@@ -100,11 +100,10 @@ it('publishes all KV shards before the index even when unchanged', async () => {
     expect(await collectGarbage(store, options)).toBe(0);
     expect(writes.length).toBeGreaterThan(1); expect(writes.at(-1)).toBe(indexKey);
     expect(writes.slice(0, -1).every(k => k.startsWith(`garbage:v2:ntpc:${new Date('2026-10-30T00:00:00Z').getTime().toString(36)}:`))).toBe(true);
-    const firstWrites = [...writes];
     const previous = decodeIndex(values.get(indexKey)!).cities.ntpc!.updatedAt;
     writes.length = 0;
     expect(await collectGarbage(store, options)).toBe(0);
-    expect(writes).toEqual(firstWrites);
+    expect(writes).toEqual([]);
     expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.updatedAt).toBe(previous);
   } finally { fetchMock.mockRestore(); }
 });
@@ -131,7 +130,7 @@ it('keeps the old generation readable after a partial shard write', async () => 
   const oldShards = Object.keys(old.districts).map(d => values.get(shardKey('ntpc', old.gen, d)));
   expect(oldShards.length).toBeGreaterThan(1);
   fail = true;
-  expect(await collectGarbage(store, { ...options, now: () => new Date('2026-10-31T00:00:00Z') })).toBe(1);
+  expect(await collectGarbage(store, { ...options, fetch: async () => fixture('ntpc').replace('獅頭路15-1號', '新站點'), now: () => new Date('2026-10-31T00:00:00Z') })).toBe(1);
   expect(decodeIndex(values.get(indexKey)!).cities.ntpc).toEqual(old);
   expect(Object.keys(old.districts).map(d => values.get(shardKey('ntpc', old.gen, d)))).toEqual(oldShards);
 });
@@ -159,4 +158,50 @@ it('drops legacy cities from indexes and rejects other unknown cities', () => {
   const index = { v: 2, generatedAt: entry.fetchedAt, cities: { ntpc: entry, tainan: entry, kaohsiung: entry } };
   expect(Object.keys(decodeIndex(JSON.stringify(index)).cities)).toEqual(['ntpc']);
   expect(() => decodeIndex(JSON.stringify({ ...index, cities: { ...index.cities, unknown: entry } }))).toThrow();
+});
+
+it('keeps unchanged generations, repairs missing/corrupt shards, and renews only after seven days', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } };
+  let clock = Date.parse('2026-10-30T00:00:00Z');
+  const options = { cities: ['ntpc'] as City[], fetch: async () => fixture('ntpc'), now: () => new Date(clock), minimum: { ntpc: 1, taipei: 1, taichung: 1 } };
+  await collectGarbage(store, options); const first = decodeIndex(values.get(indexKey)!).cities.ntpc!;
+  const keys = Object.keys(first.districts).map(d => shardKey('ntpc', first.gen, d));
+  writes.length = 0; clock += 86400000; await collectGarbage(store, options);
+  expect(writes).toEqual([]); expect(decodeIndex(values.get(indexKey)!).cities.ntpc).toEqual(first);
+  for (const corrupt of [null, 'corrupt']) {
+    if (corrupt === null) values.delete(keys[0]); else values.set(keys[0], corrupt);
+    writes.length = 0; await collectGarbage(store, options);
+    expect(writes).toEqual([keys[0], indexKey]);
+    // Repairing one shard must not postpone renewal of the remaining shards.
+    expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.writtenAt).toBe(first.writtenAt);
+  }
+  writes.length = 0; clock = Date.parse(first.writtenAt!) + 7 * 86400000;
+  await collectGarbage(store, options); expect(writes).toEqual([]);
+  clock++; await collectGarbage(store, options); expect(writes).toEqual([...keys, indexKey]);
+  const renewed = decodeIndex(values.get(indexKey)!).cities.ntpc!;
+  expect(renewed.gen).toBe(first.gen); expect(renewed.updatedAt).toBe(first.updatedAt); expect(renewed.writtenAt).toBe(new Date(clock).toISOString());
+});
+it('writes every district of a changed city and preserves references for other cities', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } };
+  const options = { cities: ['ntpc', 'taipei'] as City[], fetch: async (c: City) => fixture(c), delay: async () => {}, now: () => new Date('2026-10-30T00:00:00Z'), minimum: { ntpc: 1, taipei: 1, taichung: 1 } };
+  await collectGarbage(store, options); const first = decodeIndex(values.get(indexKey)!);
+  writes.length = 0;
+  await collectGarbage(store, { ...options, now: () => new Date('2026-10-31T00:00:00Z'), fetch: async c => fixture(c).replace('獅頭路15-1號', '新站點') });
+  const next = decodeIndex(values.get(indexKey)!);
+  expect(next.cities.ntpc!.gen).not.toBe(first.cities.ntpc!.gen); expect(next.cities.taipei).toEqual(first.cities.taipei);
+  expect(writes).toEqual([...Object.keys(next.cities.ntpc!.districts).map(d => shardKey('ntpc', next.cities.ntpc!.gen, d)), indexKey]);
+});
+it('renews legacy cities from fetchedAt when writtenAt is absent', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } };
+  const at = Date.parse('2026-10-30T00:00:00Z');
+  const options = { cities: ['ntpc'] as City[], fetch: async () => fixture('ntpc'), now: () => new Date(at), minimum: { ntpc: 1, taipei: 1, taichung: 1 } };
+  await collectGarbage(store, options);
+  const legacy = decodeIndex(values.get(indexKey)!); delete legacy.cities.ntpc!.writtenAt; values.set(indexKey, JSON.stringify(legacy));
+  writes.length = 0; await collectGarbage(store, options); expect(writes).toEqual([]);
+  await collectGarbage(store, { ...options, now: () => new Date(at + 8 * 86400000) });
+  expect(writes.length).toBe(Object.keys(legacy.cities.ntpc!.districts).length + 1);
+  expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.gen).toBe(legacy.cities.ntpc!.gen);
 });

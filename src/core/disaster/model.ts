@@ -8,7 +8,7 @@ export interface State { ok: boolean; reason?: string; closed?: boolean; skipped
 export interface Index { v: 1; writer: Writer; heartbeatAt: string; budget?: { tokens: number; at: string }; sources: Partial<Record<Source, State>> }
 export interface Dgpa { pageDate: string; layout: 'none' | 'regional' | 'flat'; noEvent: boolean; counties: Record<string, string[]> }
 export const severities = ['Extreme', 'Severe', 'Moderate', 'Minor', 'Unknown'] as const;
-export interface Alert { id: string; type: string; title?: string; sender?: string; severity?: typeof severities[number]; level?: string; color?: string; effective?: string; expires?: string; counties: string[]; areas?: string[]; text: string; link: string; detail: boolean; complete?: boolean }
+export interface Alert { id: string; type: string; title?: string; sender?: string; severity?: typeof severities[number]; level?: string; color?: string; effective?: string; expires?: string; counties: string[]; areas?: string[]; areaCounties?: string[][]; text: string; link: string; detail: boolean; complete?: boolean }
 export const indexKey = (writer: Writer) => `disaster:index:${writer}:v1`;
 export const shardKey = (source: Source, sha: string) => `disaster:v1:${source}:${sha.slice(0, 12)}`;
 export const official = { dgpa: 'https://www.dgpa.gov.tw/typh/daily/nds.html', ncdr: 'https://alerts.ncdr.nat.gov.tw/' };
@@ -40,6 +40,7 @@ export function decodeAlerts(raw: string): Alert[] {
   const ids = new Set<string>();
   for (const v of x) {
     if (!object(v) || !['id', 'type', 'text', 'link'].every(k => typeof v[k] === 'string') || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== 'boolean' || (v.complete !== undefined && typeof v.complete !== 'boolean') || (v.complete === true && (!v.detail || !v.counties?.length)) || !strings(v.counties) || v.counties.some((c: string) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || Object.entries({ type: 40, title: 200, sender: 100, level: 60, color: 20, text: 400 }).some(([k, limit]) => v[k] !== undefined && (typeof v[k] !== 'string' || v[k].length > limit || clean(v[k]) !== v[k])) || v.text.length > 400 || (v.severity !== undefined && !severities.includes(v.severity)) || ['effective', 'expires'].some(k => v[k] !== undefined && !timestamp(v[k])) || (v.areas !== undefined && (!strings(v.areas) || v.areas.length > 200 || v.areas.some((a: string) => a.length > 100 || clean(a) !== a))) || v.link.length > 300) throw Error('告警項目格式錯誤');
+    if (v.areaCounties !== undefined && (!Array.isArray(v.areaCounties) || !Array.isArray(v.areas) || v.areaCounties.length !== v.areas.length || v.areaCounties.some((cs: unknown) => !strings(cs) || !cs.length || cs.some(c => !v.counties.includes(c)) || new Set(cs).size !== cs.length))) throw Error('告警區域縣市格式錯誤');
     ids.add(v.id);
   }
   return x as Alert[];

@@ -8,6 +8,7 @@ export const json = fixture('ncdr-JSONAtomFeeds-active-2026-11-02.json');
 export const atom = fixture('ncdr-RssAtomFeeds-active-2026-11-02.xml');
 export const wind = fixture('ncdr-cap-cwa-strong-wind.cap');
 export const reservoir = fixture('ncdr-cap-wra-reservoir.cap');
+export const earthquake = fixture('ncdr-cap-cwa-earthquake.cap');
 export const at = '2026-11-02T09:15:00+08:00';
 export const state = (patch: Partial<State> = {}): State => ({ ok: true, sha: 'a'.repeat(12), count: 0, fetchedAt: at, lastSuccessAt: at, sourceUpdatedAt: parseDgpa(none).updatedAt, writtenAt: at, ...patch });
 export const index = (sources: Index['sources'], writer: Index['writer'] = 'worker'): Index => ({ v: 1, writer, heartbeatAt: at, sources });

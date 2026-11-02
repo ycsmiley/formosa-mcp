@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻、計畫性停水停電，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
+讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻、計畫性停水停電、停班停課與災防告警，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
 Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
 
 ## 開始使用
@@ -190,7 +190,7 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 抓取三市；內容未變沿用 generation，分片存在且內容相同便零寫入，僅距上次整市寫入超過 7 天續期（TTL 14 天）。任一區變更會重寫該市全部分片，索引只在變更、修復缺失／損毀分片或續期時寫入；`fetchedAt` 為上次發布時的成功抓取時間。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 
@@ -232,11 +232,11 @@ npm run remote-check
 
 驗證可執行 `npm run typecheck:worker`、`npm run test:worker`。`@modelcontextprotocol/sdk` 為配合 `agents` 固定於精確版本 `1.32.1`。
 
-停班停課與告警採雙層收集：Worker 每 10 分鐘 x5（`5,15,25,35,45,55 * * * *`），每輪最多 4 個 CAP，NCDR 請求須在本輪前 60 秒內開始；[GHA collector](.github/workflows/disaster-collect.yml) 每小時 `20 * * * *`、最多 20 個 CAP。GHA 僅在 Worker 該來源成功、未關閉、有可讀分片、來源更新未滿 90 分鐘（未超前逾 5 分鐘）、成功抓取距今非負且嚴格小於 25 分鐘時跳過。每輪 NCDR JSON／Atom／CAP 請求在前一回應結束後至少等 3.1 秒；延遲 GHA 另避開 x4:30～x7:00。此安排不保證跨程序互斥；共享協調器列為後續工作。兩個 feed 或任一 CAP 要求登入時顯示「尚未支援」，不使用金鑰。
+停班停課與告警採雙層收集：Worker 每 10 分鐘 x5（`5,15,25,35,45,55 * * * *`），每輪最多 4 個 CAP，NCDR 請求須在 cron 的 scheduledTime 起 60 秒內、且該排程週期 x7:00 前開始（延遲啟動會扣掉已耗時間）；[GHA collector](.github/workflows/disaster-collect.yml) 每小時 `20 * * * *`、最多 20 個 CAP。GHA 僅在 Worker 該來源成功、未關閉、有可讀分片、來源更新符合各來源時間限制（DGPA 未滿 90 分鐘；NCDR 不超過 24 小時；均未超前逾 5 分鐘）、成功抓取距今非負且嚴格小於 25 分鐘時跳過。每輪 NCDR JSON／Atom／CAP 請求在前一回應結束後至少等 3.1 秒；延遲 GHA 另避開 x4:30～x7:00。此安排不保證跨程序互斥；共享協調器列為後續工作。兩個 feed 或任一 CAP 要求登入時顯示「尚未支援」，不使用金鑰。
 
-Cloudflare 出口可達性尚待部署驗證；每小時 GHA 為備援。逐來源按 `sourceUpdatedAt` 新到舊選資料，同時才比較 `lastSuccessAt`；收集時拒絕自身來源版本倒退，對方已有更新版本便跳過發布。兩個時間任一超過 90 分鐘、或缺少來源時間均視為過期；任一超前逾 5 分鐘則顯示「資料時間異常」且資料不可用。停班停課引用官方原文，過期時隱藏「照常」、無事件頁面標為歷史資料，頁面日期不同另行提示。
+Cloudflare 出口可達性尚待部署驗證；每小時 GHA 為備援。逐來源按 `sourceUpdatedAt` 新到舊選資料，同時才比較 `lastSuccessAt`；收集時拒絕自身來源版本倒退，對方已有更新版本便跳過發布。NCDR 新鮮度以最近一次非 skipped 抓取成功、所選 `lastSuccessAt` 未滿 90 分鐘為準；feed `updated` 是最新告警時間，安靜期可早於 90 分鐘，只有超過 24 小時、超前逾 5 分鐘或版本倒退才拒用。DGPA 保留頁面更新與成功抓取的 90 分鐘規則。缺少來源時間仍不可用，任一時間超前逾 5 分鐘顯示「資料時間異常」；索引損毀顯示「索引無法解讀」。停班停課引用官方原文，過期時隱藏「照常」、無事件頁面標為歷史資料，頁面日期不同另行提示。
 
-只有資料新鮮、最近一次非 skipped 抓取成功、非空或經雙格式驗證為空、且所有告警範圍完整時，才可說「目前沒有…生效中的告警」。NCDR 沒有明確空清單訊號，也無真實空樣本：JSON 必須有非空 id/title、author.name===NCDR、新鮮 updated，且缺少/null/[] entry 或全部非 Actual/Cancel 過濾後為零；接著以同一請求節流 helper 取得 Atom，也須符合相同結構／時間／零筆條件，才發布 `[]` 與 `empty:true`。兩格式不同、任一無效或只有單格式時皆視為失敗，保留舊分片。CAP 只有至少一個 areaDesc 且每個範圍都以可辨識縣市開頭才標為 `complete:true`；摘要與舊版缺少標記者不完整，阻止無告警宣稱，並列出可能涵蓋查詢縣市的未確認項目。已知告警仍列出，未生效者顯示「即將生效」與臺北時間。縣轄市／鄉鎮市區可唯一對應縣市時加註轉換，新竹／嘉義歧義維持兩者並列。欄位有長度與清理限制，連結僅允許 NCDR HTTPS 網域，兩工具回應最多 16 KiB UTF-8，截斷後保留來源。
+只有資料新鮮、最近一次非 skipped 抓取成功、非空或經雙格式驗證為空、且所有告警範圍完整時，才可說「目前沒有…生效中的告警」。NCDR 沒有明確空清單訊號，也無真實空樣本：JSON 必須有非空 id/title、author.name===NCDR、符合 24 小時／5 分鐘限制的 updated，且缺少/null/[] entry 或全部非 Actual/Cancel 過濾後為零；接著以同一請求節流 helper 取得 Atom，也須符合相同結構／時間／零筆條件，才發布 `[]` 與 `empty:true`。兩格式不同、任一無效或只有單格式時皆視為失敗，保留舊分片。CAP 至少有一個 area，且每個區域都能由 areaDesc 縣市前綴或 Taiwan_Geocode_103 地理碼判定縣市才標為 `complete:true`；縣市取兩者聯集，查詢範圍列出該縣市的 areaDesc（包含地震震度區域），保留上限 200 處／每處 100 字；摘要與舊版缺少標記者不完整，阻止無告警宣稱，並列出可能涵蓋查詢縣市的未確認項目。已知告警仍列出，未生效者顯示「即將生效」與臺北時間。縣轄市／鄉鎮市區可唯一對應縣市時加註轉換，新竹／嘉義歧義維持兩者並列。欄位有長度與清理限制，連結僅允許 NCDR HTTPS 網域，兩工具回應最多 16 KiB UTF-8，截斷後保留來源。
 
 KV 採獨立索引 `disaster:index:{worker|gha}:v1`、不可變分片 `disaster:v1:{dgpa|ncdr}:{sha12}`（SHA-256 前 12 碼）；分片 TTL 8 天，超過 3 天才搭配已需寫入的索引續期，索引最後發布。兩 writer 僅狀態變更或 55 分鐘心跳才寫索引；GHA 全部跳過且無變更時零寫入。Worker token bucket 每小時 3、burst 9，保守上限 81 次／24h；GHA 每小時 1.5、burst 6，上限 42 次／24h，額度不足優先 DGPA。KV Free **每帳號共用 1,000 次／日**；全部排程最壞估算約 700（703）次／日，嚴格 ≤700 的最小後續調整與完整逐項計算見 [KV 寫入預算](docs/kv-budget.md)。Free 五條 cron 上限亦為每帳號，本 Worker 全數用完。
 

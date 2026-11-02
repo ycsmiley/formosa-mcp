@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { parseDgpa, parseNcdrJson, parseNcdrAtom, parseCap, ncdrTime, LoginRequired } from '../src/core/disaster/parse.js';
 import { decodeIndex, decodeDgpa, decodeAlerts } from '../src/core/disaster/model.js';
-import { fixture, htmlFiles, none, json, atom, wind, reservoir, at, index, state } from './disaster-fixtures.js';
+import { fixture, htmlFiles, none, json, atom, wind, reservoir, earthquake, at, index, state } from './disaster-fixtures.js';
 it.each(htmlFiles)('parses official DGPA layout %s', file => {
   const value = parseDgpa(fixture(file));
   const expected = file.includes('no-event') ? ['none', 0] : file.includes('1856') ? ['regional', 22] : file.includes('partial') ? ['flat', 4] : file.includes('08-25') ? ['flat', 6] : ['flat', 22];
@@ -53,8 +53,8 @@ it('recognizes login walls, warning/429 payloads, stale/missing updated and malf
     expect(() => parse('{"Warning":"限制存取間隔時間為3秒"}')).toThrow();
     expect(() => parse('<WarningMessage><Warning>failure</Warning></WarningMessage>')).toThrow();
   }
-  expect(() => parseNcdrJson(json, new Date('2026-11-02T10:42:00+08:00'))).toThrow('90 分鐘');
-  expect(() => parseNcdrAtom(atom, new Date('2026-11-02T10:32:00+08:00'))).toThrow('90 分鐘');
+  expect(() => parseNcdrJson(json, new Date('2026-11-03T10:42:00+08:00'))).toThrow('24 小時');
+  expect(() => parseNcdrAtom(atom, new Date('2026-11-03T10:32:00+08:00'))).toThrow('24 小時');
   expect(() => parseNcdrJson(json.replace(/"updated":"[^"]+",/, ''))).toThrow();
   expect(() => parseNcdrAtom(atom.replace('</entry>', '</oops>'))).toThrow();
   expect(() => parseNcdrJson('{"updated":"2026-11-02T09:11:00+08:00"}')).toThrow();
@@ -133,3 +133,54 @@ it('validates empty markers and token bucket metadata', () => {
   for (const budget of [{ tokens: -1, at }, { tokens: 1, at: 'bad' }, { tokens: '1', at }]) expect(() => decodeIndex(JSON.stringify({ ...index({}), budget }))).toThrow();
   expect(decodeIndex(JSON.stringify({ ...index({}), budget: { tokens: 0.5, at } })).budget?.tokens).toBe(0.5);
 });
+
+it('maps real earthquake areas through geocodes and validates compact per-area coverage', () => {
+  const cap = parseCap(earthquake);
+  expect(cap.complete).toBe(true);
+  expect(cap.counties).toEqual(expect.arrayContaining(['宜蘭縣', '花蓮縣', '臺北市', '新北市', '桃園市', '嘉義市']));
+  expect(cap.counties).not.toContain('澎湖縣'); expect(cap.counties).not.toContain('金門縣');
+  const i = cap.areas!.indexOf('最大震度3級地區'); expect(cap.areaCounties![i]).toEqual(['宜蘭縣', '花蓮縣']);
+  const { status: _, msgType: __, onset: ___, web: ____, ...detail } = cap;
+  const alert = { ...detail, link: 'https://alerts.ncdr.nat.gov.tw/eq.cap', detail: true };
+  expect(decodeAlerts(JSON.stringify([alert]))).toEqual([alert]);
+  for (const areaCounties of [[], [['火星市']], alert.areas!.map(() => ['花蓮縣', '花蓮縣']), alert.areas!.map(() => ['澎湖縣']), alert.areas!.map(() => [])]) {
+    expect(() => decodeAlerts(JSON.stringify([{ ...alert, areaCounties }]))).toThrow();
+  }
+  const { areaCounties: _old, ...legacy } = alert;
+  expect(decodeAlerts(JSON.stringify([legacy]))).toEqual([legacy]);
+});
+it.each([
+  ['10015', '花蓮縣'], ['63', '臺北市'], ['1000406', '新竹縣'], ['6801200', '桃園市'],
+  ['0900701', '連江縣'], ['0902001', '金門縣'], ['10016', '澎湖縣'], ['64', '高雄市'], ['10013', '屏東縣'],
+  ['99999', undefined], ['63abc', undefined], ['10004.06', undefined], ['+63', undefined],
+])('maps only numeric Taiwan_Geocode_103 prefixes: %s', (code, county) => {
+  const area = `<area><areaDesc>最大震度3級地區</areaDesc><geocode><valueName>Taiwan_Geocode_103</valueName><value>${code}</value></geocode></area>`;
+  const cap = parseCap(earthquake.replace(/<area>[\s\S]*<\/area>/, area));
+  expect(cap.counties).toEqual(county ? [county] : []); expect(cap.complete).toBe(!!county);
+});
+it('unions county prefix and geocodes per area, while unknown areas block complete coverage', () => {
+  const area = '<area><areaDesc>台北市部分地區</areaDesc><geocode><valueName>Taiwan_Geocode_103</valueName><value>10015</value></geocode></area>';
+  const body = earthquake.replace(/<area>[\s\S]*<\/area>/, area);
+  expect(parseCap(body).areaCounties).toEqual([['臺北市', '花蓮縣']]);
+  expect(parseCap(body.replace('</info>', '<area><areaDesc>未知地區</areaDesc><geocode><valueName>Taiwan_Geocode_103</valueName><value>99999</value></geocode></area></info>')).complete).toBe(false);
+  expect(parseCap(body.replaceAll('Taiwan_Geocode_103', 'another-code')).counties).toEqual(['臺北市']);
+});
+it('accepts quiet three-hour feeds in both formats and rejects 25-hour evidence', () => {
+  for (const [parse, body] of [[parseNcdrJson, json], [parseNcdrAtom, atom]] as const) {
+    const updated = parse(body).updated;
+    const quiet = new Date(Date.parse(at) - 3 * 3600000).toISOString();
+    expect(parse(body.replace(updated, quiet), new Date(at)).updated).toBe(quiet);
+    expect(() => parse(body.replace(updated, new Date(Date.parse(at) - 25 * 3600000).toISOString()), new Date(at))).toThrow('24 小時');
+    const retainedIds = new Set(parse(body).entries.map(e => e.id));
+    expect(parse(body, undefined, retainedIds).entries.every(e => e.counties.length === 0)).toBe(true);
+  }
+});
+it('benchmarks a typhoon-scale 100-entry JSON feed (warm median under 50ms)', () => {
+  const feed = JSON.parse(json), summary = countiesForBenchmark();
+  const body = JSON.stringify({ ...feed, entry: Array.from({ length: 100 }, (_, i) => ({ ...feed.entry[0], id: `storm-${i}`, summary })) });
+  for (let i = 0; i < 5; i++) parseNcdrJson(body);
+  const timings = Array.from({ length: 5 }, () => { const start = performance.now(); expect(parseNcdrJson(body).entries).toHaveLength(100); return performance.now() - start; }).sort((a, b) => a - b);
+  console.log(`NCDR 100-entry warm median: ${timings[2].toFixed(3)} ms`);
+  expect(timings[2]).toBeLessThan(50);
+});
+function countiesForBenchmark() { return '臺北市北投區、新北市板橋區、桃園市復興區、新竹縣竹北市、苗栗縣、臺中市、南投縣、嘉義縣、花蓮縣、臺東縣綠島鄉、蘭嶼鄉，東北風增強，各地留意強風。'.repeat(4); }

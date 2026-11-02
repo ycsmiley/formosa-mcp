@@ -122,8 +122,8 @@ it('redacts configured secret from persisted source errors and treats stale feed
   const s = setup(), original = s.fetchText.getMockImplementation()!; s.options.token = 'existing-kv-token';
   s.fetchText.mockImplementation(async url => { if (url === official.dgpa) throw Error('existing-kv-token https://private.example'); return original(url); });
   await collectDisaster(s.options); expect(s.read().sources.dgpa!.reason).toBe('[redacted] [url]');
-  const old = s.read().sources.ncdr!; s.advance(91 * 60000); await collectDisaster(s.options);
-  expect(s.read().sources.ncdr).toMatchObject({ ok: false, sha: old.sha, lastSuccessAt: old.lastSuccessAt }); expect(s.read().sources.ncdr!.reason).toContain('90 分鐘');
+  const old = s.read().sources.ncdr!; s.advance(25 * 3600000); await collectDisaster(s.options);
+  expect(s.read().sources.ncdr).toMatchObject({ ok: false, sha: old.sha, lastSuccessAt: old.lastSuccessAt }); expect(s.read().sources.ncdr!.reason).toContain('24 小時');
 });
 it('anchors Worker heartbeat to run start even after a slow response', async () => {
   const s = setup(), original = s.fetchText.getMockImplementation()!; s.options.writer = 'worker'; s.options.maxCaps = 0;
@@ -292,4 +292,58 @@ it.each([['worker', 3, 9, 81], ['gha', 1.5, 6, 42]] as const)('bounds %s publica
   });
   for (let run = 0; run < 144; run++) { if (run) s.advance(10 * 60000); await collectDisaster(s.options); }
   expect(s.writes.length).toBeLessThanOrEqual(ceiling); expect(s.writes.length).toBeGreaterThan(ceiling - 4);
+});
+
+it('publishes quiet three-hour dual-format feeds as healthy and lets service confirm absence', async () => {
+  const s = setup(), quiet = new Date(Date.parse(at) - 3 * 3600000).toISOString(); s.options.only = ['ncdr'];
+  s.fetchText.mockImplementation(async url => ({ status: 200, text: url === feedUrls[0] ? emptyJson(quiet) : emptyAtom(quiet) }));
+  expect((await collectDisaster(s.options)).exitCode).toBe(0);
+  expect(s.read().sources.ncdr).toMatchObject({ ok: true, sourceUpdatedAt: quiet, empty: true });
+  const { createDisasterService } = await import('../src/core/disaster/service.js');
+  const service = createDisasterService({ indexes: async () => ({ worker: null, gha: s.read() }), shard: async () => [] }, s.options.now);
+  expect((await service.alerts({ city: '臺北市' })).text).toContain('目前沒有臺北市');
+});
+it.each([3, 25])('GHA applies a 24-hour NCDR source limit, not 90 minutes (%i hours)', async hours => {
+  const s = setup(); s.options.only = ['ncdr'];
+  const peer = state({ sourceUpdatedAt: new Date(Date.parse(at) - hours * 3600000).toISOString() });
+  s.values.set(shardKey('ncdr', peer.sha!), '[]'); s.options.peerIndex = async () => index({ ncdr: peer });
+  await collectDisaster(s.options);
+  expect(s.fetchText.mock.calls.length === 0).toBe(hours === 3);
+});
+it('leaves only ten seconds of NCDR request budget after a 50-second cron delay', async () => {
+  const s = setup(); s.options.only = ['ncdr']; s.options.writer = 'worker';
+  s.options.scheduledAt = Date.parse(at) - 50000; s.options.ncdrDeadlineMs = 60000;
+  const feed = JSON.parse(json); feed.entry = Array.from({ length: 10 }, (_, i) => ({ ...feed.entry[0], id: `late-${i}`, link: { '@href': `${official.ncdr}${i}.cap` } }));
+  s.fetchText.mockImplementation(async url => {
+    const start = s.options.now!().getTime(); s.advance(25); s.calls.push({ url, start, end: s.options.now!().getTime() });
+    return { status: 200, text: url === feedUrls[0] ? JSON.stringify(feed) : wind.replace(/<identifier>[^<]+<\/identifier>/, `<identifier>${feed.entry.find((e: any) => e.link['@href'] === url)!.id}</identifier>`) };
+  });
+  await collectDisaster(s.options);
+  expect(s.calls).toHaveLength(4); // feed + three CAPs at ~3.1, 6.2 and 9.3 seconds
+  expect(s.calls.every(c => c.start - Date.parse(at) < 10000)).toBe(true);
+});
+it('anchors the x7:00 request guard to the scheduled cycle even when execution starts later', async () => {
+  const s = setup(); s.options.only = ['ncdr']; s.options.scheduledAt = Date.parse(at); s.options.ncdrDeadlineMs = 20 * 60000;
+  s.advance(10 * 60000); await collectDisaster(s.options);
+  expect(s.fetchText).not.toHaveBeenCalled(); expect(s.read().sources.ncdr!.ok).toBe(false);
+});
+it('refetches pre-geocode CAP shards and preserves retained detail when summaries change', async () => {
+  const s = setup(); s.options.only = ['ncdr'];
+  const feed = JSON.parse(json); feed.entry.splice(1, 1); const body = JSON.stringify(feed);
+  const fetch = s.fetchText.getMockImplementation()!;
+  s.fetchText.mockImplementation(async url => url === feedUrls[0] ? { status: 200, text: body } : fetch(url));
+  await collectDisaster(s.options);
+  const key = shardKey('ncdr', s.read().sources.ncdr!.sha!), items = decodeAlerts(s.values.get(key)!);
+  for (const item of items) delete item.areaCounties;
+  const legacy = s.read(); legacy.sources.ncdr!.sha = 'b'.repeat(12);
+  s.values.set(shardKey('ncdr', legacy.sources.ncdr!.sha!), JSON.stringify(items));
+  s.values.set(indexKey(s.options.writer), JSON.stringify(legacy));
+  s.fetchText.mockClear(); await collectDisaster(s.options);
+  expect(s.fetchText.mock.calls.some(([url]) => url.endsWith('.cap'))).toBe(true);
+  const before = decodeAlerts(s.values.get(shardKey('ncdr', s.read().sources.ncdr!.sha!))!).filter(e => e.detail);
+  const original = s.fetchText.getMockImplementation()!;
+  s.fetchText.mockImplementation(async url => url === feedUrls[0] ? { status: 200, text: body.replace('東北風增強', '臺北市新北市桃園市') } : original(url));
+  s.fetchText.mockClear(); await collectDisaster(s.options);
+  const after = decodeAlerts(s.values.get(shardKey('ncdr', s.read().sources.ncdr!.sha!))!).filter(e => e.detail);
+  expect(after).toEqual(before); expect(s.fetchText.mock.calls.some(([url]) => url.endsWith('.cap'))).toBe(false);
 });

@@ -18,7 +18,7 @@ export async function collectGarbage(store: Store, options: { cities?: City[]; f
   const reason = (error: unknown) => { const message = error instanceof Error ? error.message : String(error); return (options.token ? message.replaceAll(options.token, '[redacted]') : message).replace(/\s+/g, ' ').slice(0, 200); };
   const cities = options.cities ?? Object.keys(urls) as City[]; let index: Index;
   try { const old = await store.get(indexKey); index = old ? decodeIndex(old) : { v: 2, generatedAt: new Date().toISOString(), cities: {} }; } catch (error) { console.error(`garbage index read failed: ${reason(error)}`); return 1; }
-  let failed = false;
+  let failed = false, dirty = false;
   for (let i = 0; i < cities.length; i++) {
     if (i) await (options.delay ?? (() => new Promise<void>(r => setTimeout(r, 2000))))();
     const city = cities[i];
@@ -27,11 +27,25 @@ export async function collectGarbage(store: Store, options: { cities?: City[]; f
       if (data.entry.stops < (options.minimum ?? minimum)[city]) throw Error('minimum guard');
       const changed = Object.keys(data.entry.districts).length !== Object.keys(previous?.districts ?? {}).length || Object.entries(data.entry.districts).some(([d, v]) => previous?.districts[d]?.sha256 !== v.sha256);
       data.entry.updatedAt = changed ? now.toISOString() : previous!.updatedAt;
-      for (const [district, value] of data.shards) await store.put(shardKey(city, data.entry.gen, district), value, data.entry.updatedAt, 1209600);
-      index.cities[city] = data.entry;
+      // A city owns one immutable generation. Any district change writes a new city;
+      // unchanged cities keep their generation and only renew after seven days.
+      if (!changed) data.entry.gen = previous!.gen;
+      else if (data.entry.gen === previous?.gen) data.entry.gen = (now.getTime() + 1).toString(36);
+      const writtenAt = previous?.writtenAt ?? previous?.fetchedAt;
+      const renew = !changed && (!writtenAt || now.getTime() - Date.parse(writtenAt) > 7 * 86400000);
+      let wrote = false;
+      for (const [district, value] of data.shards) {
+        const key = shardKey(city, data.entry.gen, district);
+        if (!changed && !renew && await store.get(key) === value) continue;
+        await store.put(key, value, data.entry.updatedAt, 1209600); wrote = true;
+      }
+      if (changed || wrote || renew) {
+        data.entry.writtenAt = changed || renew ? now.toISOString() : writtenAt;
+        index.cities[city] = data.entry; dirty = true;
+      }
     } catch (error) { failed = true; console.error(`garbage ${city} failed: ${reason(error)}`); }
   }
-  try { index.generatedAt = (options.now ?? (() => new Date()))().toISOString(); await store.put(indexKey, encodeIndex(index), index.generatedAt); } catch (error) { console.error(`garbage index write failed: ${reason(error)}`); failed = true; }
+  try { if (dirty) { index.generatedAt = (options.now ?? (() => new Date()))().toISOString(); await store.put(indexKey, encodeIndex(index), index.generatedAt); } } catch (error) { console.error(`garbage index write failed: ${reason(error)}`); failed = true; }
   return failed ? 1 : 0;
 }
 export async function main(args = process.argv.slice(2), env = process.env): Promise<number> {

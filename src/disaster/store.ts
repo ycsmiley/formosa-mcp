@@ -17,7 +17,7 @@ export function localDisasterStore(dir?: string): DisasterStore {
   const cache = new TtlCache<Awaited<ReturnType<typeof collectDisaster>>>(result => Object.values(result.index.sources).every(s => s.ok) ? 10 * 60000 : 2 * 60000);
   const read = async (key: string, source: Source) => { if (!dir) return memory[source].get(key); try { return await readFile(join(dir, filename(key)), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; } };
   const refresh = async (source: Source) => { if (!dir) await cache.getOrLoad(source, () => collectDisaster({ writer: 'gha', store: memory[source], only: [source], fetchText: url => fetchText(url, 12000), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 6 })); };
-  const index = async (writer: Writer, source: Source) => { try { const raw = await read(indexKey(writer), source); return raw ? decodeIndex(raw) : null; } catch { return null; } };
+  const index = async (writer: Writer, source: Source) => { const raw = await read(indexKey(writer), source); return raw === null ? null : decodeIndex(raw); };
   return {
     async indexes(source) {
       const selected = source ? [source] : sources;
@@ -28,7 +28,8 @@ export function localDisasterStore(dir?: string): DisasterStore {
         const first = indexes.find((i): i is Index => i !== null);
         return first ? { ...first, sources: Object.assign({}, ...indexes.map(i => i?.sources)) } : null;
       };
-      const [worker, gha] = await Promise.all([load('worker'), load('gha')]); return { worker, gha };
+      const [worker, gha] = await Promise.allSettled([load('worker'), load('gha')]);
+      return { worker: worker.status === 'fulfilled' ? worker.value : null, gha: gha.status === 'fulfilled' ? gha.value : null, error: worker.status === 'rejected' || gha.status === 'rejected' };
     },
     async shard(source, sha) { const raw = await read(shardKey(source, sha), source); return raw ? decodeShard(raw, source) : null; },
   };
