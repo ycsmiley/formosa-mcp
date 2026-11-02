@@ -93,3 +93,43 @@ it('parses largest DGPA + JSON + CAP well below 2ms per bundle (200 iterations)'
   const start = performance.now(); for (let i = 0; i < 200; i++) { parseDgpa(largest); parseNcdrJson(json); parseCap(wind); }
   expect((performance.now() - start) / 200).toBeLessThan(2);
 });
+
+it('rejects feed clocks beyond five minutes, accepts three minutes, and requires feed author', () => {
+  for (const parse of [parseNcdrJson, parseNcdrAtom]) {
+    const body = parse === parseNcdrJson ? json : atom;
+    const updated = parse(body).updated;
+    expect(() => parse(body.replace(updated, new Date(Date.parse(at) + 10 * 60000).toISOString()), new Date(at))).toThrow('資料時間異常');
+    expect(() => parse(body.replace(updated, new Date(Date.parse(at) + 3 * 60000).toISOString()), new Date(at))).not.toThrow();
+    expect(() => parse(body.replace(/("name":"|<name>)NCDR/, '$1Someone else'), new Date(at))).toThrow();
+  }
+});
+it('marks CAP complete only when every area has a recognized county prefix', () => {
+  expect(parseCap(wind).complete).toBe(true);
+  for (const area of ['', '<area><areaDesc>未知海域</areaDesc></area>', '<area><areaDesc>臺北市</areaDesc></area><area><areaDesc></areaDesc></area>']) {
+    expect(parseCap(wind.replace(/<area>[\s\S]*<\/area>/, area)).complete).toBe(false);
+  }
+});
+it('bounds and sanitizes displayed fields, validates the same bounds in persisted shards', () => {
+  const parsed = parseCap(wind.replace(/<headline>[\s\S]*?<\/headline>/, `<headline>${'長'.repeat(250)}</headline>`).replace(/<event>[^<]+<\/event>/, `<event>${'長'.repeat(80)}</event>`));
+  expect(parsed.title).toHaveLength(200); expect(parsed.type).toHaveLength(40);
+  const { status: _, msgType: __, onset: ___, web: ____, ...cap } = parsed;
+  const alert = { ...cap, detail: true, link: 'https://alerts.ncdr.nat.gov.tw/test.cap' };
+  for (const [key, limit] of Object.entries({ title: 200, type: 40, sender: 100, level: 60, color: 20 })) {
+    expect(() => decodeAlerts(JSON.stringify([{ ...alert, [key]: 'x'.repeat(limit + 1) }]))).toThrow();
+    expect(() => decodeAlerts(JSON.stringify([{ ...alert, [key]: 'a\nb' }]))).toThrow();
+  }
+  expect(() => decodeAlerts(JSON.stringify([{ ...alert, complete: 'yes' }]))).toThrow();
+  expect(() => decodeAlerts(JSON.stringify([{ ...alert, complete: true, detail: false }]))).toThrow();
+  const html = none.replace(/<TR><TD headers='city_Name'[\s\S]*?<\/TR>/, `<tr><td headers="city_Name">臺北市</td><td>${'長'.repeat(500)}</td></tr>`);
+  const { updatedAt: _u, ...snapshot } = parseDgpa(html);
+  expect(snapshot.counties['臺北市'][0]).toHaveLength(300);
+  expect(() => decodeDgpa(JSON.stringify({ ...snapshot, counties: { 臺北市: ['長'.repeat(301)] } }))).toThrow();
+  expect(() => parseDgpa(html.replace('長'.repeat(500), Array(21).fill('公告').join('<br>')))).toThrow();
+  expect(() => decodeDgpa(JSON.stringify({ ...snapshot, counties: { 臺北市: Array(21).fill('公告') } }))).toThrow();
+});
+it('validates empty markers and token bucket metadata', () => {
+  for (const patch of [{ empty: 'yes' }, { empty: true, count: 1 }]) expect(() => decodeIndex(JSON.stringify(index({ ncdr: state(patch as never) })))).toThrow();
+  expect(decodeIndex(JSON.stringify(index({ ncdr: state({ empty: true }) }))).sources.ncdr?.empty).toBe(true);
+  for (const budget of [{ tokens: -1, at }, { tokens: 1, at: 'bad' }, { tokens: '1', at }]) expect(() => decodeIndex(JSON.stringify({ ...index({}), budget }))).toThrow();
+  expect(decodeIndex(JSON.stringify({ ...index({}), budget: { tokens: 0.5, at } })).budget?.tokens).toBe(0.5);
+});

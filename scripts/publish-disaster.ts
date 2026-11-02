@@ -10,7 +10,7 @@ export async function main(args = process.argv.slice(2), env = process.env): Pro
   const backing = args[1] ? directoryStore(args[1]) : kvStore(env);
   const store: Store = { get: key => backing.get(key), put: (key, value, ttl) => backing.put(key, value, new Date().toISOString(), ttl) };
   try {
-    const result = await collectDisaster({ writer: 'gha', store, token: env.CLOUDFLARE_KV_WRITE_TOKEN, fetchText: url => fetchText(url, 30000), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 20, quietWindow: true, peerIndex: async () => { const raw = await store.get(indexKey('worker')); return raw ? decodeIndex(raw) : null; } });
+    const result = await collectDisaster({ writer: 'gha', ...(args[1] ? {} : { budget: { perHour: 1.5, burst: 6 } }), store, token: env.CLOUDFLARE_KV_WRITE_TOKEN, fetchText: url => fetchText(url, 30000), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 20, quietWindow: true, peerIndex: async () => { const raw = await store.get(indexKey('worker')); return raw ? decodeIndex(raw) : null; } });
     for (const [source, state] of Object.entries(result.index.sources)) {
       const message = `disaster ${source} ok=${state.ok} skipped=${!!state.skipped} count=${state.count ?? 0}${state.reason ? ` reason=${reason(state.reason, env.CLOUDFLARE_KV_WRITE_TOKEN)}` : ''}`;
       if (!state.ok && !state.skipped) console.warn(message); else console.log(message);

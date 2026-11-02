@@ -1,0 +1,45 @@
+# Account-wide KV write budget (p35-r1fix)
+
+Cloudflare KV Free's 1,000 writes/day are shared by **all writers and Workers in the account**. The table audits the schedules in this repository; it is a planning envelope, not measured production usage or an account-wide reservation. Additional applications, manual runs and retries outside these workflows consume additional allowance. Rate-limit Durable Objects and the TDX gateway's SQLite storage are **not KV**.
+
+## Scheduled writers
+
+“Typical” assumes a healthy weekday with one daily stock revision, no invoice revision, unchanged outage notices, 70 populated garbage districts, warm rail stations/timetables, and healthy Worker disaster collection. “Worst” allows all scheduled writers to change on the same day: a weekday 25th of an odd month with storms. Counts include indexes, stock validators and rail usage records. See the qualifications below before treating these as ceilings.
+
+| Cron / workflow | KV writes per run | Runs/day | TYPICAL writes/day | WORST writes/day | Code: function |
+|---|---:|---:|---:|---:|---|
+| Worker TWSE `0,30 * * * MON-FRI` | 0–3 (quotes, dividends, validators; only on change) | 48 weekdays | 3 | 144 | [src/worker/index.ts](../src/worker/index.ts): `scheduled`, `write` |
+| Worker TWSE `0 */6 * * SAT,SUN` | 0–3 | 4 weekends | 0 | 12 (alternative to weekday row) | same |
+| Worker invoice `0 */3 * * *` | 0–1, only on change | 8 | 0 | 8 | [src/worker/index.ts](../src/worker/index.ts): `scheduled`, `write` |
+| Worker invoice draw day `*/10 5-15 25 1,3,5,7,9,11 *` | 0–1, only on change | 66 on draw day | 0 (usually 1 combined invoice revision) | 66 | same; conservatively includes overlapping cron invocations |
+| TPEx fallback counter (TWSE 11:00/12:30 UTC) | 0–1 | 2 weekdays | 0 | 2 | [src/worker/tpex-fallback.ts](../src/worker/tpex-fallback.ts): `tpexFallback` |
+| TPEx GHA `17,47 6-10 * * 1-5`, plus two fallback dispatches | 0–3 (two changed datasets + successful quote heartbeat) | 10 + up to 2 | 12 (10 heartbeats + 2 daily changes) | 36 | [scripts/publish-tpex.ts](../scripts/publish-tpex.ts): `publishTpex`; [workflow](../.github/workflows/tpex-collect.yml) |
+| Rail GHA `23 16,20 * * *` | warm same date: 0; new tomorrow: 5–7; cold no retry: 13–17; scheduled upper bound: 26 | 2 | 5–7 | 52 | [scripts/publish-rail.ts](../scripts/publish-rail.ts): `publishRail`, `request`, `get`, `collect`; [workflow](../.github/workflows/rail-snapshot.yml) |
+| Garbage GHA `37 3 * * *` | populated districts + 1 index | 1 | 71 | 71* | [scripts/publish-garbage.ts](../scripts/publish-garbage.ts): `collectGarbage`; [workflow](../.github/workflows/garbage-collect.yml) |
+| Outage GHA `23 22,4,10 * * *` | 1 heartbeat + 0–66 changed/renewed county/source shards | 3 | 3 | 201 | [scripts/publish-outages.ts](../scripts/publish-outages.ts): `collectOutages`; [workflow](../.github/workflows/outage-collect.yml) |
+| Disaster Worker `5,15,25,35,45,55 * * * *` | 0–3, bucket charged per shard + index | 144 | 24 (hourly unchanged heartbeat) | **81** | [src/core/disaster/collect.ts](../src/core/disaster/collect.ts): `collectDisaster`; [src/worker/index.ts](../src/worker/index.ts): `scheduled` |
+| Disaster GHA `20 * * * *` | 0–3; no repeated writes when Worker healthy and skipped | 24 | 0 steady state (one initial skip transition); 24 if actively collecting unchanged fallback | **42** | [src/core/disaster/collect.ts](../src/core/disaster/collect.ts): `collectDisaster`; [scripts/publish-disaster.ts](../scripts/publish-disaster.ts): `main`; [workflow](../.github/workflows/disaster-collect.yml) |
+| **Combined weekday draw-day envelope** (exclude weekend alternative) | | | **118–120** (add 1 for a usual invoice revision) | **703** | Sum of rows above |
+
+Rail writes its usage record **before every HTTP call**, including token acquisition, retries and failed calls. A cold run has six snapshots and, with three TRA pages per date, ten data calls plus a token: 17 writes without retries. The table allows 20 usage writes plus six snapshots per run: default `intervalMs=60_000` spaces calls, and the workflow's **20-minute job timeout** prevents more than 20 calls. Setup and HTTP time generally lower that bound. Without this workflow timeout, the code can make up to 40 calls (ten data gets × two attempts × token/data when tokens expire between requests) plus six snapshot writes per run: 92/day and a combined **743/day**. The default 300-call monthly snapshot reserve also limits HTTP usage but is not a per-day quota. Manual interval/quota overrides are outside this table.
+
+\* Garbage rewrites **all district shards on every successful run**, even if their content is unchanged: `buildCity` generates a new generation and `collectGarbage` only preserves `updatedAt`. The 71 assumes the present geographic envelope of 29 New Taipei + 12 Taipei + 29 Taichung districts. District names are not allowlisted in the garbage parser, so malformed/new upstream district names can exceed this planning count. It is not a code-enforced write cap. Outages allow all 22 recognized counties per source (3 × 22 = 66), even though expected Taipei-water coverage is much smaller and Taiwan Water currently returns no usable export.
+
+**The combined scheduled envelope is approximately 700/day (703).** The reviewer's no-retry rail estimate (34/day) gives **562 non-disaster + 123 disaster = 685/day**; allowing workflow-bounded rail retries gives **580 + 123 = 703/day**. This is below 1,000 for the stated schedules and geographic assumptions, leaving 297/day for other account writers. It is three writes above a strict 700 target. If a strict ≤700 envelope is required, the smallest proposed follow-up is adding `--max-calls 18` to the rail workflow command: at most 18 usage writes + six snapshots per run, reducing rail's scheduled worst from 52 to 48/day and the combined total to **699/day**, independent of the job-timeout assumption. Normal cold collection needs at most eleven calls, leaving seven for retries. **No other collector or schedule was changed in p35-r1fix.** A shared account-wide coordinator remains necessary for a strict account-wide guarantee.
+
+## Disaster publication policy
+
+Both writers publish indexes only for changes to `ok`, `closed`, `sha`, `reason`, `empty` or `skipped`, or a heartbeat after **55 minutes**. Heartbeats anchor to run start, yielding roughly 60–70 minutes on these schedules, inside the 90-minute reader freshness window. GHA suppresses heartbeat-only publications when every selected source is skipped; an unchanged healthy-Worker skip writes nothing. Source/fetch times can therefore advance in memory without advancing KV on each poll.
+
+Immutable shards retain eight-day TTLs. A changed sha writes a shard; an unchanged shard renews after three days **only alongside an index publication already due**. Shards precede the writer's independent index. Failed publication retains that source's previous reference.
+
+Each KV writer persists `budget: { tokens, at }` in its own index. At publication, `tokens = min(burst, previousTokens + perHour × elapsedHours)`. Each planned shard and the one index cost a token. Worker uses **3/hour, burst 9** (9 + 24×3 = **81 writes per rolling 24 hours**); GHA uses **1.5/hour, burst 6** (6 + 24×1.5 = **42**). These conservative limits include the initial burst and manual invocations sharing the persisted index. If insufficient, publish nothing and warn. If DGPA changes fit with its index, publish DGPA and keep NCDR's complete previous state. Local directory/stdio stores have no bucket.
+
+The bucket assumes serialized publications for each writer and successful persistence of the writer index. KV is eventually consistent and does not provide compare-and-swap: concurrent same-writer runs or a lost index write after successful shard writes cannot give a transactional global ceiling. GHA workflow concurrency serializes its runs; production Worker overlap/failure behavior still needs profiling/coordinator work. Failed shard writes are charged conservatively in the next successful index.
+
+## Known follow-ups
+
+- Shared NCDR request coordinator: enforce the 3.1-second response-to-next-request gap and non-concurrency across independent runs/writers (review item 6). Current `request` only sequences one invocation; quiet windows are staggering, not a lock.
+- Production CPU profiling of the complete disaster cron under the Workers Free **10 ms CPU** limit. Fixture parser timings do not establish the full cron cost.
+- Garbage unchanged-shard rewrite: reuse prior generations/shard references and renew deliberately instead of rewriting every district daily; validate district names before claiming a hard geographic bound.
+- Consider the explicit rail call cap above for a strict ≤700/day planning envelope, or an account-wide write allocator before adding other scheduled writers.

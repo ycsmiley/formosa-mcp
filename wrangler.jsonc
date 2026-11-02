@@ -22,7 +22,8 @@
     "0 */3 * * *",
     // Invoice draw day: odd months, UTC 25th 05:00–15:50 = Taipei 13:00–23:50, every 10m.
     "*/10 5-15 25 1,3,5,7,9,11 *",
-    // Disaster: every 10m at x5; five crons is the Workers Free maximum.
+    // Disaster: every 10m at x5; Workers Free allows five cron triggers per ACCOUNT.
+    // This worker uses all five; no other worker on this account may use crons.
     "5,15,25,35,45,55 * * * *"
     // Rail snapshots are written by .github/workflows/rail-snapshot.yml.
   ] }

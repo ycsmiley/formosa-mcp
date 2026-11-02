@@ -232,13 +232,13 @@ npm run remote-check
 
 驗證可執行 `npm run typecheck:worker`、`npm run test:worker`。`@modelcontextprotocol/sdk` 為配合 `agents` 固定於精確版本 `1.32.1`。
 
-停班停課與告警採雙層收集：Worker 新增唯一一條 `5,15,25,35,45,55 * * * *` cron（每 10 分鐘 x5，臺北／UTC 分鐘相同），NCDR 請求只在本輪開始後 60 秒內發出，每輪最多 4 個 CAP。[GHA collector](.github/workflows/disaster-collect.yml) 每小時 `20 * * * *` 執行（最多 20 個 CAP）；逐來源檢查 Worker 的 `lastSuccessAt`，距今 ≤25 分鐘便跳過該來源，但仍寫 GHA 心跳。延遲啟動的 GHA 在每次 NCDR 請求前避開每 10 分鐘的 x4:30～x7:00，等到 x7:00 才送出。所有 NCDR 請求（JSON feed、Atom 備援、CAP）都在前一回應結束後至少等 3.1 秒，避免官方每 IP 3 秒限制。此安排為錯開請求，並非跨程序鎖。兩個 feed 同時要求登入時顯示「尚未支援」，不使用金鑰。
+停班停課與告警採雙層收集：Worker 每 10 分鐘 x5（`5,15,25,35,45,55 * * * *`），每輪最多 4 個 CAP，NCDR 請求須在本輪前 60 秒內開始；[GHA collector](.github/workflows/disaster-collect.yml) 每小時 `20 * * * *`、最多 20 個 CAP。GHA 僅在 Worker 該來源成功、未關閉、有可讀分片、來源更新未滿 90 分鐘（未超前逾 5 分鐘）、成功抓取距今非負且嚴格小於 25 分鐘時跳過。每輪 NCDR JSON／Atom／CAP 請求在前一回應結束後至少等 3.1 秒；延遲 GHA 另避開 x4:30～x7:00。此安排不保證跨程序互斥；共享協調器列為後續工作。兩個 feed 或任一 CAP 要求登入時顯示「尚未支援」，不使用金鑰。
 
-Cloudflare 出口 IP 能否連到 DGPA／NCDR 尚待部署驗證；若 Worker 無法取得，改由每小時 GHA 快照兜底。讀取時逐來源選兩個 writer 中最近成功的資料；抓取超過 90 分鐘會警示，DGPA 官方頁面更新時間超過 90 分鐘也會警示。停班停課保留官方原文，不推論出勤狀態；過期時隱藏含「照常」的原文，以不顯示的提示取代，頁面日期與今天不同另行提示。過期的零則告警不宣稱目前沒有告警，停班停課無事件頁面則明示為當時狀態。摘要會以無歧義的鄉鎮市區名稱補判縣市；尚無法判定範圍的告警會提示無法確認是否涵蓋查詢縣市，CAP 詳細告警會列出該縣市範圍（最多 15 處）。來源更新時間與本服務抓取時間分列，失敗不冒充沒有事件。
+Cloudflare 出口可達性尚待部署驗證；每小時 GHA 為備援。逐來源按 `sourceUpdatedAt` 新到舊選資料，同時才比較 `lastSuccessAt`；收集時拒絕自身來源版本倒退，對方已有更新版本便跳過發布。兩個時間任一超過 90 分鐘、或缺少來源時間均視為過期；任一超前逾 5 分鐘則顯示「資料時間異常」且資料不可用。停班停課引用官方原文，過期時隱藏「照常」、無事件頁面標為歷史資料，頁面日期不同另行提示。
 
-KV 使用獨立索引 `disaster:index:worker:v1`、`disaster:index:gha:v1`，避免兩個 writer 互相覆蓋；內容分片為 `disaster:v1:dgpa:{sha12}`、`disaster:v1:ncdr:{sha12}`（編碼內容 SHA-256 前 12 碼）。分片不含頁面／feed 更新時間（存索引），TTL 8 天，相同內容僅超過 3 天才續寫（Worker 配合下一次索引心跳），`writtenAt` 記錄續期時間。分片先寫、索引最後寫；來源失敗保留原 sha、count、寫入／成功／來源更新時間；有效的零則 NCDR feed 可寫空分片。
+只有資料新鮮、最近一次非 skipped 抓取成功、非空或經雙格式驗證為空、且所有告警範圍完整時，才可說「目前沒有…生效中的告警」。NCDR 沒有明確空清單訊號，也無真實空樣本：JSON 必須有非空 id/title、author.name===NCDR、新鮮 updated，且缺少/null/[] entry 或全部非 Actual/Cancel 過濾後為零；接著以同一請求節流 helper 取得 Atom，也須符合相同結構／時間／零筆條件，才發布 `[]` 與 `empty:true`。兩格式不同、任一無效或只有單格式時皆視為失敗，保留舊分片。CAP 只有至少一個 areaDesc 且每個範圍都以可辨識縣市開頭才標為 `complete:true`；摘要與舊版缺少標記者不完整，阻止無告警宣稱，並列出可能涵蓋查詢縣市的未確認項目。已知告警仍列出，未生效者顯示「即將生效」與臺北時間。縣轄市／鄉鎮市區可唯一對應縣市時加註轉換，新竹／嘉義歧義維持兩者並列。欄位有長度與清理限制，連結僅允許 NCDR HTTPS 網域，兩工具回應最多 16 KiB UTF-8，截斷後保留來源。
 
-KV 寫入預算：內容／ok／closed／reason 不變時 Worker 索引至少隔 19 分鐘才寫（x5 排程約每 20 分鐘，72 次／日），心跳採本輪開始時間，避免慢回應使第二輪錯過門檻；GHA 每輪寫索引（24 次／日），通常合計 96 次／日，加上分片變動／續期。若每輪兩個來源內容皆變，Worker 最多 144×3＝432 次／日，GHA 最多 24×3＝72 次／日，disaster 合計最壞 504 次／日（不含手動執行）；狀態變動可立即寫索引，因此 72 並非絕對上限。此額度與其他 collectors 共用 Workers Free 每日 1,000 次寫入。
+KV 採獨立索引 `disaster:index:{worker|gha}:v1`、不可變分片 `disaster:v1:{dgpa|ncdr}:{sha12}`（SHA-256 前 12 碼）；分片 TTL 8 天，超過 3 天才搭配已需寫入的索引續期，索引最後發布。兩 writer 僅狀態變更或 55 分鐘心跳才寫索引；GHA 全部跳過且無變更時零寫入。Worker token bucket 每小時 3、burst 9，保守上限 81 次／24h；GHA 每小時 1.5、burst 6，上限 42 次／24h，額度不足優先 DGPA。KV Free **每帳號共用 1,000 次／日**；全部排程最壞估算約 700（703）次／日，嚴格 ≤700 的最小後續調整與完整逐項計算見 [KV 寫入預算](docs/kv-budget.md)。Free 五條 cron 上限亦為每帳號，本 Worker 全數用完。
 
 本機執行 `npm run collect:disaster -- --out /tmp/formosa-disaster`，再設 `FORMOSA_DISASTER_DIR=/tmp/formosa-disaster` 供 stdio 讀取。未設時 Node 按查詢來源獨立執行共用 collector、最多 6 個 CAP，每次請求逾時 12 秒，成功快取 10 分鐘、失敗快取 2 分鐘並保留失敗原因及先前成功資料；停班停課查詢不等候 NCDR，不採 GHA 的 peer skip 或 quiet window。更新 publisher 後由 `npm run build:collectors` 重建 `scripts/dist/`，workflow 直接執行已提交的 bundle。
 

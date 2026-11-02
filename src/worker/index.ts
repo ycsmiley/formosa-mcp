@@ -94,7 +94,7 @@ export default {
     await Promise.all([controller.cron === '0,30 * * * MON-FRI' && (minute === 660 || minute === 750) ? tpexFallback(env, controller.scheduledTime) : undefined, ...jobs.map(async job => {
       if (job === 'disaster') {
         try {
-          const result = await collectDisaster({ writer: 'worker', store: { get: key => env.SNAPSHOTS.get(key), put: (key, value, ttl) => env.SNAPSHOTS.put(key, value, ttl === undefined ? undefined : { expirationTtl: ttl }) }, fetchText: url => disasterFetchText(url, 15000), now: () => new Date(), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 4, ncdrDeadlineMs: 60000 });
+          const result = await collectDisaster({ writer: 'worker', budget: { perHour: 3, burst: 9 }, store: { get: key => env.SNAPSHOTS.get(key), put: (key, value, ttl) => env.SNAPSHOTS.put(key, value, ttl === undefined ? undefined : { expirationTtl: ttl }) }, fetchText: url => disasterFetchText(url, 15000), now: () => new Date(), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), maxCaps: 4, ncdrDeadlineMs: 60000, peerIndex: async () => { const raw = await env.SNAPSHOTS.get(disasterIndexKey('gha')); return raw ? decodeDisasterIndex(raw) : null; } });
           for (const [source, state] of Object.entries(result.index.sources)) if (!state.ok) console.warn(`disaster ${source} fail ${disasterReason(state.reason)}`);
           if (result.exitCode) console.warn('disaster collection or publication failed');
         } catch (e) { console.warn(`disaster fail ${disasterReason(e)}`); }

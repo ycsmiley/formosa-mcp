@@ -14,12 +14,13 @@ it('runs only disaster on x5, writes shards before its index, and serves formatt
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:15:00+08:00'));
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input); if (url === official.dgpa) return new Response(none);
-    if (url === feedUrls[0]) return Response.json({ id: 'test', title: 'NCDR', updated: new Date().toISOString(), entry: [] });
+    if (url === feedUrls[0]) return Response.json({ id: 'test', title: 'NCDR', author: { name: 'NCDR' }, updated: new Date().toISOString(), entry: [] });
+    if (url === feedUrls[1]) return new Response(`<feed><id>test</id><title>NCDR</title><author><name>NCDR</name></author><updated>${new Date().toISOString()}</updated></feed>`);
     throw Error('unexpected upstream');
   });
   const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
-  expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa, feedUrls[0]]);
+  expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa, feedUrls[0], feedUrls[1]]);
   const raw = await bindings.SNAPSHOTS.get(indexKey('worker')); expect(raw).not.toBeNull(); const index = decodeIndex(raw!);
   for (const source of ['dgpa', 'ncdr'] as const) { expect(index.sources[source]?.ok).toBe(true); expect(await bindings.SNAPSHOTS.get(shardKey(source, index.sources[source]!.sha!))).not.toBeNull(); }
   expect(put.mock.calls.at(-1)?.[0]).toBe(indexKey('worker')); expect(put.mock.calls.every(([k]) => k.startsWith('disaster:'))).toBe(true);
@@ -42,4 +43,16 @@ it.each(['*/10 5-15 25 1,3,5,7,9,11 *', '0,30 * * * MON-FRI'])('does not run dis
 it('contains collection exceptions rather than rejecting scheduled', async () => {
   vi.spyOn(bindings.SNAPSHOTS, 'get').mockRejectedValue(Error('https://private.example Bearer secret')); const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
   await expect(worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext())).resolves.toBeUndefined(); expect(log).toHaveBeenCalled(); expect(JSON.stringify(log.mock.calls)).not.toMatch(/private.example|secret/);
+});
+it('uses the GHA peer source revision to prevent an older Worker publication', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:15:00+08:00'));
+  const stamp = new Date().toISOString(), sha = 'a'.repeat(12);
+  await bindings.SNAPSHOTS.put(indexKey('gha'), JSON.stringify({ v: 1, writer: 'gha', heartbeatAt: stamp, sources: { dgpa: { ok: true, sha, count: 0, writtenAt: stamp, lastSuccessAt: stamp, fetchedAt: stamp, sourceUpdatedAt: stamp } } }));
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input) === official.dgpa ? new Response(none) : new Response('unavailable', { status: 503 }));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
+  const result = decodeIndex((await bindings.SNAPSHOTS.get(indexKey('worker')))!);
+  expect(result.sources.dgpa).toMatchObject({ skipped: true, reason: '對方已有較新來源版本' });
+  expect(put.mock.calls.some(([key]) => key.startsWith('disaster:v1:dgpa:'))).toBe(false);
 });

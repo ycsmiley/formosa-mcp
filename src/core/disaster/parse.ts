@@ -1,7 +1,7 @@
 import { canonical, clean } from '../outage/normalize.js';
 import { counties, districts } from '../outage/districts.js';
 import { validDay } from '../outage/time.js';
-import { object, timestamp, severities, official, type Alert, type Dgpa } from './model.js';
+import { object, timestamp, severities, official, safeLink, type Alert, type Dgpa } from './model.js';
 export const entities = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (all, code: string) => {
   const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
   if (code[0] !== '#') return named[code.toLowerCase()] ?? all;
@@ -41,8 +41,8 @@ export function parseDgpa(html: string): Dgpa & { updatedAt: string } {
     if (data.length === 1 && /\bcity_Name\b/.test(attr(data[0][1], 'headers')) && attr(data[0][1], 'colspan') === '2' && text(data[0][2]) === '無停班停課訊息。' && !result.noEvent) { result.noEvent = true; continue; }
     if (data.length !== 2 || !/\bcity_Name\b/.test(attr(data[0][1], 'headers'))) throw Error('人事行政總處表格列無法辨識');
     const county = canonical(text(data[0][2]));
-    const lines = data[1][2].split(/<br\b[^>]*>/i).map(text).filter(Boolean);
-    if (!counties.includes(county) || Object.hasOwn(result.counties, county) || !lines.length) throw Error('人事行政總處縣市或公告列無法辨識');
+    const lines = data[1][2].split(/<br\b[^>]*>/i).map(v => clean(text(v), 300)).filter(Boolean);
+    if (!counties.includes(county) || Object.hasOwn(result.counties, county) || !lines.length || lines.length > 20) throw Error('人事行政總處縣市或公告列無法辨識');
     result.counties[county] = lines;
   }
   if (result.noEvent ? Object.keys(result.counties).length > 0 : !Object.keys(result.counties).length) throw Error('人事行政總處公告內容矛盾或空白');
@@ -94,17 +94,18 @@ function entry(v: Record<string, any>): FeedEntry {
   if (!link || !/^https?:\/\//.test(link)) throw Error('NCDR 告警連結格式錯誤');
   const effective = v.effective ? ncdrTime(v.effective) : undefined, expires = v.expires ? ncdrTime(v.expires) : undefined;
   if (v.effective && !effective || v.expires && !expires) throw Error('NCDR 告警時間格式錯誤');
-  return { id: v.id, type: clean(v.category?.['@term'] || v.title), sender: clean(v.author?.name), ...(effective ? { effective } : {}), ...(expires ? { expires } : {}), counties: mentioned(summary), text: clean(summary, 400), link, detail: false, status: v.status, msgType: v.msgType };
+  return { id: v.id, type: clean(v.category?.['@term'] || v.title, 40), title: clean(v.title, 200), sender: clean(v.author?.name, 100), ...(effective ? { effective } : {}), ...(expires ? { expires } : {}), counties: mentioned(summary), text: clean(summary, 400), link: safeLink(link), detail: false, complete: false, status: v.status, msgType: v.msgType };
 }
 function feed(updated: unknown, entries: FeedEntry[], now?: Date): Feed {
   if (!timestamp(updated)) throw Error('NCDR 缺少有效來源更新時間');
+  if (now && Date.parse(updated as string) - now.getTime() > 5 * 60000) throw Error('NCDR 資料時間異常');
   if (now && now.getTime() - Date.parse(updated as string) > 90 * 60000) throw Error('NCDR 來源更新時間已超過 90 分鐘');
   if (new Set(entries.map(e => e.id)).size !== entries.length) throw Error('NCDR 告警識別碼重複');
   return { updated: updated as string, entries: entries.filter(e => e.status === 'Actual' && e.msgType !== 'Cancel') };
 }
 export function parseNcdrJson(s: string, now?: Date): Feed {
   warning(s); const v: unknown = JSON.parse(s);
-  if (!object(v) || !v.id || !v.title || v.entry !== undefined && v.entry !== null && !Array.isArray(v.entry) && !object(v.entry)) throw Error('NCDR feed 格式錯誤');
+  if (!object(v) || typeof v.id !== 'string' || !v.id.trim() || typeof v.title !== 'string' || !v.title.trim() || v.author?.name !== 'NCDR' || v.entry !== undefined && v.entry !== null && !Array.isArray(v.entry) && !object(v.entry)) throw Error('NCDR feed 格式錯誤');
   const entries = v.entry == null ? [] : Array.isArray(v.entry) ? v.entry : [v.entry];
   if (entries.some(e => !object(e))) throw Error('NCDR 告警格式錯誤');
   return feed(v.updated, entries.map(entry), now);
@@ -113,7 +114,7 @@ export function parseNcdrAtom(s: string, now?: Date): Feed {
   xml(s, 'feed'); const body = tag(s, 'feed'), entries = tags(body, 'entry');
   if ([...body.matchAll(/<(?:[\w-]+:)?entry\b/gi)].length !== entries.length) throw Error('NCDR 告警格式錯誤');
   const header = body.replace(/<(?:[\w-]+:)?entry\b[^>]*>[\s\S]*?<\/(?:[\w-]+:)?entry\s*>/gi, '');
-  if (!text(tag(header, 'id')) || !text(tag(header, 'title'))) throw Error('NCDR feed 格式錯誤');
+  if (!text(tag(header, 'id')) || !text(tag(header, 'title')) || text(tag(tag(header, 'author'), 'name')) !== 'NCDR') throw Error('NCDR feed 格式錯誤');
   return feed(text(tag(header, 'updated')), entries.map(e => entry({ id: text(tag(e, 'id')), title: text(tag(e, 'title')), author: { name: text(tag(tag(e, 'author'), 'name')) }, summary: { '#text': tag(e, 'summary') }, link: [...e.matchAll(/<link\b([^>]*)\/?\s*>/gi)].map(m => ({ '@href': attr(m[1], 'href') })), category: { '@term': attr(/<category\b([^>]*)/i.exec(e)?.[1] ?? '', 'term') }, status: text(tag(e, 'status')), msgType: text(tag(e, 'msgType')), effective: text(tag(e, 'effective')), expires: text(tag(e, 'expires')) })), now);
 }
 export interface Cap extends Omit<Alert, 'link' | 'detail'> { status: string; msgType: string; onset?: string; web?: string }
@@ -123,9 +124,9 @@ export function parseCap(s: string): Cap {
   if (!id || !type || !severities.includes(severity as typeof severities[number]) || !text(tag(body, 'status')) || !text(tag(body, 'msgType'))) throw Error('CAP 內容格式錯誤');
   const times: { effective?: string; onset?: string; expires?: string } = {};
   for (const key of ['effective', 'onset', 'expires'] as const) { const v = text(tag(info, key)); if (v && !timestamp(v)) throw Error('CAP 時間格式錯誤'); if (v) times[key] = v; }
-  const allAreas = [...new Set(tags(info, 'areaDesc').map(text).filter(Boolean))].map(a => ({ original: a, canonical: canonical(a) }));
+  const allAreas = [...new Set(tags(info, 'areaDesc').map(text))].map(a => ({ original: a, canonical: canonical(a) }));
   const matched = counties.filter(c => allAreas.some(a => a.canonical.startsWith(c)));
   const areas = allAreas.filter(a => matched.some(c => a.canonical.startsWith(c))).slice(0, 200).map(a => clean(a.original, 100));
   const parameters = Object.fromEntries(tags(info, 'parameter').map(p => [text(tag(p, 'valueName')), text(tag(p, 'value'))]));
-  return { id, type, title: text(tag(info, 'headline')), sender: text(tag(info, 'senderName')), severity: severity as typeof severities[number], ...times, ...(parameters.severity_level ? { level: parameters.severity_level } : {}), ...(parameters.alert_color ? { color: parameters.alert_color } : {}), counties: matched, areas, text: clean(text(tag(info, 'description')), 400), web: text(tag(info, 'web')) || official.ncdr, status: text(tag(body, 'status')), msgType: text(tag(body, 'msgType')) };
+  return { id, type: clean(type, 40), title: clean(text(tag(info, 'headline')), 200), sender: clean(text(tag(info, 'senderName')), 100), complete: allAreas.length > 0 && matched.length > 0 && allAreas.every(a => counties.some(c => a.canonical.startsWith(c))), severity: severity as typeof severities[number], ...times, ...(parameters.severity_level ? { level: clean(parameters.severity_level, 60) } : {}), ...(parameters.alert_color ? { color: clean(parameters.alert_color, 20) } : {}), counties: matched, areas, text: clean(text(tag(info, 'description')), 400), web: text(tag(info, 'web')) || official.ncdr, status: text(tag(body, 'status')), msgType: text(tag(body, 'msgType')) };
 }

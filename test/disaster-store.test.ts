@@ -9,14 +9,19 @@ import { fetchText } from '../src/core/disaster/http.js';
 import { directoryStore, kvStore } from '../scripts/snapshot-store.js';
 import { main } from '../scripts/publish-disaster.js';
 import { filename } from '../src/garbage/store.js';
-import { none, at, index, state } from './disaster-fixtures.js';
+import { none, at, index, state, emptyJson, emptyAtom } from './disaster-fixtures.js';
+// These adapter/cache tests bypass collector sleeps; pacing is covered by collector tests.
+vi.mock('../src/core/disaster/collect.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/core/disaster/collect.js')>();
+  return { ...actual, collectDisaster: (options: import('../src/core/disaster/collect.js').Options) => actual.collectDisaster({ ...options, sleep: async () => {} }) };
+});
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
-const mockFetch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => new Response(String(input) === official.dgpa ? none : JSON.stringify({ id: 'test', title: 'NCDR', updated: new Date().toISOString(), entry: [] })));
+const mockFetch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => new Response(String(input) === official.dgpa ? none : String(input) === feedUrls[0] ? emptyJson(new Date().toISOString()) : emptyAtom(new Date().toISOString())));
 it('publishes directory snapshots then reads formatted tools without upstream access', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'disaster-')); vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:20:00+08:00')); const fetch = mockFetch();
-    expect(await main(['--out', dir], {})).toBe(0); expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa, feedUrls[0]]);
+    expect(await main(['--out', dir], {})).toBe(0); expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa, feedUrls[0], feedUrls[1]]);
     const files = await readdir(dir); expect(files).toContain('disaster_index_gha_v1.json'); expect(files.filter(f => f.startsWith('disaster_v1_'))).toHaveLength(2);
     fetch.mockClear(); const service = createDisasterService(localDisasterStore(dir), () => new Date(at));
     expect((await service.closure({ city: '臺北市' })).text).toContain('官方頁面：「無停班停課訊息。」'); expect((await service.alerts({ city: '臺北市' })).text).toContain('目前沒有臺北市生效中的告警'); expect(fetch).not.toHaveBeenCalled();
@@ -25,17 +30,18 @@ it('publishes directory snapshots then reads formatted tools without upstream ac
 });
 it('caches live successes for ten minutes and coalesces readers independently per source', async () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date(at)); const fetch = mockFetch(), store = localDisasterStore();
-  await Promise.all([store.indexes(), store.indexes()]); expect(fetch).toHaveBeenCalledTimes(2);
-  await store.indexes(); expect(fetch).toHaveBeenCalledTimes(2); vi.setSystemTime(new Date(Date.parse(at) + 10 * 60000 + 1));
-  await store.indexes(); expect(fetch).toHaveBeenCalledTimes(4);
+  await Promise.all([store.indexes(), store.indexes()]); expect(fetch).toHaveBeenCalledTimes(3);
+  await store.indexes(); expect(fetch).toHaveBeenCalledTimes(3); vi.setSystemTime(new Date(Date.parse(at) + 10 * 60000 + 1));
+  await store.indexes(); expect(fetch).toHaveBeenCalledTimes(6);
   const separate = localDisasterStore(); fetch.mockClear();
   const dgpa = await separate.indexes('dgpa'); expect(Object.keys(dgpa.gha!.sources)).toEqual(['dgpa']); expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa]);
-  const ncdr = await separate.indexes('ncdr'); expect(Object.keys(ncdr.gha!.sources)).toEqual(['ncdr']); expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa, feedUrls[0]]);
-  expect(Object.keys((await separate.indexes()).gha!.sources)).toEqual(['dgpa', 'ncdr']); expect(fetch).toHaveBeenCalledTimes(2);
+  const ncdr = await separate.indexes('ncdr'); expect(Object.keys(ncdr.gha!.sources)).toEqual(['ncdr']); expect(fetch.mock.calls.map(([u]) => String(u))).toEqual([official.dgpa, feedUrls[0], feedUrls[1]]);
+  expect(Object.keys((await separate.indexes()).gha!.sources)).toEqual(['dgpa', 'ncdr']); expect(fetch).toHaveBeenCalledTimes(3);
 });
 it('allows closure to finish immediately while an independent NCDR refresh is still in flight', async () => {
-  let release!: (response: Response) => void;
-  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input) === official.dgpa ? new Response(none) : new Promise<Response>(resolve => { release = resolve; }));
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(at));
+  let release!: (response: Response) => void; let waiting = true;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input) === official.dgpa ? new Response(none) : !waiting ? new Response(emptyAtom()) : new Promise<Response>(resolve => { release = response => { waiting = false; resolve(response); }; }));
   const timeout = vi.spyOn(AbortSignal, 'timeout'), store = localDisasterStore(), ncdr = store.indexes('ncdr');
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   try {
@@ -44,7 +50,7 @@ it('allows closure to finish immediately while an independent NCDR refresh is st
     expect(closure.text).toContain('官方頁面：「無停班停課訊息。」'); expect(performance.now() - started).toBeLessThan(1000);
     expect(fetch).toHaveBeenCalledTimes(2); expect(timeout.mock.calls).toEqual([[12000], [12000]]);
   } finally {
-    release(Response.json({ id: 'test', title: 'NCDR', updated: new Date().toISOString(), entry: [] })); await ncdr;
+    release(new Response(emptyJson())); await ncdr;
   }
   expect((await store.indexes('dgpa')).gha!.sources.dgpa!.ok).toBe(true);
 });
@@ -62,13 +68,13 @@ it.each(['dgpa', 'ncdr'] as const)('negative-caches a failed %s refresh while pr
   vi.useFakeTimers(); vi.setSystemTime(new Date(at)); const fetch = mockFetch(), store = localDisasterStore();
   const good = (await store.indexes(source)).gha!.sources[source]!;
   await vi.advanceTimersByTimeAsync(10 * 60000); fetch.mockRejectedValue(Error('upstream timeout'));
-  const refresh = store.indexes(source); if (source === 'ncdr') await vi.advanceTimersByTimeAsync(3100); const failed = (await refresh).gha!.sources[source]!;
+  const refresh = store.indexes(source); const failed = (await refresh).gha!.sources[source]!;
   expect(failed).toMatchObject({ ok: false, reason: 'upstream timeout', sha: good.sha, lastSuccessAt: good.lastSuccessAt });
   expect(await store.shard(source, good.sha!)).not.toBeNull();
   const service = createDisasterService(store), result = await (source === 'dgpa' ? service.closure({ city: '臺北市' }) : service.alerts({ city: '臺北市' }));
   expect(result.text).toContain('最近一次抓取失敗');
   const calls = fetch.mock.calls.length; await vi.advanceTimersByTimeAsync(2 * 60000 - 1); await store.indexes(source); expect(fetch).toHaveBeenCalledTimes(calls);
-  await vi.advanceTimersByTimeAsync(1); const retry = store.indexes(source); if (source === 'ncdr') await vi.advanceTimersByTimeAsync(3100); await retry; expect(fetch.mock.calls.length).toBeGreaterThan(calls);
+  await vi.advanceTimersByTimeAsync(1); const retry = store.indexes(source); await retry; expect(fetch.mock.calls.length).toBeGreaterThan(calls);
 });
 it('reuses directory and TTL-aware KV adapters and validates script options without fetching', async () => {
   vi.spyOn(console, 'error').mockImplementation(() => {}); const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ success: true }));
