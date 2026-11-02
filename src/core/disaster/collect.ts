@@ -1,7 +1,7 @@
-import { decodeIndex, decodeAlerts, indexKey, shardKey, official, feedUrls, sources, type Index, type State, type Writer, type Alert } from './model.js';
+import { decodeIndex, decodeAlerts, indexKey, shardKey, official, feedUrls, sources, type Index, type State, type Writer, type Alert, type Source } from './model.js';
 import { parseDgpa, parseNcdrJson, parseNcdrAtom, parseCap, LoginRequired, type Feed } from './parse.js';
 export interface Store { get(key: string): Promise<string | null>; put(key: string, value: string, ttlSeconds?: number): Promise<void> }
-export interface Options { writer: Writer; store: Store; fetchText: (url: string) => Promise<{ status: number; text: string }>; now?: () => Date; sleep: (ms: number) => Promise<void>; peerIndex?: () => Promise<Index | null>; maxCaps: number; ncdrDeadlineMs?: number; quietWindow?: boolean; token?: string }
+export interface Options { writer: Writer; store: Store; fetchText: (url: string) => Promise<{ status: number; text: string }>; now?: () => Date; sleep: (ms: number) => Promise<void>; peerIndex?: () => Promise<Index | null>; maxCaps: number; ncdrDeadlineMs?: number; quietWindow?: boolean; token?: string; only?: Source[] }
 export const reason = (e: unknown, token?: string) => (token ? String(e instanceof Error ? e.message : e).replaceAll(token, '[redacted]') : String(e instanceof Error ? e.message : e)).replace(/https?:\/\/[^\s]+/gi, '[url]').replace(/(?:Bearer\s+)[^\s]+/gi, 'Bearer [redacted]').replace(/(?:token|key|secret)=\S+/gi, '[redacted]').replace(/\s+/g, ' ').slice(0, 200);
 // Worker starts at x5, starts NCDR requests within 60s; hourly Actions starts at :20.
 // Delayed Actions avoid x4:30–x7:00; this is staggering, not a distributed lock.
@@ -19,7 +19,7 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
   let peer: Index | null = null;
   if (o.peerIndex) { try { peer = await o.peerIndex(); } catch { /* Independent fallback still fetches when peer is unavailable. */ } }
   const heartbeatDue = !raw || started - Date.parse(previous.heartbeatAt) >= 19 * 60000;
-  const index: Index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: {} };
+  const index: Index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: { ...previous.sources } };
   let writes = 0, exitCode = 0, finished = responseTimes.get(o.store);
   async function request(url: string): Promise<string> {
     // Every NCDR request starts >=3.1s after the preceding response (including errors).
@@ -45,30 +45,37 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
       if (!state?.sha) continue;
       try { const raw = await o.store.get(shardKey('ncdr', state.sha)); if (raw) for (const item of decodeAlerts(raw)) if (item.detail) detailed.set(item.id, item); } catch { /* Retry CAP if the prior shard is unavailable. */ }
     }
-    let caps = 0; const data: Alert[] = [];
-    for (const e of feed.entries) {
+    // Update feed slots in place so rotating the fetch order preserves output order.
+    const data: (Alert | null)[] = feed.entries.map(e => {
       const { status: _status, msgType: _msgType, ...base } = e;
-      const retained = detailed.get(e.id); if (retained) { data.push(retained); continue; }
-      let item: Alert = base;
+      return detailed.get(e.id) ?? base;
+    });
+    const pending = feed.entries.flatMap((e, i) => {
+      if (detailed.has(e.id)) return [];
       let safe = false;
       try { const url = new URL(e.link); safe = url.protocol === 'https:' && url.hostname === 'alerts.ncdr.nat.gov.tw' && !url.port && !url.username && !url.password; } catch { /* Summary remains usable. */ }
-      if (safe && caps < o.maxCaps && (o.ncdrDeadlineMs === undefined || now().getTime() - started <= o.ncdrDeadlineMs)) {
-        caps++;
+      return safe ? [i] : [];
+    });
+    // Stateless ten-minute rotation prevents failing CAPs from monopolizing the budget.
+    const offset = pending.length ? (Math.floor(started / 600000) * o.maxCaps) % pending.length : 0;
+    for (let n = 0; n < Math.min(o.maxCaps, pending.length); n++) {
+      const i = pending[(offset + n) % pending.length], e = feed.entries[i], base = data[i]!;
+      if (o.ncdrDeadlineMs === undefined || now().getTime() - started <= o.ncdrDeadlineMs) {
         try {
           const body = await request(e.link);
           if (new TextEncoder().encode(body).length > 256 * 1024) throw Error('CAP 超過大小上限');
           const cap = parseCap(body);
           if (cap.id !== e.id) throw Error('CAP 識別碼不符');
-          if (cap.status !== 'Actual' || cap.msgType === 'Cancel') continue;
+          if (cap.status !== 'Actual' || cap.msgType === 'Cancel') { data[i] = null; continue; }
           const { status: _s, msgType: _m, onset: _o, web: _w, ...detail } = cap;
-          item = { ...detail, ...(detail.effective || base.effective ? { effective: detail.effective ?? base.effective } : {}), ...(detail.expires || base.expires ? { expires: detail.expires ?? base.expires } : {}), link: e.link, detail: true };
+          data[i] = { ...detail, ...(detail.effective || base.effective ? { effective: detail.effective ?? base.effective } : {}), ...(detail.expires || base.expires ? { expires: detail.expires ?? base.expires } : {}), link: e.link, detail: true };
         } catch { /* CAP failures retain summary; retry entries lacking detail next run. */ }
       }
-      data.push(item);
     }
-    return { data, updated: feed.updated };
+    return { data: data.filter((e): e is Alert => e !== null), updated: feed.updated };
   }
   for (const source of sources) {
+    if (o.only && !o.only.includes(source)) continue;
     const old = previous.sources[source], peerState = peer?.sources[source];
     if (o.writer === 'gha' && peer?.writer === 'worker' && peerState?.lastSuccessAt && now().getTime() - Date.parse(peerState.lastSuccessAt) <= 25 * 60000 && now().getTime() >= Date.parse(peerState.lastSuccessAt)) {
       index.sources[source] = { ...(old ?? { ok: false }), skipped: true }; continue;

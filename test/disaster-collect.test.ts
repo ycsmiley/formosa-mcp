@@ -131,3 +131,34 @@ it('anchors Worker heartbeat to run start so a slow response does not delay it t
   s.advance(Date.parse(at) + 20 * 60000 - s.options.now!().getTime()); s.fetchText.mockImplementation(original); s.writes.length = 0;
   await collectDisaster(s.options); expect(s.writes.map(w => w.key)).toEqual([indexKey('worker')]);
 });
+it.each(['dgpa', 'ncdr'] as const)('collects only %s, preserves excluded source state and writes index last', async source => {
+  const s = setup(); s.options.maxCaps = 0; await collectDisaster(s.options);
+  const other = source === 'dgpa' ? 'ncdr' : 'dgpa', old = s.read().sources[other];
+  s.options.only = [source]; s.fetchText.mockClear(); s.writes.length = 0;
+  await collectDisaster(s.options);
+  expect(s.fetchText.mock.calls.map(([u]) => u)).toEqual([source === 'dgpa' ? official.dgpa : feedUrls[0]]);
+  expect(s.read().sources[other]).toEqual(old); expect(s.writes.map(w => w.key)).toEqual([indexKey('gha')]);
+  const previous = s.read(); s.options.writer = 'worker'; s.values.set(indexKey('worker'), JSON.stringify({ ...previous, writer: 'worker', heartbeatAt: s.options.now!().toISOString() }));
+  s.writes.length = 0; const result = await collectDisaster(s.options);
+  expect(result.writes).toBe(0); expect(result.index.sources[other]).toEqual(old);
+});
+it('rotates a two-CAP budget across six pending entries in three ten-minute runs while keeping feed order', async () => {
+  const s = setup(), feed = JSON.parse(json), attempted: string[] = [];
+  const entries = Array.from({ length: 6 }, (_, i) => ({ ...feed.entry[0], id: `pending-${i}`, link: { '@href': `${official.ncdr}${i}.cap` } }));
+  s.options.only = ['ncdr']; s.options.maxCaps = 2;
+  // Align the first run's offset to zero so the first two consistently fail.
+  s.advance(Math.ceil(Date.parse(at) / 1800000) * 1800000 - Date.parse(at));
+  s.fetchText.mockImplementation(async url => {
+    if (url === feedUrls[0]) return { status: 200, text: JSON.stringify({ ...feed, updated: s.options.now!().toISOString(), entry: entries }) };
+    attempted.push(url);
+    if (url === entries[0].link['@href'] || url === entries[1].link['@href']) throw Error('CAP unavailable');
+    return { status: 200, text: wind.replace(/<identifier>[^<]+<\/identifier>/, `<identifier>${entries.find(e => e.link['@href'] === url)!.id}</identifier>`) };
+  });
+  for (let run = 0; run < 3; run++) {
+    if (run) s.advance(10 * 60000);
+    await collectDisaster(s.options);
+    expect(decodeAlerts(s.values.get(shardKey('ncdr', s.read().sources.ncdr!.sha!))!).map(e => e.id)).toEqual(entries.map(e => e.id));
+    expect(attempted).toHaveLength((run + 1) * 2);
+  }
+  expect(new Set(attempted)).toEqual(new Set(entries.map(e => e.link['@href'])));
+});
