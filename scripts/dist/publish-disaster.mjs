@@ -87,35 +87,6 @@ function validDay(s) {
   return /^\d{4}-\d\d-\d\d$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 }
 
-// src/core/disaster/model.ts
-var sources = ["dgpa", "ncdr"];
-var severities = ["Extreme", "Severe", "Moderate", "Minor", "Unknown"];
-var indexKey2 = (writer) => `disaster:index:${writer}:v1`;
-var shardKey2 = (source, sha) => `disaster:v1:${source}:${sha.slice(0, 12)}`;
-var official = { dgpa: "https://www.dgpa.gov.tw/typh/daily/nds.html", ncdr: "https://alerts.ncdr.nat.gov.tw/" };
-var feedUrls = ["https://alerts.ncdr.nat.gov.tw/JSONAtomFeeds.ashx", "https://alerts.ncdr.nat.gov.tw/RssAtomFeeds.ashx"];
-var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
-var timestamp = (x) => typeof x === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(x) && validDay(x.slice(0, 10)) && Number.isFinite(Date.parse(x)) && +x.slice(11, 13) < 24 && +x.slice(14, 16) < 60 && +x.slice(17, 19) < 60;
-var strings = (x) => Array.isArray(x) && x.every((v) => typeof v === "string" && v.length > 0);
-function decodeIndex2(raw) {
-  const x = JSON.parse(raw);
-  if (!object(x) || x.v !== 1 || !["worker", "gha"].includes(x.writer) || !timestamp(x.heartbeatAt) || !object(x.sources)) throw Error("\u707D\u9632\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
-  for (const [s, v] of Object.entries(x.sources)) {
-    if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || ["closed", "skipped"].some((k) => v[k] !== void 0 && typeof v[k] !== "boolean") || v.reason !== void 0 && (typeof v.reason !== "string" || v.reason.length > 200) || ["fetchedAt", "lastSuccessAt", "sourceUpdatedAt", "writtenAt"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.sha !== void 0 && (typeof v.sha !== "string" || !/^[a-f0-9]{12}$/.test(v.sha)) || v.count !== void 0 && (!Number.isSafeInteger(v.count) || v.count < 0) || v.closed && v.ok || v.sha !== void 0 && (!v.lastSuccessAt || !v.sourceUpdatedAt || !v.writtenAt || v.count === void 0) || v.ok && !v.sha && !v.skipped) throw Error("\u707D\u9632\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
-  }
-  return x;
-}
-function decodeAlerts(raw) {
-  const x = JSON.parse(raw);
-  if (!Array.isArray(x)) throw Error("\u544A\u8B66\u5FEB\u7167\u683C\u5F0F\u932F\u8AA4");
-  const ids = /* @__PURE__ */ new Set();
-  for (const v of x) {
-    if (!object(v) || !["id", "type", "text", "link"].every((k) => typeof v[k] === "string") || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== "boolean" || !strings(v.counties) || v.counties.some((c) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || ["title", "sender", "level", "color"].some((k) => v[k] !== void 0 && typeof v[k] !== "string") || v.text.length > 400 || v.severity !== void 0 && !severities.includes(v.severity) || ["effective", "expires"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.areas !== void 0 && (!strings(v.areas) || v.areas.length > 200 || v.areas.some((a) => a.length > 100)) || !/^https?:\/\//.test(v.link)) throw Error("\u544A\u8B66\u9805\u76EE\u683C\u5F0F\u932F\u8AA4");
-    ids.add(v.id);
-  }
-  return x;
-}
-
 // src/core/outage/normalize.ts
 var clean = (s, limit = Infinity) => {
   const text2 = typeof s === "string" || typeof s === "number" ? stripZeroWidth(String(s)).replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim() : "";
@@ -127,6 +98,45 @@ var canonical = (s) => stripZeroWidth(norm(s)).replace(/桃園縣(桃園|中壢|
   return district ? county + district : match;
 }).replace(/桃園縣/g, "\u6843\u5712\u5E02").replace(/臺北縣/g, "\u65B0\u5317\u5E02").replace(/(臺中|臺南|高雄)縣/g, "$1\u5E02");
 var countyPattern = counties.join("|");
+
+// src/core/disaster/model.ts
+var sources = ["dgpa", "ncdr"];
+var severities = ["Extreme", "Severe", "Moderate", "Minor", "Unknown"];
+var indexKey2 = (writer) => `disaster:index:${writer}:v1`;
+var shardKey2 = (source, sha) => `disaster:v1:${source}:${sha.slice(0, 12)}`;
+var official2 = { dgpa: "https://www.dgpa.gov.tw/typh/daily/nds.html", ncdr: "https://alerts.ncdr.nat.gov.tw/" };
+var feedUrls = ["https://alerts.ncdr.nat.gov.tw/JSONAtomFeeds.ashx", "https://alerts.ncdr.nat.gov.tw/RssAtomFeeds.ashx"];
+var safeLink = (s) => {
+  try {
+    const u = new URL(s);
+    if (s.length <= 300 && clean(s) === s && u.protocol === "https:" && u.hostname === "alerts.ncdr.nat.gov.tw" && !u.port && !u.username && !u.password && !/^https:\/\/[^/]*:/i.test(s)) return s;
+  } catch {
+  }
+  return official2.ncdr;
+};
+var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+var timestamp = (x) => typeof x === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(x) && validDay(x.slice(0, 10)) && Number.isFinite(Date.parse(x)) && +x.slice(11, 13) < 24 && +x.slice(14, 16) < 60 && +x.slice(17, 19) < 60;
+var strings = (x) => Array.isArray(x) && x.every((v) => typeof v === "string" && v.length > 0);
+function decodeIndex2(raw) {
+  const x = JSON.parse(raw);
+  if (!object(x) || x.v !== 1 || !["worker", "gha"].includes(x.writer) || !timestamp(x.heartbeatAt) || !object(x.sources)) throw Error("\u707D\u9632\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
+  if (x.budget !== void 0 && (!object(x.budget) || typeof x.budget.tokens !== "number" || !Number.isFinite(x.budget.tokens) || x.budget.tokens < 0 || !timestamp(x.budget.at))) throw Error("\u707D\u9632\u9810\u7B97\u683C\u5F0F\u932F\u8AA4");
+  for (const [s, v] of Object.entries(x.sources)) {
+    if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || ["closed", "skipped", "empty"].some((k) => v[k] !== void 0 && typeof v[k] !== "boolean") || v.reason !== void 0 && (typeof v.reason !== "string" || v.reason.length > 200) || ["fetchedAt", "lastSuccessAt", "sourceUpdatedAt", "writtenAt"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.sha !== void 0 && (typeof v.sha !== "string" || !/^[a-f0-9]{12}$/.test(v.sha)) || v.count !== void 0 && (!Number.isSafeInteger(v.count) || v.count < 0) || v.empty !== void 0 && v.count !== 0 || v.closed && v.ok || v.sha !== void 0 && (!v.lastSuccessAt || !v.sourceUpdatedAt || !v.writtenAt || v.count === void 0) || v.ok && !v.sha && !v.skipped) throw Error("\u707D\u9632\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
+  }
+  return x;
+}
+function decodeAlerts(raw) {
+  const x = JSON.parse(raw);
+  if (!Array.isArray(x)) throw Error("\u544A\u8B66\u5FEB\u7167\u683C\u5F0F\u932F\u8AA4");
+  const ids = /* @__PURE__ */ new Set();
+  for (const v of x) {
+    if (!object(v) || !["id", "type", "text", "link"].every((k) => typeof v[k] === "string") || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== "boolean" || v.complete !== void 0 && typeof v.complete !== "boolean" || v.complete === true && (!v.detail || !v.counties?.length) || !strings(v.counties) || v.counties.some((c) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || Object.entries({ type: 40, title: 200, sender: 100, level: 60, color: 20, text: 400 }).some(([k, limit]) => v[k] !== void 0 && (typeof v[k] !== "string" || v[k].length > limit || clean(v[k]) !== v[k])) || v.text.length > 400 || v.severity !== void 0 && !severities.includes(v.severity) || ["effective", "expires"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.areas !== void 0 && (!strings(v.areas) || v.areas.length > 200 || v.areas.some((a) => a.length > 100 || clean(a) !== a)) || v.link.length > 300) throw Error("\u544A\u8B66\u9805\u76EE\u683C\u5F0F\u932F\u8AA4");
+    if (v.areaCounties !== void 0 && (!Array.isArray(v.areaCounties) || !Array.isArray(v.areas) || v.areaCounties.length !== v.areas.length || v.areaCounties.some((cs) => !strings(cs) || !cs.length || cs.some((c) => !v.counties.includes(c)) || new Set(cs).size !== cs.length))) throw Error("\u544A\u8B66\u5340\u57DF\u7E23\u5E02\u683C\u5F0F\u932F\u8AA4");
+    ids.add(v.id);
+  }
+  return x;
+}
 
 // src/core/disaster/parse.ts
 var entities = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (all, code) => {
@@ -171,8 +181,8 @@ function parseDgpa(html) {
     }
     if (data.length !== 2 || !/\bcity_Name\b/.test(attr(data[0][1], "headers"))) throw Error("\u4EBA\u4E8B\u884C\u653F\u7E3D\u8655\u8868\u683C\u5217\u7121\u6CD5\u8FA8\u8B58");
     const county = canonical(text(data[0][2]));
-    const lines = data[1][2].split(/<br\b[^>]*>/i).map(text).filter(Boolean);
-    if (!counties.includes(county) || Object.hasOwn(result.counties, county) || !lines.length) throw Error("\u4EBA\u4E8B\u884C\u653F\u7E3D\u8655\u7E23\u5E02\u6216\u516C\u544A\u5217\u7121\u6CD5\u8FA8\u8B58");
+    const lines = data[1][2].split(/<br\b[^>]*>/i).map((v) => clean(text(v), 300)).filter(Boolean);
+    if (!counties.includes(county) || Object.hasOwn(result.counties, county) || !lines.length || lines.length > 20) throw Error("\u4EBA\u4E8B\u884C\u653F\u7E3D\u8655\u7E23\u5E02\u6216\u516C\u544A\u5217\u7121\u6CD5\u8FA8\u8B58");
     result.counties[county] = lines;
   }
   if (result.noEvent ? Object.keys(result.counties).length > 0 : !Object.keys(result.counties).length) throw Error("\u4EBA\u4E8B\u884C\u653F\u7E3D\u8655\u516C\u544A\u5167\u5BB9\u77DB\u76FE\u6216\u7A7A\u767D");
@@ -211,9 +221,10 @@ function xml(s, root) {
   }
   if (!roots || stack.length || input.slice(end).trim() || !new RegExp(`<(?:[\\w-]+:)?${root}\\b`).test(input) || input.replace(/<[^>]+>/g, "").includes("<")) throw Error("NCDR XML \u683C\u5F0F\u932F\u8AA4");
 }
-var districtNames;
+var mentionPattern;
+var mentionOwners;
 function mentioned(s) {
-  if (!districtNames) {
+  if (!mentionPattern) {
     const owners = /* @__PURE__ */ new Map();
     for (const [county, names] of Object.entries(districts)) for (const name of names) {
       const full = canonical(name), stem = full.replace(/[鄉鎮市區]$/, "");
@@ -222,42 +233,73 @@ function mentioned(s) {
         owners.get(key).add(county);
       }
     }
-    districtNames = [...owners].filter(([, cs]) => cs.size === 1).map(([name, cs]) => [name, [...cs][0]]);
+    mentionOwners = new Map([...owners].filter(([, cs]) => cs.size === 1).map(([name, cs]) => [name, [...cs][0]]));
+    for (const county of counties) mentionOwners.set(county, county);
+    mentionPattern = new RegExp([...mentionOwners.keys()].sort((a, b) => b.length - a.length).join("|"), "g");
   }
-  const summary = canonical(s), matched = new Set(counties.filter((c) => summary.includes(c)));
-  for (const [name, county] of districtNames) if (summary.includes(name)) matched.add(county);
+  const matched = /* @__PURE__ */ new Set();
+  for (const match of canonical(s).matchAll(mentionPattern)) matched.add(mentionOwners.get(match[0]));
   return counties.filter((c) => matched.has(c));
 }
-function entry(v) {
+function entry(v, retainedIds) {
   if (typeof v.id !== "string" || !v.id || typeof v.title !== "string" || !v.title || v.summary !== void 0 && typeof v.summary !== "string" && (!object(v.summary) || typeof v.summary["#text"] !== "string") || typeof v.status !== "string" || typeof v.msgType !== "string") throw Error("NCDR \u544A\u8B66\u9805\u76EE\u683C\u5F0F\u932F\u8AA4");
   const summary = text(typeof v.summary === "string" ? v.summary : v.summary?.["#text"] ?? "");
   const links = Array.isArray(v.link) ? v.link : [v.link], link = links.find((l) => object(l) && typeof l["@href"] === "string" && l["@href"].includes(".cap"))?.["@href"] ?? links.find((l) => object(l) && typeof l["@href"] === "string")?.["@href"];
   if (!link || !/^https?:\/\//.test(link)) throw Error("NCDR \u544A\u8B66\u9023\u7D50\u683C\u5F0F\u932F\u8AA4");
   const effective = v.effective ? ncdrTime(v.effective) : void 0, expires = v.expires ? ncdrTime(v.expires) : void 0;
   if (v.effective && !effective || v.expires && !expires) throw Error("NCDR \u544A\u8B66\u6642\u9593\u683C\u5F0F\u932F\u8AA4");
-  return { id: v.id, type: clean(v.category?.["@term"] || v.title), sender: clean(v.author?.name), ...effective ? { effective } : {}, ...expires ? { expires } : {}, counties: mentioned(summary), text: clean(summary, 400), link, detail: false, status: v.status, msgType: v.msgType };
+  return { id: v.id, type: clean(v.category?.["@term"] || v.title, 40), title: clean(v.title, 200), sender: clean(v.author?.name, 100), ...effective ? { effective } : {}, ...expires ? { expires } : {}, counties: retainedIds?.has(v.id) ? [] : mentioned(summary), text: clean(summary, 400), link: safeLink(link), detail: false, complete: false, status: v.status, msgType: v.msgType };
 }
 function feed(updated, entries, now) {
   if (!timestamp(updated)) throw Error("NCDR \u7F3A\u5C11\u6709\u6548\u4F86\u6E90\u66F4\u65B0\u6642\u9593");
-  if (now && now.getTime() - Date.parse(updated) > 90 * 6e4) throw Error("NCDR \u4F86\u6E90\u66F4\u65B0\u6642\u9593\u5DF2\u8D85\u904E 90 \u5206\u9418");
+  if (now && Date.parse(updated) - now.getTime() > 5 * 6e4) throw Error("NCDR \u8CC7\u6599\u6642\u9593\u7570\u5E38");
+  if (now && now.getTime() - Date.parse(updated) > 24 * 36e5) throw Error("NCDR \u4F86\u6E90\u66F4\u65B0\u6642\u9593\u5DF2\u8D85\u904E 24 \u5C0F\u6642");
   if (new Set(entries.map((e) => e.id)).size !== entries.length) throw Error("NCDR \u544A\u8B66\u8B58\u5225\u78BC\u91CD\u8907");
   return { updated, entries: entries.filter((e) => e.status === "Actual" && e.msgType !== "Cancel") };
 }
-function parseNcdrJson(s, now) {
+function parseNcdrJson(s, now, retainedIds) {
   warning(s);
   const v = JSON.parse(s);
-  if (!object(v) || !v.id || !v.title || v.entry !== void 0 && v.entry !== null && !Array.isArray(v.entry) && !object(v.entry)) throw Error("NCDR feed \u683C\u5F0F\u932F\u8AA4");
+  if (!object(v) || typeof v.id !== "string" || !v.id.trim() || typeof v.title !== "string" || !v.title.trim() || v.author?.name !== "NCDR" || v.entry !== void 0 && v.entry !== null && !Array.isArray(v.entry) && !object(v.entry)) throw Error("NCDR feed \u683C\u5F0F\u932F\u8AA4");
   const entries = v.entry == null ? [] : Array.isArray(v.entry) ? v.entry : [v.entry];
   if (entries.some((e) => !object(e))) throw Error("NCDR \u544A\u8B66\u683C\u5F0F\u932F\u8AA4");
-  return feed(v.updated, entries.map(entry), now);
+  return feed(v.updated, entries.map((e) => entry(e, retainedIds)), now);
 }
-function parseNcdrAtom(s, now) {
+function parseNcdrAtom(s, now, retainedIds) {
   xml(s, "feed");
   const body = tag(s, "feed"), entries = tags(body, "entry");
   if ([...body.matchAll(/<(?:[\w-]+:)?entry\b/gi)].length !== entries.length) throw Error("NCDR \u544A\u8B66\u683C\u5F0F\u932F\u8AA4");
   const header = body.replace(/<(?:[\w-]+:)?entry\b[^>]*>[\s\S]*?<\/(?:[\w-]+:)?entry\s*>/gi, "");
-  if (!text(tag(header, "id")) || !text(tag(header, "title"))) throw Error("NCDR feed \u683C\u5F0F\u932F\u8AA4");
-  return feed(text(tag(header, "updated")), entries.map((e) => entry({ id: text(tag(e, "id")), title: text(tag(e, "title")), author: { name: text(tag(tag(e, "author"), "name")) }, summary: { "#text": tag(e, "summary") }, link: [...e.matchAll(/<link\b([^>]*)\/?\s*>/gi)].map((m) => ({ "@href": attr(m[1], "href") })), category: { "@term": attr(/<category\b([^>]*)/i.exec(e)?.[1] ?? "", "term") }, status: text(tag(e, "status")), msgType: text(tag(e, "msgType")), effective: text(tag(e, "effective")), expires: text(tag(e, "expires")) })), now);
+  if (!text(tag(header, "id")) || !text(tag(header, "title")) || text(tag(tag(header, "author"), "name")) !== "NCDR") throw Error("NCDR feed \u683C\u5F0F\u932F\u8AA4");
+  return feed(text(tag(header, "updated")), entries.map((e) => entry({ id: text(tag(e, "id")), title: text(tag(e, "title")), author: { name: text(tag(tag(e, "author"), "name")) }, summary: { "#text": tag(e, "summary") }, link: [...e.matchAll(/<link\b([^>]*)\/?\s*>/gi)].map((m) => ({ "@href": attr(m[1], "href") })), category: { "@term": attr(/<category\b([^>]*)/i.exec(e)?.[1] ?? "", "term") }, status: text(tag(e, "status")), msgType: text(tag(e, "msgType")), effective: text(tag(e, "effective")), expires: text(tag(e, "expires")) }, retainedIds)), now);
+}
+var geocodeCounties = {
+  "10002": "\u5B9C\u862D\u7E23",
+  "10004": "\u65B0\u7AF9\u7E23",
+  "10005": "\u82D7\u6817\u7E23",
+  "10007": "\u5F70\u5316\u7E23",
+  "10008": "\u5357\u6295\u7E23",
+  "10009": "\u96F2\u6797\u7E23",
+  "10010": "\u5609\u7FA9\u7E23",
+  "10013": "\u5C4F\u6771\u7E23",
+  "10014": "\u81FA\u6771\u7E23",
+  "10015": "\u82B1\u84EE\u7E23",
+  "10016": "\u6F8E\u6E56\u7E23",
+  "10017": "\u57FA\u9686\u5E02",
+  "10018": "\u65B0\u7AF9\u5E02",
+  "10020": "\u5609\u7FA9\u5E02",
+  "09007": "\u9023\u6C5F\u7E23",
+  "09020": "\u91D1\u9580\u7E23",
+  "63": "\u81FA\u5317\u5E02",
+  "64": "\u9AD8\u96C4\u5E02",
+  "65": "\u65B0\u5317\u5E02",
+  "66": "\u81FA\u4E2D\u5E02",
+  "67": "\u81FA\u5357\u5E02",
+  "68": "\u6843\u5712\u5E02"
+};
+function geocodeCounty(value) {
+  if (!/^\d+$/.test(value)) return;
+  return geocodeCounties[value.slice(0, 5)] ?? geocodeCounties[value.slice(0, 2)];
 }
 function parseCap(s) {
   xml(s, "alert");
@@ -270,11 +312,20 @@ function parseCap(s) {
     if (v && !timestamp(v)) throw Error("CAP \u6642\u9593\u683C\u5F0F\u932F\u8AA4");
     if (v) times[key] = v;
   }
-  const allAreas = [...new Set(tags(info, "areaDesc").map(text).filter(Boolean))].map((a) => ({ original: a, canonical: canonical(a) }));
-  const matched = counties.filter((c) => allAreas.some((a) => a.canonical.startsWith(c)));
-  const areas = allAreas.filter((a) => matched.some((c) => a.canonical.startsWith(c))).slice(0, 200).map((a) => clean(a.original, 100));
+  const allAreas = tags(info, "area").map((area) => {
+    const original = text(tag(area, "areaDesc")), matched2 = new Set(counties.filter((c) => canonical(original).startsWith(c)));
+    for (const geocode of tags(area, "geocode")) {
+      if (text(tag(geocode, "valueName")) !== "Taiwan_Geocode_103") continue;
+      const county = geocodeCounty(text(tag(geocode, "value")));
+      if (county) matched2.add(county);
+    }
+    return { original, counties: counties.filter((c) => matched2.has(c)) };
+  });
+  const matched = counties.filter((c) => allAreas.some((a) => a.counties.includes(c)));
+  const storedAreas = allAreas.filter((a) => a.original && a.counties.length).slice(0, 200);
+  const areas = storedAreas.map((a) => clean(a.original, 100)), areaCounties = storedAreas.map((a) => a.counties);
   const parameters = Object.fromEntries(tags(info, "parameter").map((p) => [text(tag(p, "valueName")), text(tag(p, "value"))]));
-  return { id, type, title: text(tag(info, "headline")), sender: text(tag(info, "senderName")), severity, ...times, ...parameters.severity_level ? { level: parameters.severity_level } : {}, ...parameters.alert_color ? { color: parameters.alert_color } : {}, counties: matched, areas, text: clean(text(tag(info, "description")), 400), web: text(tag(info, "web")) || official.ncdr, status: text(tag(body, "status")), msgType: text(tag(body, "msgType")) };
+  return { id, type: clean(type, 40), title: clean(text(tag(info, "headline")), 200), sender: clean(text(tag(info, "senderName")), 100), complete: allAreas.length > 0 && allAreas.every((a) => a.counties.length > 0), severity, ...times, ...parameters.severity_level ? { level: clean(parameters.severity_level, 60) } : {}, ...parameters.alert_color ? { color: clean(parameters.alert_color, 20) } : {}, counties: matched, areas, areaCounties, text: clean(text(tag(info, "description")), 400), web: text(tag(info, "web")) || official2.ncdr, status: text(tag(body, "status")), msgType: text(tag(body, "msgType")) };
 }
 
 // src/core/disaster/collect.ts
@@ -284,11 +335,20 @@ function quietDelayMs(date) {
   return ms >= 4.5 * 6e4 && ms < 7 * 6e4 ? 7 * 6e4 - ms : 0;
 }
 var responseTimes = /* @__PURE__ */ new WeakMap();
-var changed = (a, b) => ["ok", "closed", "sha", "reason"].some((k) => a?.[k] !== b?.[k]);
+var changed = (a, b) => ["ok", "closed", "sha", "reason", "empty", "skipped"].some((k) => a?.[k] !== b?.[k]);
 async function collectDisaster(o) {
-  const now = o.now ?? (() => /* @__PURE__ */ new Date()), started = now().getTime();
+  const now = o.now ?? (() => /* @__PURE__ */ new Date()), started = now().getTime(), scheduled = o.scheduledAt ?? started;
+  const guardEnd = Math.floor(scheduled / 6e5) * 6e5 + 7 * 6e4;
   const raw = await o.store.get(indexKey2(o.writer));
-  const previous = raw ? decodeIndex2(raw) : { v: 1, writer: o.writer, heartbeatAt: new Date(started).toISOString(), sources: {} };
+  let stored = null;
+  if (raw !== null) {
+    try {
+      stored = decodeIndex2(raw);
+    } catch {
+      o.warn?.(`disaster ${o.writer} \u7D22\u5F15\u7121\u6CD5\u89E3\u8B80\uFF0C\u91CD\u65B0\u5EFA\u7ACB`);
+    }
+  }
+  const previous = stored ?? { v: 1, writer: o.writer, heartbeatAt: new Date(started).toISOString(), sources: {} };
   if (previous.writer !== o.writer) throw Error("\u707D\u9632\u7D22\u5F15\u5BEB\u5165\u8005\u4E0D\u7B26");
   let peer = null;
   if (o.peerIndex) {
@@ -297,8 +357,9 @@ async function collectDisaster(o) {
     } catch {
     }
   }
-  const heartbeatDue = !raw || started - Date.parse(previous.heartbeatAt) >= 19 * 6e4;
-  const index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: { ...previous.sources } };
+  const heartbeatDue = !stored || started - Date.parse(previous.heartbeatAt) >= 55 * 6e4;
+  const index = { v: 1, writer: o.writer, heartbeatAt: previous.heartbeatAt, sources: { ...previous.sources }, ...previous.budget ? { budget: previous.budget } : {} };
+  const shards = /* @__PURE__ */ new Map();
   let writes = 0, exitCode = 0, finished = responseTimes.get(o.store);
   async function request(url) {
     if (finished !== void 0) {
@@ -309,7 +370,7 @@ async function collectDisaster(o) {
       const delay = quietDelayMs(now());
       if (delay) await o.sleep(delay);
     }
-    if (o.ncdrDeadlineMs !== void 0 && now().getTime() - started > o.ncdrDeadlineMs) throw Error("NCDR \u672C\u8F2A\u8ACB\u6C42\u6642\u9593\u5DF2\u7528\u5B8C");
+    if (o.ncdrDeadlineMs !== void 0 && now().getTime() - scheduled >= o.ncdrDeadlineMs || o.scheduledAt !== void 0 && now().getTime() >= guardEnd) throw Error("NCDR \u672C\u8F2A\u8ACB\u6C42\u6642\u9593\u5DF2\u7528\u5B8C");
     try {
       const response = await o.fetchText(url);
       if (response.text.includes("\u8ACB\u5148\u767B\u5165\u6703\u54E1")) throw new LoginRequired();
@@ -321,12 +382,35 @@ async function collectDisaster(o) {
     }
   }
   async function ncdr(old) {
-    let feed2, login = 0, failure;
+    const detailed = /* @__PURE__ */ new Map();
+    for (const state of [old, peer?.sources.ncdr]) {
+      if (!state?.sha) continue;
+      try {
+        const raw2 = await o.store.get(shardKey2("ncdr", state.sha));
+        if (raw2) {
+          for (const item of decodeAlerts(raw2)) if (item.detail && item.complete !== void 0 && item.areaCounties !== void 0) detailed.set(item.id, item);
+        }
+      } catch {
+      }
+    }
+    const retainedIds = new Set(detailed.keys());
+    const emptyError = () => Error("NCDR \u56DE\u50B3 0 \u7B46\u544A\u8B66\uFF0C\u7121\u6CD5\u78BA\u8A8D\u70BA\u6709\u6548\u7A7A\u6E05\u55AE");
+    let feed2, primary, login = 0, failure;
     for (const [i, url] of feedUrls.entries()) {
       try {
-        const body = await request(url);
-        feed2 = (i === 0 ? parseNcdrJson : parseNcdrAtom)(body, now());
-        break;
+        const parsed = (i === 0 ? parseNcdrJson : parseNcdrAtom)(await request(url), now(), retainedIds);
+        if (i === 0) {
+          primary = parsed;
+          if (parsed.entries.length) {
+            feed2 = parsed;
+            break;
+          }
+        } else {
+          if (primary && !parsed.entries.length && !primary.entries.length) {
+            feed2 = { ...parsed, updated: Date.parse(primary.updated) < Date.parse(parsed.updated) ? primary.updated : parsed.updated };
+          } else if (!primary && parsed.entries.length) feed2 = parsed;
+          else throw emptyError();
+        }
       } catch (e) {
         if (e instanceof LoginRequired) login++;
         failure = e;
@@ -334,18 +418,8 @@ async function collectDisaster(o) {
     }
     if (!feed2) {
       if (login === 2) throw new LoginRequired();
+      if (primary && !primary.entries.length) throw emptyError();
       throw Error(failure instanceof LoginRequired ? "NCDR \u5099\u63F4\u4F86\u6E90\u7121\u6CD5\u53D6\u5F97" : reason(failure, o.token));
-    }
-    const detailed = /* @__PURE__ */ new Map();
-    for (const state of [old, peer?.sources.ncdr]) {
-      if (!state?.sha) continue;
-      try {
-        const raw2 = await o.store.get(shardKey2("ncdr", state.sha));
-        if (raw2) {
-          for (const item of decodeAlerts(raw2)) if (item.detail) detailed.set(item.id, item);
-        }
-      } catch {
-      }
     }
     const data = feed2.entries.map((e) => {
       const { status: _status, msgType: _msgType, ...base } = e;
@@ -353,18 +427,12 @@ async function collectDisaster(o) {
     });
     const pending = feed2.entries.flatMap((e, i) => {
       if (detailed.has(e.id)) return [];
-      let safe = false;
-      try {
-        const url = new URL(e.link);
-        safe = url.protocol === "https:" && url.hostname === "alerts.ncdr.nat.gov.tw" && !url.port && !url.username && !url.password;
-      } catch {
-      }
-      return safe ? [i] : [];
+      return e.link !== official2.ncdr && safeLink(e.link) === e.link ? [i] : [];
     });
     const offset = pending.length ? Math.floor(started / 6e5) * o.maxCaps % pending.length : 0;
     for (let n = 0; n < Math.min(o.maxCaps, pending.length); n++) {
       const i = pending[(offset + n) % pending.length], e = feed2.entries[i], base = data[i];
-      if (o.ncdrDeadlineMs === void 0 || now().getTime() - started <= o.ncdrDeadlineMs) {
+      if (o.ncdrDeadlineMs === void 0 || now().getTime() - scheduled < o.ncdrDeadlineMs) {
         try {
           const body = await request(e.link);
           if (new TextEncoder().encode(body).length > 256 * 1024) throw Error("CAP \u8D85\u904E\u5927\u5C0F\u4E0A\u9650");
@@ -376,24 +444,27 @@ async function collectDisaster(o) {
           }
           const { status: _s, msgType: _m, onset: _o, web: _w, ...detail } = cap;
           data[i] = { ...detail, ...detail.effective || base.effective ? { effective: detail.effective ?? base.effective } : {}, ...detail.expires || base.expires ? { expires: detail.expires ?? base.expires } : {}, link: e.link, detail: true };
-        } catch {
+        } catch (e2) {
+          if (e2 instanceof LoginRequired) throw e2;
         }
       }
     }
-    return { data: data.filter((e) => e !== null), updated: feed2.updated };
+    const usable = data.filter((e) => e !== null);
+    if (!usable.length && feed2.entries.length) throw emptyError();
+    return { data: usable, updated: feed2.updated };
   }
   for (const source of sources) {
     if (o.only && !o.only.includes(source)) continue;
     const old = previous.sources[source], peerState = peer?.sources[source];
-    if (o.writer === "gha" && peer?.writer === "worker" && peerState?.lastSuccessAt && now().getTime() - Date.parse(peerState.lastSuccessAt) <= 25 * 6e4 && now().getTime() >= Date.parse(peerState.lastSuccessAt)) {
+    const current = now().getTime();
+    if (o.writer === "gha" && peer?.writer === "worker" && peerState?.ok === true && !peerState.skipped && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 6e4 && (source === "ncdr" ? current - Date.parse(peerState.sourceUpdatedAt) <= 24 * 36e5 : current - Date.parse(peerState.sourceUpdatedAt) < 90 * 6e4) && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 6e4 && await o.store.get(shardKey2(source, peerState.sha)) !== null) {
       index.sources[source] = { ...old ?? { ok: false }, skipped: true };
       continue;
     }
-    let publicationFailed = false;
     try {
       let data, updated, count;
       if (source === "dgpa") {
-        const response = await o.fetchText(official.dgpa);
+        const response = await o.fetchText(official2.dgpa);
         if (response.status !== 200) throw Error(`\u4EBA\u4E8B\u884C\u653F\u7E3D\u8655 HTTP ${response.status}`);
         const { updatedAt, ...snapshot } = parseDgpa(response.text);
         data = snapshot;
@@ -405,28 +476,53 @@ async function collectDisaster(o) {
         updated = result.updated;
         count = result.data.length;
       }
+      if (old?.sha && old.sourceUpdatedAt && Date.parse(updated) < Date.parse(old.sourceUpdatedAt)) throw Error("\u4F86\u6E90\u66F4\u65B0\u6642\u9593\u5012\u9000");
+      if (peerState?.sha && peerState.sourceUpdatedAt && Date.parse(updated) < Date.parse(peerState.sourceUpdatedAt)) {
+        index.sources[source] = { ...old ?? { ok: false }, skipped: true, reason: "\u5C0D\u65B9\u5DF2\u6709\u8F03\u65B0\u4F86\u6E90\u7248\u672C" };
+        continue;
+      }
       const encoded = JSON.stringify(data), digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(encoded)), sha = [...new Uint8Array(digest)].map((n) => n.toString(16).padStart(2, "0")).join("").slice(0, 12);
       const fetchedAt = now().toISOString();
-      let writtenAt = old?.writtenAt;
-      if (old?.sha !== sha || !writtenAt || (o.writer === "gha" || heartbeatDue || old.ok !== true) && now().getTime() - Date.parse(writtenAt) > 3 * 864e5) {
-        try {
-          await o.store.put(shardKey2(source, sha), encoded, 8 * 86400);
-          writes++;
-          writtenAt = fetchedAt;
-        } catch (e) {
-          publicationFailed = true;
-          throw e;
-        }
-      }
-      index.sources[source] = { ok: true, fetchedAt, lastSuccessAt: fetchedAt, sourceUpdatedAt: updated, sha, count, writtenAt };
+      index.sources[source] = { ok: true, fetchedAt, lastSuccessAt: fetchedAt, sourceUpdatedAt: updated, sha, count, writtenAt: old?.writtenAt ?? fetchedAt, ...source === "ncdr" && count === 0 ? { empty: true } : {} };
+      shards.set(source, { encoded, sha });
     } catch (e) {
       const closed = e instanceof LoginRequired;
       index.sources[source] = { ...old, ok: false, skipped: false, closed, reason: reason(e, o.token), fetchedAt: now().toISOString() };
-      if (publicationFailed || (closed ? !old?.closed : old?.ok || !old?.lastSuccessAt || now().getTime() - Date.parse(old.lastSuccessAt) > 864e5)) exitCode = 1;
+      if (closed ? !old?.closed : old?.ok || !old?.lastSuccessAt || now().getTime() - Date.parse(old.lastSuccessAt) > 864e5) exitCode = 1;
     }
   }
-  if (o.writer === "gha" || heartbeatDue || sources.some((s) => changed(previous.sources[s], index.sources[s]))) {
+  const needsIndex = () => sources.some((s) => changed(previous.sources[s], index.sources[s])) || heartbeatDue && sources.some((s) => index.sources[s] && !index.sources[s]?.skipped && (!o.only || o.only.includes(s)));
+  if (needsIndex()) {
+    for (const [source, shard] of shards) {
+      const old = previous.sources[source];
+      if (old?.sha === shard.sha && old.writtenAt && now().getTime() - Date.parse(old.writtenAt) <= 3 * 864e5) shards.delete(source);
+    }
+    const publicationAt = now().toISOString();
+    let tokens = Infinity;
+    if (o.budget) {
+      const saved = previous.budget;
+      tokens = Math.min(o.budget.burst, (saved?.tokens ?? o.budget.burst) + o.budget.perHour * Math.max(0, Date.parse(publicationAt) - Date.parse(saved?.at ?? publicationAt)) / 36e5);
+      if (tokens < shards.size + 1) {
+        (o.warn ?? console.warn)("disaster KV \u9810\u7B97\u4E0D\u8DB3\uFF0C\u5EF6\u5F8C\u767C\u5E03");
+        if (changed(previous.sources.dgpa, index.sources.dgpa) && tokens >= (shards.has("dgpa") ? 2 : 1)) {
+          if (previous.sources.ncdr) index.sources.ncdr = previous.sources.ncdr;
+          else delete index.sources.ncdr;
+          shards.delete("ncdr");
+        } else return { index: previous, previous, writes, exitCode };
+      }
+    }
     index.heartbeatAt = new Date(started).toISOString();
+    if (o.budget) index.budget = { tokens: tokens - shards.size - 1, at: publicationAt };
+    for (const [source, shard] of shards) {
+      try {
+        await o.store.put(shardKey2(source, shard.sha), shard.encoded, 8 * 86400);
+        writes++;
+        index.sources[source].writtenAt = now().toISOString();
+      } catch (e) {
+        index.sources[source] = { ...previous.sources[source], ok: false, skipped: false, closed: false, reason: reason(e, o.token), fetchedAt: now().toISOString() };
+        exitCode = 1;
+      }
+    }
     try {
       await o.store.put(indexKey2(o.writer), JSON.stringify(index));
       writes++;
@@ -471,7 +567,7 @@ async function main(args = process.argv.slice(2), env = process.env) {
   const backing = args[1] ? directoryStore(args[1]) : kvStore(env);
   const store = { get: (key) => backing.get(key), put: (key, value, ttl) => backing.put(key, value, (/* @__PURE__ */ new Date()).toISOString(), ttl) };
   try {
-    const result = await collectDisaster({ writer: "gha", store, token: env.CLOUDFLARE_KV_WRITE_TOKEN, fetchText: (url) => fetchText(url, 3e4), sleep: (ms) => new Promise((resolve2) => setTimeout(resolve2, ms)), maxCaps: 20, quietWindow: true, peerIndex: async () => {
+    const result = await collectDisaster({ writer: "gha", ...args[1] ? {} : { budget: { perHour: 1.5, burst: 6 } }, store, token: env.CLOUDFLARE_KV_WRITE_TOKEN, fetchText: (url) => fetchText(url, 3e4), sleep: (ms) => new Promise((resolve2) => setTimeout(resolve2, ms)), maxCaps: 20, quietWindow: true, peerIndex: async () => {
       const raw = await store.get(indexKey2("worker"));
       return raw ? decodeIndex2(raw) : null;
     } });

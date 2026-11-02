@@ -114,7 +114,7 @@ function decodeIndex(text) {
       delete x.cities[city];
       continue;
     }
-    if (!["ntpc", "taipei", "taichung"].includes(city) || !object(entry) || (typeof entry.gen !== "string" || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || !count(entry.stops) || !object(entry.districts)) throw new Error("Invalid garbage city");
+    if (!["ntpc", "taipei", "taichung"].includes(city) || !object(entry) || (typeof entry.gen !== "string" || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || entry.writtenAt !== void 0 && !timestamp(entry.writtenAt) || !count(entry.stops) || !object(entry.districts)) throw new Error("Invalid garbage city");
     for (const [name, district] of Object.entries(entry.districts)) if (!name || !object(district) || !count(district.stops) || typeof district.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(district.sha256)) throw new Error("Invalid garbage district");
   }
   return x;
@@ -266,7 +266,7 @@ async function collectGarbage(store, options = {}) {
     console.error(`garbage index read failed: ${reason(error)}`);
     return 1;
   }
-  let failed = false;
+  let failed = false, dirty = false;
   for (let i = 0; i < cities.length; i++) {
     if (i) await (options.delay ?? (() => new Promise((r) => setTimeout(r, 2e3))))();
     const city = cities[i];
@@ -278,16 +278,32 @@ async function collectGarbage(store, options = {}) {
       if (data.entry.stops < (options.minimum ?? minimum)[city]) throw Error("minimum guard");
       const changed = Object.keys(data.entry.districts).length !== Object.keys(previous?.districts ?? {}).length || Object.entries(data.entry.districts).some(([d, v]) => previous?.districts[d]?.sha256 !== v.sha256);
       data.entry.updatedAt = changed ? now.toISOString() : previous.updatedAt;
-      for (const [district, value] of data.shards) await store.put(shardKey(city, data.entry.gen, district), value, data.entry.updatedAt, 1209600);
-      index.cities[city] = data.entry;
+      if (!changed) data.entry.gen = previous.gen;
+      else if (data.entry.gen === previous?.gen) data.entry.gen = (now.getTime() + 1).toString(36);
+      const writtenAt = previous?.writtenAt ?? previous?.fetchedAt;
+      const renew = !changed && (!writtenAt || now.getTime() - Date.parse(writtenAt) > 7 * 864e5);
+      let wrote = false;
+      for (const [district, value] of data.shards) {
+        const key = shardKey(city, data.entry.gen, district);
+        if (!changed && !renew && await store.get(key) === value) continue;
+        await store.put(key, value, data.entry.updatedAt, 1209600);
+        wrote = true;
+      }
+      if (changed || wrote || renew) {
+        data.entry.writtenAt = changed || renew ? now.toISOString() : writtenAt;
+        index.cities[city] = data.entry;
+        dirty = true;
+      }
     } catch (error) {
       failed = true;
       console.error(`garbage ${city} failed: ${reason(error)}`);
     }
   }
   try {
-    index.generatedAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
-    await store.put(indexKey, encodeIndex(index), index.generatedAt);
+    if (dirty) {
+      index.generatedAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
+      await store.put(indexKey, encodeIndex(index), index.generatedAt);
+    }
   } catch (error) {
     console.error(`garbage index write failed: ${reason(error)}`);
     failed = true;
