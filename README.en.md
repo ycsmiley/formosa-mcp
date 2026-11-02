@@ -94,6 +94,8 @@ Tools:
 - `tra_timetable {origin, destination, date?, time?}`: TRA timetables, train types, cancellations and extra trains.
 - `garbage_schedule {city, district?, keyword?, weekday?, time?}`: scheduled collection stops.
 - `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`: planned outages; `type` is `water`, `power` or `all` (default). Dates default to today through today + 6 in Asia/Taipei; at most 30 notices are displayed.
+- `work_school_closure {city}`: official DGPA work/school closure statements for today and tomorrow; default `disaster` toolset.
+- `disaster_alerts {city}`: active NCDR alerts, including earthquakes and water outages, sorted by severity; up to 20 shown. Ambiguous Hsinchu/Chiayi names return both city and county. All replies use Traditional Chinese and official links.
 - `tra_live {train_no?, station?}`: provide exactly one to check train location and delay or a station board.
 
 Stock dates can lag on holidays; company announcements govern dividends.
@@ -142,7 +144,7 @@ From-source configuration (replace the path with your absolute path):
 
 The committed bundle also runs without installing npm packages via `node plugin/server/formosa-mcp.mjs`. Install the Claude Code plugin with `claude plugin marketplace add ycsmiley/formosa-mcp`, then `claude plugin install formosa@formosa-mcp`.
 
-`invoice`, `stock`, `garbage` and `outage` toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
+`invoice`, `stock`, `garbage`, `outage` and `disaster` toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
 
 For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-outages`, then set `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` for stdio. Without that directory, Node fetches relevant sources, caching successes for 12 hours and allowing immediate retries after failures. Regenerate and commit collector bundles with `npm run build:collectors` and the plugin bundle with `npm run build:plugin`.
 
@@ -217,7 +219,19 @@ npm run remote-check
 
 Verify with `npm run typecheck:worker` and `npm run test:worker`. `@modelcontextprotocol/sdk` is pinned exactly to `1.32.1` for `agents`.
 
+Disaster collection has two layers: one additional Worker cron, `5,15,25,35,45,55 * * * *`, every ten minutes at x5 (same minute in Taipei and UTC), starts NCDR requests only within the first 60 seconds, with at most four CAP fetches. The [hourly Actions collector](.github/workflows/disaster-collect.yml) runs at `20 * * * *`, away from that window, with at most 20 CAP fetches. It skips each upstream source when the Worker's `lastSuccessAt` is ≤25 minutes old, but always writes its own heartbeat. Before every NCDR request, delayed Actions runs wait out x4:30–x7:00 of each ten-minute cycle. Every JSON feed, Atom fallback and CAP request starts at least 3.1 seconds after the preceding response finishes, respecting NCDR's three-second per-IP limit. This staggers requests; it is not a distributed lock. If both feeds require login, the tool reports unsupported anonymous access and uses no API key.
+
+DGPA/NCDR reachability from Cloudflare egress IPs is untested until deployment; the hourly GHA snapshot is the fallback. Readers choose the latest successful writer independently for each source. Fetches older than 90 minutes are flagged; DGPA page updates older than 90 minutes are also stale. Closure output quotes official statements without inferring attendance status. Stale statements containing “照常” are withheld with an explicit notice, and a different official page date is flagged. Official update and service fetch times are separate; failures are distinct from no active events.
+
+Independent index keys are `disaster:index:worker:v1` and `disaster:index:gha:v1`. Immutable shards use `disaster:v1:dgpa:{sha12}` and `disaster:v1:ncdr:{sha12}`, the first 12 hex characters of SHA-256 over the encoded shard. Page/feed update times live in indexes, not shards. Shards have an eight-day TTL; unchanged shards renew only after three days (on the next Worker heartbeat), recording `writtenAt`. Shards precede the index write. Failed sources keep their previous sha/count/write/success/source-update times; a valid zero-entry NCDR feed publishes an empty shard.
+
+KV write budget: unchanged Worker states write their index only after 19 minutes (about every 20 minutes on this schedule: 72/day); heartbeats use run start time so slow responses cannot delay the second heartbeat run; GHA writes 24/day, normally 96 index writes plus changed/renewed shards. Changes to ok/closed/sha/reason write immediately. If both source contents change on every run, Worker writes at most 144×3=432/day and GHA 24×3=72/day: a disaster worst case of 504/day, excluding manual runs. The 72/day index rate is therefore not an absolute limit. These writes share the Workers Free 1,000/day allowance with other collectors.
+
+For local snapshots run `npm run collect:disaster -- --out /tmp/formosa-disaster`, then set `FORMOSA_DISASTER_DIR=/tmp/formosa-disaster`. Otherwise stdio runs the shared collector in Node, with up to six CAP fetches, a ten-minute success cache and immediate retries after failures, without peer skipping or the GHA quiet window. Regenerate committed publisher bundles with `npm run build:collectors`; the workflow executes the committed bundle.
+
 ## Data sources and licence
+
+- Closures: [DGPA official page](https://www.dgpa.gov.tw/typh/daily/nds.html), government website content; no official machine-readable version. Alerts: [NCDR public alert platform](https://alerts.ncdr.nat.gov.tw/), whose anonymous JSON/Atom feed declares `rights: Public Domain`. CAP details take precedence for severity, areas and effective/expiry times.
 
 - Planned outage sources: [Taiwan Water](https://data.gov.tw/dataset/6050), [Taipei Water](https://data.gov.tw/dataset/128236) and [Taipower](https://data.gov.tw/dataset/26144), under OGDL-1. Taipei Water covers Taipei and parts of New Taipei; Taiwan Water is queried outside Taipei. Taipower open data does not cover Lienchiang County.
 - Planned announcements only: no real-time supply status, emergency repairs, accidents, typhoon outages, notifications or water quality. Taiwan Water's official open data is currently empty, so Taiwan Water results may be incomplete; check the [official outage lookup](https://web.water.gov.tw/wateroff/). Unparseable times remain visible as official raw text and match any date query. Data older than 24 hours is flagged. Confirm with Taipower 1911, Taiwan Water 1910, Taipei Water 1999 (outside Taipei: 02-27371999) and official websites.

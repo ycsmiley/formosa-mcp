@@ -95,6 +95,8 @@ claude plugin install formosa@formosa-mcp
 - `tra_timetable {origin, destination, date?, time?}`：台鐵時刻、車種、停駛與加班車。
 - `garbage_schedule {city, district?, keyword?, weekday?, time?}`：定點收運時刻。
 - `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`：計畫性停水停電，`type` 為 `water`、`power` 或 `all`（預設）；省略日期時查臺北時間今天起七天，最多顯示 30 筆。
+- `work_school_closure {city}`：查縣市今天／明天的天然災害停班停課官方原文；`disaster` 工具集，預設啟用。
+- `disaster_alerts {city}`：查縣市生效中的 NCDR 告警（含地震、停水），依嚴重度排序，最多顯示 20 則。新竹／嘉義未指定市縣時兩者都列出。
 - `tra_live {train_no?, station?}`：恰填一項，查車次目前位置／誤點或車站即時看板。
 
 行情資料日期遇假日可能落後；除權息以公司公告為準。
@@ -148,7 +150,7 @@ claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
 
-`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage` 四組，鐵路須明確啟用。`--help` 顯示用法。
+`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage`、`disaster` 五組，鐵路須明確啟用。`--help` 顯示用法。
 
 資料來源與快取：
 
@@ -230,7 +232,19 @@ npm run remote-check
 
 驗證可執行 `npm run typecheck:worker`、`npm run test:worker`。`@modelcontextprotocol/sdk` 為配合 `agents` 固定於精確版本 `1.32.1`。
 
+停班停課與告警採雙層收集：Worker 新增唯一一條 `5,15,25,35,45,55 * * * *` cron（每 10 分鐘 x5，臺北／UTC 分鐘相同），NCDR 請求只在本輪開始後 60 秒內發出，每輪最多 4 個 CAP。[GHA collector](.github/workflows/disaster-collect.yml) 每小時 `20 * * * *` 執行（最多 20 個 CAP）；逐來源檢查 Worker 的 `lastSuccessAt`，距今 ≤25 分鐘便跳過該來源，但仍寫 GHA 心跳。延遲啟動的 GHA 在每次 NCDR 請求前避開每 10 分鐘的 x4:30～x7:00，等到 x7:00 才送出。所有 NCDR 請求（JSON feed、Atom 備援、CAP）都在前一回應結束後至少等 3.1 秒，避免官方每 IP 3 秒限制。此安排為錯開請求，並非跨程序鎖。兩個 feed 同時要求登入時顯示「尚未支援」，不使用金鑰。
+
+Cloudflare 出口 IP 能否連到 DGPA／NCDR 尚待部署驗證；若 Worker 無法取得，改由每小時 GHA 快照兜底。讀取時逐來源選兩個 writer 中最近成功的資料；抓取超過 90 分鐘會警示，DGPA 官方頁面更新時間超過 90 分鐘也會警示。停班停課保留官方原文，不推論出勤狀態；過期時隱藏含「照常」的原文，以不顯示的提示取代，頁面日期與今天不同另行提示。來源更新時間與本服務抓取時間分列，失敗不冒充沒有事件。
+
+KV 使用獨立索引 `disaster:index:worker:v1`、`disaster:index:gha:v1`，避免兩個 writer 互相覆蓋；內容分片為 `disaster:v1:dgpa:{sha12}`、`disaster:v1:ncdr:{sha12}`（編碼內容 SHA-256 前 12 碼）。分片不含頁面／feed 更新時間（存索引），TTL 8 天，相同內容僅超過 3 天才續寫（Worker 配合下一次索引心跳），`writtenAt` 記錄續期時間。分片先寫、索引最後寫；來源失敗保留原 sha、count、寫入／成功／來源更新時間；有效的零則 NCDR feed 可寫空分片。
+
+KV 寫入預算：內容／ok／closed／reason 不變時 Worker 索引至少隔 19 分鐘才寫（x5 排程約每 20 分鐘，72 次／日），心跳採本輪開始時間，避免慢回應使第二輪錯過門檻；GHA 每輪寫索引（24 次／日），通常合計 96 次／日，加上分片變動／續期。若每輪兩個來源內容皆變，Worker 最多 144×3＝432 次／日，GHA 最多 24×3＝72 次／日，disaster 合計最壞 504 次／日（不含手動執行）；狀態變動可立即寫索引，因此 72 並非絕對上限。此額度與其他 collectors 共用 Workers Free 每日 1,000 次寫入。
+
+本機執行 `npm run collect:disaster -- --out /tmp/formosa-disaster`，再設 `FORMOSA_DISASTER_DIR=/tmp/formosa-disaster` 供 stdio 讀取。未設時 Node 直接執行共用 collector、最多 6 個 CAP，成功快取 10 分鐘、失敗可立即重試；不採 GHA 的 peer skip 或 quiet window。更新 publisher 後由 `npm run build:collectors` 重建 `scripts/dist/`，workflow 直接執行已提交的 bundle。
+
 ## 資料來源與授權
+
+- 停班停課：[行政院人事行政總處 DGPA 官方頁面](https://www.dgpa.gov.tw/typh/daily/nds.html)，政府網站內容；無官方機器可讀版。災防告警：[NCDR 民生示警公開資料平臺](https://alerts.ncdr.nat.gov.tw/)，匿名 JSON／Atom feed 標示 `rights: Public Domain`；CAP 提供範圍、等級與有效時間，優先於 feed 摘要。
 
 - 計畫性停水停電：[台水](https://data.gov.tw/dataset/6050)、[北水](https://data.gov.tw/dataset/128236)、[台電](https://data.gov.tw/dataset/26144)，採政府資料開放授權條款第1版（OGDL-1）。北水涵蓋臺北與部分新北，台水用於臺北市以外；台電開放資料未涵蓋連江縣。
 - 僅提供計畫性公告，不包含即時供應狀態、緊急搶修、事故、颱風、通知或水質。台水官方開放資料目前回傳空清單，台水結果可能不完整，請至[台水停水公告查詢系統](https://web.water.gov.tw/wateroff/)查詢；無法解析的公告時間保留原文，仍列入日期查詢，資料超過 24 小時會警示。請以台電 1911、台水 1910、北水 1999（臺北市外 02-27371999）及官方網站為準。
