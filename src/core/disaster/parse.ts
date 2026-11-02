@@ -1,5 +1,5 @@
 import { canonical, clean } from '../outage/normalize.js';
-import { counties } from '../outage/districts.js';
+import { counties, districts } from '../outage/districts.js';
 import { validDay } from '../outage/time.js';
 import { object, timestamp, severities, official, type Alert, type Dgpa } from './model.js';
 export const entities = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (all, code: string) => {
@@ -69,7 +69,24 @@ function xml(s: string, root: string) {
 }
 export interface FeedEntry extends Alert { status: string; msgType: string }
 export interface Feed { updated: string; entries: FeedEntry[] }
-const mentioned = (s: string) => counties.filter(c => canonical(s).includes(c));
+let districtNames: [string, string][] | undefined;
+function mentioned(s: string): string[] {
+  if (!districtNames) {
+    // Build once per isolate; ambiguity includes stems shared by different suffixes.
+    const owners = new Map<string, Set<string>>();
+    for (const [county, names] of Object.entries(districts)) for (const name of names) {
+      const full = canonical(name), stem = full.replace(/[鄉鎮市區]$/, '');
+      for (const key of [full, ...(stem.length >= 2 ? [stem] : [])]) {
+        if (!owners.has(key)) owners.set(key, new Set());
+        owners.get(key)!.add(county);
+      }
+    }
+    districtNames = [...owners].filter(([, cs]) => cs.size === 1).map(([name, cs]) => [name, [...cs][0]]);
+  }
+  const summary = canonical(s), matched = new Set(counties.filter(c => summary.includes(c)));
+  for (const [name, county] of districtNames) if (summary.includes(name)) matched.add(county);
+  return counties.filter(c => matched.has(c));
+}
 function entry(v: Record<string, any>): FeedEntry {
   if (typeof v.id !== 'string' || !v.id || typeof v.title !== 'string' || !v.title || (v.summary !== undefined && typeof v.summary !== 'string' && (!object(v.summary) || typeof v.summary['#text'] !== 'string')) || typeof v.status !== 'string' || typeof v.msgType !== 'string') throw Error('NCDR 告警項目格式錯誤');
   const summary = text(typeof v.summary === 'string' ? v.summary : v.summary?.['#text'] ?? '');
@@ -106,7 +123,9 @@ export function parseCap(s: string): Cap {
   if (!id || !type || !severities.includes(severity as typeof severities[number]) || !text(tag(body, 'status')) || !text(tag(body, 'msgType'))) throw Error('CAP 內容格式錯誤');
   const times: { effective?: string; onset?: string; expires?: string } = {};
   for (const key of ['effective', 'onset', 'expires'] as const) { const v = text(tag(info, key)); if (v && !timestamp(v)) throw Error('CAP 時間格式錯誤'); if (v) times[key] = v; }
-  const allAreas = [...new Set(tags(info, 'areaDesc').map(text).filter(Boolean))];
+  const allAreas = [...new Set(tags(info, 'areaDesc').map(text).filter(Boolean))].map(a => ({ original: a, canonical: canonical(a) }));
+  const matched = counties.filter(c => allAreas.some(a => a.canonical.startsWith(c)));
+  const areas = allAreas.filter(a => matched.some(c => a.canonical.startsWith(c))).slice(0, 200).map(a => clean(a.original, 100));
   const parameters = Object.fromEntries(tags(info, 'parameter').map(p => [text(tag(p, 'valueName')), text(tag(p, 'value'))]));
-  return { id, type, title: text(tag(info, 'headline')), sender: text(tag(info, 'senderName')), severity: severity as typeof severities[number], ...times, ...(parameters.severity_level ? { level: parameters.severity_level } : {}), ...(parameters.alert_color ? { color: parameters.alert_color } : {}), counties: counties.filter(c => allAreas.some(a => canonical(a).startsWith(c))), areas: allAreas.slice(0, 30).map(a => clean(a, 100)), text: clean(text(tag(info, 'description')), 400), web: text(tag(info, 'web')) || official.ncdr, status: text(tag(body, 'status')), msgType: text(tag(body, 'msgType')) };
+  return { id, type, title: text(tag(info, 'headline')), sender: text(tag(info, 'senderName')), severity: severity as typeof severities[number], ...times, ...(parameters.severity_level ? { level: parameters.severity_level } : {}), ...(parameters.alert_color ? { color: parameters.alert_color } : {}), counties: matched, areas, text: clean(text(tag(info, 'description')), 400), web: text(tag(info, 'web')) || official.ncdr, status: text(tag(body, 'status')), msgType: text(tag(body, 'msgType')) };
 }

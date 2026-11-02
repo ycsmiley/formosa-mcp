@@ -2,7 +2,7 @@ import { counties } from '../outage/districts.js';
 import { canonical } from '../outage/normalize.js';
 import { local, addDays } from '../outage/time.js';
 import { official, severities, type Index, type Source, type State, type Dgpa, type Alert } from './model.js';
-export interface DisasterStore { indexes(): Promise<{ worker: Index | null; gha: Index | null }>; shard(source: Source, sha: string): Promise<Dgpa | Alert[] | null> }
+export interface DisasterStore { indexes(source?: Source): Promise<{ worker: Index | null; gha: Index | null }>; shard(source: Source, sha: string): Promise<Dgpa | Alert[] | null> }
 const reminder = '提醒：停班停課以各縣市政府及人事行政總處公告為準；民間企業依勞動部規定。';
 const dgpaSource = `來源：行政院人事行政總處 ${official.dgpa}`;
 const ncdrSource = `資料來源：國家災害防救科技中心（NCDR）民生示警公開資料平臺 ${official.ncdr}`;
@@ -16,7 +16,7 @@ export function resolveCities(input: string): string[] {
 export function createDisasterService(store: DisasterStore, clock = () => new Date()) {
   async function load(source: Source) {
     let indexes: Awaited<ReturnType<DisasterStore['indexes']>> = { worker: null, gha: null };
-    try { indexes = await store.indexes(); } catch { /* Report unavailable below. */ }
+    try { indexes = await store.indexes(source); } catch { /* Report unavailable below. */ }
     const states = [indexes.worker?.sources[source], indexes.gha?.sources[source]].filter((s): s is State => !!s);
     const chosen = states.filter(s => s.lastSuccessAt && s.sha).sort((a, b) => Date.parse(b.lastSuccessAt!) - Date.parse(a.lastSuccessAt!))[0];
     const attempt = states.filter(s => s.fetchedAt && !s.skipped).sort((a, b) => Date.parse(b.fetchedAt!) - Date.parse(a.fetchedAt!))[0];
@@ -45,7 +45,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
         if (attempt && !attempt.ok && !stale) lines.push(`最近一次抓取失敗，以下為 ${time(chosen?.lastSuccessAt).slice(11)} 的資料。`);
         const today = local(clock()).slice(0, 10), tomorrow = addDays(today, 1);
         if (snapshot.pageDate !== today) lines.push(`注意：官方頁面日期為 ${snapshot.pageDate}，與今天不同。`);
-        if (snapshot.noEvent) { lines.push('官方頁面：「無停班停課訊息。」'); continue; }
+        if (snapshot.noEvent) { lines.push(stale ? '資料已過期，官方頁面當時顯示「無停班停課訊息。」，目前狀態請查官方頁面。' : '官方頁面：「無停班停課訊息。」'); continue; }
         const original = snapshot.counties[county]; if (!original) { lines.push('官方頁面未列本縣市'); continue; }
         const groups = new Map<string, string[]>();
         for (const line of original) {
@@ -72,17 +72,29 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
       else if (!Array.isArray(data)) lines.push(`目前無法取得 NCDR 災防告警（${reason}），請至 ${official.ncdr} 查詢。`);
       else {
         if (attempt && !attempt.ok && !stale) lines.push(`最近一次抓取失敗，以下為 ${time(chosen?.lastSuccessAt).slice(11)} 的資料。`);
+        const active = data.filter(e => (!e.expires || Date.parse(e.expires) > clock().getTime()) && (!e.effective || Date.parse(e.effective) <= clock().getTime()));
+        const undetermined = active.filter(e => !e.detail && !e.counties.length);
         for (const county of cs) {
-          const items = data.filter(e => e.counties.includes(county) && (!e.expires || Date.parse(e.expires) > clock().getTime()) && (!e.effective || Date.parse(e.effective) <= clock().getTime())).sort((a, b) => severities.indexOf(a.severity ?? 'Unknown') - severities.indexOf(b.severity ?? 'Unknown') || (Date.parse(b.effective ?? '') || 0) - (Date.parse(a.effective ?? '') || 0));
-          if (!items.length) lines.push(`目前沒有${county}生效中的告警（國家災害防救科技中心，資料時間 ${time(chosen?.sourceUpdatedAt)}）`);
+          const items = active.filter(e => e.counties.includes(county)).sort((a, b) => severities.indexOf(a.severity ?? 'Unknown') - severities.indexOf(b.severity ?? 'Unknown') || (Date.parse(b.effective ?? '') || 0) - (Date.parse(a.effective ?? '') || 0));
+          if (!items.length) {
+            if (stale) lines.push(`資料已過期（${time(chosen?.sourceUpdatedAt)}），無法確認${county}目前是否有告警，請至 ${official.ncdr} 查詢。`);
+            else if (undetermined.length) {
+              lines.push(`${county}：有 ${undetermined.length} 則告警尚未取得詳細範圍，無法確認是否涵蓋本縣市：`);
+              for (const item of undetermined.slice(0, 5)) lines.push(`【${item.type}】${item.title || item.type}`, `連結：${item.link}`);
+              if (undetermined.length > 5) lines.push(`另有 ${undetermined.length - 5} 則`);
+            } else lines.push(`目前沒有${county}生效中的告警（國家災害防救科技中心，資料時間 ${time(chosen?.sourceUpdatedAt)}）`);
+          }
           else {
             lines.push(`${county} 生效中的災防告警`);
             for (const item of items.slice(0, 20)) {
               const severity = item.severity ? ({ Extreme: '極嚴重', Severe: '嚴重', Moderate: '中度', Minor: '輕微', Unknown: '未知' }[item.severity]) : '未提供';
               lines.push(`【${item.type}】${item.title || item.type}${item.type === '地震' ? '（地震資訊以中央氣象署為準）' : item.type === '停水' ? '（停水詳情可用 outage_schedule 查詢）' : ''}`, `等級：${severity}${item.level ? `（${item.level}）` : ''}`, `生效：${item.effective || '未提供'}　到期：${item.expires || '未提供'}`, `發布單位：${item.sender || '未提供'}`, `內容：${item.text}`, `連結：${item.link}`);
+              const areas = item.detail ? item.areas?.filter(a => canonical(a).startsWith(county)) ?? [] : [];
+              if (areas.length) lines.push(`範圍：${areas.slice(0, 15).join('、')}${areas.length > 15 ? `等 ${areas.length} 處` : ''}`);
               if (!item.detail) lines.push('（尚未取得 CAP 詳細資料，等級與範圍依摘要判定）');
             }
             if (items.length > 20) lines.push(`另有 ${items.length - 20} 則`);
+            if (undetermined.length) lines.push(`另有 ${undetermined.length} 則告警尚未取得詳細範圍，無法確認是否涵蓋${county}（請見 ${official.ncdr}）`);
           }
         }
       }

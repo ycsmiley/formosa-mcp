@@ -35,6 +35,18 @@ it('parses JSON singleton, array and valid empty feeds; Atom entries match JSON'
   for (const entry of [undefined, null, []]) expect(parseNcdrJson(JSON.stringify({ ...value, entry })).entries).toEqual([]);
   for (const change of [{ status: 'Test' }, { msgType: 'Cancel' }]) expect(parseNcdrJson(JSON.stringify({ ...value, entry: { ...value.entry[0], ...change } })).entries).toEqual([]);
 });
+it.each([
+  ['綠島鄉、蘭嶼鄉', ['臺東縣']], ['綠島、蘭嶼', ['臺東縣']],
+  ['台西鄉', ['雲林縣']], ['北投與香山區', ['臺北市', '新竹市']],
+  ['東區、北區、中正區、信義區、大安區', []], ['信義、大安、東勢', []], ['復興', ['桃園市']],
+  ['信義鄉、東勢鄉', ['南投縣', '雲林縣']], ['東', []],
+])('maps only unambiguous full district names and stems in summary %s', (summary, expected) => {
+  const feed = JSON.parse(json); feed.entry = { ...feed.entry[0], summary };
+  expect(parseNcdrJson(JSON.stringify(feed)).entries[0].counties).toEqual(expected);
+});
+it('maps the strong-wind summary mentioning only 綠島 to 臺東縣 in both feeds', () => {
+  for (const feed of [parseNcdrJson(json), parseNcdrAtom(atom)]) expect(feed.entries[0].counties).toContain('臺東縣');
+});
 it('recognizes login walls, warning/429 payloads, stale/missing updated and malformed XML', () => {
   for (const parse of [parseNcdrJson, parseNcdrAtom]) {
     expect(() => parse('<WarningMessage><Warning>請先登入會員。</Warning></WarningMessage>')).toThrow(LoginRequired);
@@ -52,9 +64,20 @@ it.each(['2026/2/30 上午 01:00:00', '2026/11/2 下午 13:00:00', '2026/11/2 �
 it('parses CAP authority, severity, parameters, counties beyond the first 30 areas and XML entities', () => {
   const w = parseCap(wind), r = parseCap(reservoir);
   expect(w).toMatchObject({ severity: 'Moderate', level: '強風黃色燈號', color: '黃色', onset: '2026-11-02T05:00:00+08:00' });
-  expect(w.areas).toHaveLength(30); expect(w.counties).toContain('連江縣');
+  expect(w.areas).toHaveLength(35); expect(w.counties).toContain('連江縣'); expect(w.areas).toContain('連江縣南竿鄉');
   expect(r).toMatchObject({ severity: 'Minor', level: '一級警戒', expires: '2026-11-02T11:18:40+08:00', counties: ['雲林縣', '嘉義縣'] });
   expect(parseCap(reservoir.replace('自由溢流</headline>', 'A &amp; B</headline>')).title).toContain('A & B');
+});
+it('keeps only county-prefixed CAP areas, caps at 200 cleaned entries and derives counties before the cap', () => {
+  const areas = ['未知海域', ...Array.from({ length: 201 }, (_, i) => `台北市範圍${i}${'長'.repeat(110)}`), '連江縣南竿鄉'];
+  const cap = parseCap(wind.replace(/<area>[\s\S]*<\/area>/, areas.map(a => `<area><areaDesc>${a}</areaDesc></area>`).join('')));
+  expect(cap.counties).toEqual(['臺北市', '連江縣']); expect(cap.areas).toHaveLength(200);
+  expect(cap.areas!.every(a => a.startsWith('台北市') && a.length === 100)).toBe(true);
+  const { status: _, msgType: __, onset: ___, web: ____, ...detail } = cap;
+  const alert = { ...detail, link: 'https://alerts.ncdr.nat.gov.tw/test.cap', detail: true };
+  expect(decodeAlerts(JSON.stringify([alert]))[0].areas).toHaveLength(200);
+  expect(() => decodeAlerts(JSON.stringify([{ ...alert, areas: [...alert.areas!, '臺北市溢出'] }]))).toThrow();
+  expect(() => decodeAlerts(JSON.stringify([{ ...alert, areas: ['臺北市' + '長'.repeat(100)] }]))).toThrow();
 });
 it('strictly decodes indexes and both shards', () => {
   const valid = index({ dgpa: state() }); expect(decodeIndex(JSON.stringify(valid))).toEqual(valid);

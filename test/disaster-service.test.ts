@@ -1,12 +1,12 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp/server.js';
 import { createDisasterService, type DisasterStore } from '../src/core/disaster/service.js';
 import { counties } from '../src/core/outage/districts.js';
-import { parseDgpa, parseNcdrJson } from '../src/core/disaster/parse.js';
+import { parseDgpa, parseNcdrJson, parseCap } from '../src/core/disaster/parse.js';
 import type { Alert, Dgpa, Index } from '../src/core/disaster/model.js';
-import { fixture, htmlFiles, none, json, at, state, index } from './disaster-fixtures.js';
+import { fixture, htmlFiles, none, json, wind, at, state, index } from './disaster-fixtures.js';
 function setup(html = none, date?: string) {
   const { updatedAt, ...snapshot } = parseDgpa(html), now = date ?? updatedAt;
   const worker = index({ dgpa: state({ lastSuccessAt: updatedAt, fetchedAt: updatedAt, sourceUpdatedAt: updatedAt, count: Object.keys(snapshot.counties).length }), ncdr: state({ sourceUpdatedAt: at }) });
@@ -89,4 +89,65 @@ it('calls both formatted tools through MCP and validates city length', async () 
     for (const name of ['work_school_closure', 'disaster_alerts']) { const reply = await client.callTool({ name, arguments: { city: '臺北市' } }); expect(reply.isError).not.toBe(true); expect(JSON.stringify(reply.content)).not.toContain('[object Object]'); expect(JSON.stringify(reply.content)).toContain('https://'); }
     expect((await client.callTool({ name: 'disaster_alerts', arguments: { city: 'x'.repeat(31) } })).isError).toBe(true);
   } finally { await client.close(); }
+});
+it('loads only the source requested by each service tool', async () => {
+  const s = setup(), indexes = vi.spyOn(s.store, 'indexes');
+  await s.service.closure({ city: '臺北市' }); await s.service.alerts({ city: '臺北市' });
+  expect(indexes.mock.calls).toEqual([['dgpa'], ['ncdr']]);
+});
+it('shows a summary-only 綠島 alert for 臺東縣', async () => {
+  const s = setup(none, at); s.shards.set('ncdr', alerts()); s.worker.sources.ncdr!.count = 3;
+  const result = await s.service.alerts({ city: '臺東縣' });
+  expect(result.text).toContain('【強風】'); expect(result.text).toContain('尚未取得 CAP 詳細資料'); expect(result.text).not.toContain('目前沒有');
+});
+it('lists up to five active alerts with unknown geography instead of asserting absence', async () => {
+  const s = setup(none, at), base = alerts()[0];
+  const entries = Array.from({ length: 7 }, (_, i) => ({ ...base, id: String(i), title: `未知範圍${i}`, counties: [], link: `https://alerts.ncdr.nat.gov.tw/${i}.cap` }));
+  const inactive = [
+    { ...base, id: 'expired', counties: [], expires: at },
+    { ...base, id: 'future', counties: [], effective: '2026-11-02T10:00:00+08:00' },
+    { ...base, id: 'detailed', counties: [], detail: true },
+  ];
+  s.shards.set('ncdr', [...entries, ...inactive]); s.worker.sources.ncdr!.count = 10;
+  const result = await s.service.alerts({ city: '新竹' });
+  for (const county of ['新竹市', '新竹縣']) expect(result.text).toContain(`${county}：有 7 則告警尚未取得詳細範圍，無法確認是否涵蓋本縣市：`);
+  for (const item of entries.slice(0, 5)) { expect(result.text).toContain(`【強風】${item.title}`); expect(result.text).toContain(`連結：${item.link}`); }
+  expect(result.text).toContain('另有 2 則'); expect(result.text).not.toContain('未知範圍5'); expect(result.text).not.toContain('目前沒有');
+});
+it('appends unknown-geography counts alongside county-matched alerts', async () => {
+  const s = setup(none, at), base = alerts()[0];
+  s.shards.set('ncdr', [{ ...base, counties: ['臺北市'] }, { ...base, id: 'unknown', counties: [] }]); s.worker.sources.ncdr!.count = 2;
+  const result = await s.service.alerts({ city: '臺北市' });
+  expect(result.text).toContain('臺北市 生效中的災防告警');
+  expect(result.text).toContain('另有 1 則告警尚未取得詳細範圍，無法確認是否涵蓋臺北市（請見 https://alerts.ncdr.nat.gov.tw/）');
+});
+it('shows county-specific CAP areas including those beyond the old thirty-area limit', async () => {
+  const s = setup(none, at), { status: _, msgType: __, ...cap } = parseCap(wind);
+  s.shards.set('ncdr', [{ ...cap, link: alerts()[0].link, detail: true }]); s.worker.sources.ncdr!.count = 1;
+  const result = await s.service.alerts({ city: '連江縣' });
+  expect(result.text).toContain('範圍：連江縣東引鄉、連江縣北竿鄉、連江縣莒光鄉、連江縣南竿鄉'); expect(result.text).not.toMatch(/範圍：.*桃園市/);
+});
+it('limits detailed area output to fifteen, canonicalizes county aliases and omits empty/summary areas', async () => {
+  const s = setup(none, at), base = { ...alerts()[0], counties: ['臺北市'], detail: true };
+  const areas = Array.from({ length: 17 }, (_, i) => `台北市範圍${i}`);
+  s.shards.set('ncdr', [{ ...base, areas: ['新北市板橋區', ...areas] }]); s.worker.sources.ncdr!.count = 1;
+  const result = await s.service.alerts({ city: '臺北市' });
+  expect(result.text).toContain(`範圍：${areas.slice(0, 15).join('、')}等 17 處`); expect(result.text).not.toContain('台北市範圍15');
+  for (const patch of [{ areas: ['新北市板橋區'] }, { areas, detail: false }]) {
+    s.shards.set('ncdr', [{ ...base, ...patch }]); expect((await s.service.alerts({ city: '臺北市' })).text).not.toContain('範圍：');
+  }
+});
+it.each([[], alerts().map(e => ({ ...e, expires: at })), [{ ...alerts()[0], counties: [] }]].map(entries => ({ entries })))('never asserts no active alerts from stale data %#', async ({ entries }) => {
+  const s = setup(none, at); s.shards.set('ncdr', entries); s.worker.sources.ncdr!.count = entries.length;
+  const result = await createDisasterService(s.store, () => new Date(Date.parse(at) + 91 * 60000)).alerts({ city: '新竹' });
+  expect(result.text.startsWith('⚠️')).toBe(true); expect(result.text).not.toContain('目前沒有');
+  for (const county of ['新竹市', '新竹縣']) expect(result.text).toContain(`資料已過期（2026-11-02 09:15），無法確認${county}目前是否有告警，請至 https://alerts.ncdr.nat.gov.tw/ 查詢。`);
+});
+it.each(['fetch', 'page'])('qualifies stale no-event DGPA text when %s is older than ninety minutes', async cause => {
+  const s = setup(none, at);
+  s.worker.sources.dgpa!.lastSuccessAt = cause === 'fetch' ? '2026-11-02T07:44:00+08:00' : at;
+  s.worker.sources.dgpa!.sourceUpdatedAt = cause === 'page' ? '2026-11-02T07:44:00+08:00' : at;
+  const result = await s.service.closure({ city: '臺北市' });
+  expect(result.text.startsWith('⚠️')).toBe(true);
+  expect(result.text).toContain('資料已過期，官方頁面當時顯示「無停班停課訊息。」，目前狀態請查官方頁面。'); expect(result.text).not.toContain('官方頁面：「無停班停課訊息。」');
 });

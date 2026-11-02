@@ -33,7 +33,7 @@ export function decodeAlerts(raw: string): Alert[] {
   if (!Array.isArray(x)) throw Error('告警快照格式錯誤');
   const ids = new Set<string>();
   for (const v of x) {
-    if (!object(v) || !['id', 'type', 'text', 'link'].every(k => typeof v[k] === 'string') || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== 'boolean' || !strings(v.counties) || v.counties.some((c: string) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || ['title', 'sender', 'level', 'color'].some(k => v[k] !== undefined && typeof v[k] !== 'string') || v.text.length > 400 || (v.severity !== undefined && !severities.includes(v.severity)) || ['effective', 'expires'].some(k => v[k] !== undefined && !timestamp(v[k])) || (v.areas !== undefined && (!strings(v.areas) || v.areas.length > 30 || v.areas.some((a: string) => a.length > 100))) || !/^https?:\/\//.test(v.link)) throw Error('告警項目格式錯誤');
+    if (!object(v) || !['id', 'type', 'text', 'link'].every(k => typeof v[k] === 'string') || !v.id || !v.type || ids.has(v.id) || typeof v.detail !== 'boolean' || !strings(v.counties) || v.counties.some((c: string) => !counties.includes(c)) || new Set(v.counties).size !== v.counties.length || ['title', 'sender', 'level', 'color'].some(k => v[k] !== undefined && typeof v[k] !== 'string') || v.text.length > 400 || (v.severity !== undefined && !severities.includes(v.severity)) || ['effective', 'expires'].some(k => v[k] !== undefined && !timestamp(v[k])) || (v.areas !== undefined && (!strings(v.areas) || v.areas.length > 200 || v.areas.some((a: string) => a.length > 100))) || !/^https?:\/\//.test(v.link)) throw Error('告警項目格式錯誤');
     ids.add(v.id);
   }
   return x as Alert[];
