@@ -301,6 +301,12 @@ function geocodeCounty(value) {
   if (!/^\d+$/.test(value)) return;
   return geocodeCounties[value.slice(0, 5)] ?? geocodeCounties[value.slice(0, 2)];
 }
+var capAreaPattern = /<(?:[\w-]+:)?area\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?area\s*>/gi;
+var capAreaDescPattern = /<(?:[\w-]+:)?areaDesc\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?areaDesc\s*>/i;
+var capGeocodePattern = /<(?:[\w-]+:)?geocode\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?geocode\s*>/gi;
+var capValueNamePattern = /<(?:[\w-]+:)?valueName\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?valueName\s*>/i;
+var capValuePattern = /<(?:[\w-]+:)?value\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?value\s*>/i;
+var countyPrefixPattern = new RegExp(`^(?:${counties.join("|")})`);
 function parseCap(s) {
   xml(s, "alert");
   const body = tag(s, "alert"), info = tags(body, "info").find((i) => /^zh/i.test(text(tag(i, "language")))) || tag(body, "info");
@@ -312,20 +318,29 @@ function parseCap(s) {
     if (v && !timestamp(v)) throw Error("CAP \u6642\u9593\u683C\u5F0F\u932F\u8AA4");
     if (v) times[key] = v;
   }
-  const allAreas = tags(info, "area").map((area) => {
-    const original = text(tag(area, "areaDesc")), matched2 = new Set(counties.filter((c) => canonical(original).startsWith(c)));
-    for (const geocode of tags(area, "geocode")) {
-      if (text(tag(geocode, "valueName")) !== "Taiwan_Geocode_103") continue;
-      const county = geocodeCounty(text(tag(geocode, "value")));
-      if (county) matched2.add(county);
+  const covered = /* @__PURE__ */ new Set(), areas = [], areaCounties = [];
+  let areaCount = 0, complete = true;
+  for (const [, area] of info.matchAll(capAreaPattern)) {
+    areaCount++;
+    const original = text(capAreaDescPattern.exec(area)?.[1] ?? "");
+    const prefix = countyPrefixPattern.exec(canonical(original))?.[0];
+    let scoped = prefix ? [prefix] : [];
+    for (const [, geocode] of area.matchAll(capGeocodePattern)) {
+      if (text(capValueNamePattern.exec(geocode)?.[1] ?? "") !== "Taiwan_Geocode_103") continue;
+      const county = geocodeCounty(text(capValuePattern.exec(geocode)?.[1] ?? ""));
+      if (county && !scoped.includes(county)) scoped.push(county);
     }
-    return { original, counties: counties.filter((c) => matched2.has(c)) };
-  });
-  const matched = counties.filter((c) => allAreas.some((a) => a.counties.includes(c)));
-  const storedAreas = allAreas.filter((a) => a.original && a.counties.length).slice(0, 200);
-  const areas = storedAreas.map((a) => clean(a.original, 100)), areaCounties = storedAreas.map((a) => a.counties);
+    if (!scoped.length) complete = false;
+    if (scoped.length > 1) scoped = counties.filter((c) => scoped.includes(c));
+    for (const county of scoped) covered.add(county);
+    if (original && scoped.length && areas.length < 200) {
+      areas.push(clean(original, 100));
+      areaCounties.push(scoped);
+    }
+  }
+  const matched = counties.filter((c) => covered.has(c));
   const parameters = Object.fromEntries(tags(info, "parameter").map((p) => [text(tag(p, "valueName")), text(tag(p, "value"))]));
-  return { id, type: clean(type, 40), title: clean(text(tag(info, "headline")), 200), sender: clean(text(tag(info, "senderName")), 100), complete: allAreas.length > 0 && allAreas.every((a) => a.counties.length > 0), severity, ...times, ...parameters.severity_level ? { level: clean(parameters.severity_level, 60) } : {}, ...parameters.alert_color ? { color: clean(parameters.alert_color, 20) } : {}, counties: matched, areas, areaCounties, text: clean(text(tag(info, "description")), 400), web: text(tag(info, "web")) || official2.ncdr, status: text(tag(body, "status")), msgType: text(tag(body, "msgType")) };
+  return { id, type: clean(type, 40), title: clean(text(tag(info, "headline")), 200), sender: clean(text(tag(info, "senderName")), 100), complete: areaCount > 0 && complete, severity, ...times, ...parameters.severity_level ? { level: clean(parameters.severity_level, 60) } : {}, ...parameters.alert_color ? { color: clean(parameters.alert_color, 20) } : {}, counties: matched, areas, areaCounties, text: clean(text(tag(info, "description")), 400), web: text(tag(info, "web")) || official2.ncdr, status: text(tag(body, "status")), msgType: text(tag(body, "msgType")) };
 }
 
 // src/core/disaster/collect.ts

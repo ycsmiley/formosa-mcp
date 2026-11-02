@@ -114,7 +114,7 @@ function decodeIndex(text) {
       delete x.cities[city];
       continue;
     }
-    if (!["ntpc", "taipei", "taichung"].includes(city) || !object(entry) || (typeof entry.gen !== "string" || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || entry.writtenAt !== void 0 && !timestamp(entry.writtenAt) || !count(entry.stops) || !object(entry.districts)) throw new Error("Invalid garbage city");
+    if (!["ntpc", "taipei", "taichung"].includes(city) || !object(entry) || (typeof entry.gen !== "string" || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || entry.checkedAt !== void 0 && !timestamp(entry.checkedAt) || !timestamp(entry.updatedAt) || entry.writtenAt !== void 0 && !timestamp(entry.writtenAt) || !count(entry.stops) || !object(entry.districts)) throw new Error("Invalid garbage city");
     for (const [name, district] of Object.entries(entry.districts)) if (!name || !object(district) || !count(district.stops) || typeof district.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(district.sha256)) throw new Error("Invalid garbage district");
   }
   return x;
@@ -292,8 +292,9 @@ async function collectGarbage(store, options = {}) {
       if (changed || wrote || renew) {
         data.entry.writtenAt = changed || renew ? now.toISOString() : writtenAt;
         index.cities[city] = data.entry;
-        dirty = true;
       }
+      index.cities[city].checkedAt = now.toISOString();
+      dirty = true;
     } catch (error) {
       failed = true;
       console.error(`garbage ${city} failed: ${reason(error)}`);
