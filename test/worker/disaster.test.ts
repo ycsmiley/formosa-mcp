@@ -1,11 +1,13 @@
 import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import worker, { cronJobs, type Env } from '../../src/worker/index.js';
 import { indexKey, shardKey, decodeIndex, official, feedUrls } from '../../src/core/disaster/model.js';
 import none from '../fixtures/disaster/dgpa-nds-2026-11-02-no-event.html?raw';
 import config from '../../wrangler.jsonc?raw';
 const bindings = env as unknown as Env, cron = '5,15,25,35,45,55 * * * *';
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+const clearIndexes = async () => { await Promise.all((['worker', 'gha'] as const).map(writer => bindings.SNAPSHOTS.delete(indexKey(writer)))); };
+beforeEach(clearIndexes);
+afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); await clearIndexes(); });
 it('configures exactly five cron keys with an independent disaster route', () => {
   const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
   expect(parsed.triggers.crons).toHaveLength(5); expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs)); expect(cronJobs[cron]).toBe('disaster');
@@ -58,6 +60,7 @@ it('uses the GHA peer source revision to prevent an older Worker publication', a
 });
 it('reports corrupt Worker KV indexes through disaster tools', async () => {
   await bindings.SNAPSHOTS.put(indexKey('worker'), '{broken');
+  await bindings.SNAPSHOTS.put(indexKey('gha'), '{broken');
   try {
     const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('upstream forbidden'));
     for (const name of ['work_school_closure', 'disaster_alerts']) {
@@ -65,13 +68,32 @@ it('reports corrupt Worker KV indexes through disaster tools', async () => {
       const text = await response.text(); expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料');
     }
     expect(fetch).not.toHaveBeenCalled();
-  } finally { await bindings.SNAPSHOTS.delete(indexKey('worker')); }
+  } finally { await clearIndexes(); }
+});
+it('serves fresh GHA shards through both disaster tools when the Worker index is corrupt', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:15:00+08:00'));
+  const stamp = new Date().toISOString(), sha = 'b'.repeat(12);
+  const state = { ok: true, sha, count: 1, writtenAt: stamp, lastSuccessAt: stamp, fetchedAt: stamp, sourceUpdatedAt: stamp };
+  try {
+    await bindings.SNAPSHOTS.put(indexKey('worker'), '{broken');
+    await bindings.SNAPSHOTS.put(shardKey('dgpa', sha), JSON.stringify({ pageDate: '2026-11-02', layout: 'flat', noEvent: false, counties: { 臺北市: ['今天停止上班、停止上課。'] } }));
+    await bindings.SNAPSHOTS.put(shardKey('ncdr', sha), JSON.stringify([{ id: 'gha-alert', type: '強風', title: 'GHA 強風告警', counties: ['臺北市'], text: 'GHA 強風資料', link: official.ncdr, detail: true, complete: true }]));
+    await bindings.SNAPSHOTS.put(indexKey('gha'), JSON.stringify({ v: 1, writer: 'gha', heartbeatAt: stamp, sources: { dgpa: state, ncdr: state } }));
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('upstream forbidden'));
+    for (const name of ['work_school_closure', 'disaster_alerts']) {
+      const response = await worker.fetch(new Request('http://localhost/mcp', { method: 'POST', headers: { Host: 'localhost', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'CF-Connecting-IP': '203.0.113.137' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { city: '臺北市' } } }) }), bindings, createExecutionContext());
+      const text = await response.text(); expect(response.status).toBe(200); expect(text).not.toContain('索引無法解讀');
+      expect(text).toContain(name === 'work_school_closure' ? '今天停止上班、停止上課。' : 'GHA 強風資料');
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    await clearIndexes();
+    await Promise.all((['dgpa', 'ncdr'] as const).map(source => bindings.SNAPSHOTS.delete(shardKey(source, sha))));
+  }
 });
 it('fetches DGPA and rebuilds a corrupt Worker index during a scheduled disaster run', async () => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:15:00+08:00'));
-  const peer = await bindings.SNAPSHOTS.get(indexKey('gha'));
   await bindings.SNAPSHOTS.put(indexKey('worker'), '{broken');
-  await bindings.SNAPSHOTS.delete(indexKey('gha'));
   try {
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input) === official.dgpa ? new Response(none) : new Response('unavailable', { status: 503 }));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -81,8 +103,7 @@ it('fetches DGPA and rebuilds a corrupt Worker index during a scheduled disaster
     expect(rebuilt.writer).toBe('worker'); expect(rebuilt.sources.dgpa?.ok).toBe(true);
     expect(await bindings.SNAPSHOTS.get(shardKey('dgpa', rebuilt.sources.dgpa!.sha!))).not.toBeNull();
   } finally {
-    await bindings.SNAPSHOTS.delete(indexKey('worker'));
-    if (peer !== null) await bindings.SNAPSHOTS.put(indexKey('gha'), peer);
+    await clearIndexes();
   }
 });
 it('does not send NCDR requests after a delayed scheduled deadline', async () => {

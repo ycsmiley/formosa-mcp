@@ -128,6 +128,12 @@ function geocodeCounty(value: string): string | undefined {
   if (!/^\d+$/.test(value)) return;
   return geocodeCounties[value.slice(0, 5)] ?? geocodeCounties[value.slice(0, 2)];
 }
+const capAreaPattern = /<(?:[\w-]+:)?area\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?area\s*>/gi;
+const capAreaDescPattern = /<(?:[\w-]+:)?areaDesc\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?areaDesc\s*>/i;
+const capGeocodePattern = /<(?:[\w-]+:)?geocode\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?geocode\s*>/gi;
+const capValueNamePattern = /<(?:[\w-]+:)?valueName\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?valueName\s*>/i;
+const capValuePattern = /<(?:[\w-]+:)?value\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?value\s*>/i;
+const countyPrefixPattern = new RegExp(`^(?:${counties.join('|')})`);
 export interface Cap extends Omit<Alert, 'link' | 'detail'> { status: string; msgType: string; onset?: string; web?: string }
 export function parseCap(s: string): Cap {
   xml(s, 'alert'); const body = tag(s, 'alert'), info = tags(body, 'info').find(i => /^zh/i.test(text(tag(i, 'language')))) || tag(body, 'info');
@@ -135,19 +141,25 @@ export function parseCap(s: string): Cap {
   if (!id || !type || !severities.includes(severity as typeof severities[number]) || !text(tag(body, 'status')) || !text(tag(body, 'msgType'))) throw Error('CAP 內容格式錯誤');
   const times: { effective?: string; onset?: string; expires?: string } = {};
   for (const key of ['effective', 'onset', 'expires'] as const) { const v = text(tag(info, key)); if (v && !timestamp(v)) throw Error('CAP 時間格式錯誤'); if (v) times[key] = v; }
-  const allAreas = tags(info, 'area').map(area => {
-    const original = text(tag(area, 'areaDesc')), matched = new Set(counties.filter(c => canonical(original).startsWith(c)));
-    for (const geocode of tags(area, 'geocode')) {
-      if (text(tag(geocode, 'valueName')) !== 'Taiwan_Geocode_103') continue;
-      const county = geocodeCounty(text(tag(geocode, 'value')));
-      if (county) matched.add(county);
+  const covered = new Set<string>(), areas: string[] = [], areaCounties: string[][] = [];
+  let areaCount = 0, complete = true;
+  for (const [, area] of info.matchAll(capAreaPattern)) {
+    areaCount++;
+    const original = text(capAreaDescPattern.exec(area)?.[1] ?? '');
+    const prefix = countyPrefixPattern.exec(canonical(original))?.[0];
+    let scoped = prefix ? [prefix] : [];
+    for (const [, geocode] of area.matchAll(capGeocodePattern)) {
+      if (text(capValueNamePattern.exec(geocode)?.[1] ?? '') !== 'Taiwan_Geocode_103') continue;
+      const county = geocodeCounty(text(capValuePattern.exec(geocode)?.[1] ?? ''));
+      if (county && !scoped.includes(county)) scoped.push(county);
     }
-    return { original, counties: counties.filter(c => matched.has(c)) };
-  });
-  const matched = counties.filter(c => allAreas.some(a => a.counties.includes(c)));
-  // Keep parallel area/county arrays bounded; derive coverage before display truncation.
-  const storedAreas = allAreas.filter(a => a.original && a.counties.length).slice(0, 200);
-  const areas = storedAreas.map(a => clean(a.original, 100)), areaCounties = storedAreas.map(a => a.counties);
+    if (!scoped.length) complete = false;
+    if (scoped.length > 1) scoped = counties.filter(c => scoped.includes(c));
+    for (const county of scoped) covered.add(county);
+    // Coverage includes every area, even after the parallel display arrays fill up.
+    if (original && scoped.length && areas.length < 200) { areas.push(clean(original, 100)); areaCounties.push(scoped); }
+  }
+  const matched = counties.filter(c => covered.has(c));
   const parameters = Object.fromEntries(tags(info, 'parameter').map(p => [text(tag(p, 'valueName')), text(tag(p, 'value'))]));
-  return { id, type: clean(type, 40), title: clean(text(tag(info, 'headline')), 200), sender: clean(text(tag(info, 'senderName')), 100), complete: allAreas.length > 0 && allAreas.every(a => a.counties.length > 0), severity: severity as typeof severities[number], ...times, ...(parameters.severity_level ? { level: clean(parameters.severity_level, 60) } : {}), ...(parameters.alert_color ? { color: clean(parameters.alert_color, 20) } : {}), counties: matched, areas, areaCounties, text: clean(text(tag(info, 'description')), 400), web: text(tag(info, 'web')) || official.ncdr, status: text(tag(body, 'status')), msgType: text(tag(body, 'msgType')) };
+  return { id, type: clean(type, 40), title: clean(text(tag(info, 'headline')), 200), sender: clean(text(tag(info, 'senderName')), 100), complete: areaCount > 0 && complete, severity: severity as typeof severities[number], ...times, ...(parameters.severity_level ? { level: clean(parameters.severity_level, 60) } : {}), ...(parameters.alert_color ? { color: clean(parameters.alert_color, 20) } : {}), counties: matched, areas, areaCounties, text: clean(text(tag(info, 'description')), 400), web: text(tag(info, 'web')) || official.ncdr, status: text(tag(body, 'status')), msgType: text(tag(body, 'msgType')) };
 }

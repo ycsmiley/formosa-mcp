@@ -72,6 +72,8 @@ it('keeps only county-prefixed CAP areas, caps at 200 cleaned entries and derive
   const areas = ['未知海域', ...Array.from({ length: 201 }, (_, i) => `台北市範圍${i}${'長'.repeat(110)}`), '連江縣南竿鄉'];
   const cap = parseCap(wind.replace(/<area>[\s\S]*<\/area>/, areas.map(a => `<area><areaDesc>${a}</areaDesc></area>`).join('')));
   expect(cap.counties).toEqual(['臺北市', '連江縣']); expect(cap.areas).toHaveLength(200);
+  expect(cap.complete).toBe(false);
+  expect(parseCap(wind.replace(/<area>[\s\S]*<\/area>/, [...areas.slice(1), '未知海域'].map(a => `<area><areaDesc>${a}</areaDesc></area>`).join(''))).complete).toBe(false);
   expect(cap.areas!.every(a => a.startsWith('台北市') && a.length === 100)).toBe(true);
   const { status: _, msgType: __, onset: ___, web: ____, ...detail } = cap;
   const alert = { ...detail, link: 'https://alerts.ncdr.nat.gov.tw/test.cap', detail: true };
@@ -95,6 +97,15 @@ it('parses largest DGPA + JSON + CAP well below 2ms per bundle (200 iterations)'
     return (performance.now() - start) / 40;
   });
   expect(Math.min(...timings)).toBeLessThan(2);
+});
+it.each([['earthquake', earthquake], ['wind', wind]])('parses %s CAP below 0.75ms per call (best of five warm batches)', (_, body) => {
+  for (let i = 0; i < 40; i++) parseCap(body);
+  const timings = Array.from({ length: 5 }, () => {
+    const start = performance.now();
+    for (let i = 0; i < 40; i++) parseCap(body);
+    return (performance.now() - start) / 40;
+  });
+  expect(Math.min(...timings)).toBeLessThan(0.75);
 });
 
 it('rejects feed clocks beyond five minutes, accepts three minutes, and requires feed author', () => {
@@ -167,6 +178,10 @@ it('unions county prefix and geocodes per area, while unknown areas block comple
   expect(parseCap(body).areaCounties).toEqual([['臺北市', '花蓮縣']]);
   expect(parseCap(body.replace('</info>', '<area><areaDesc>未知地區</areaDesc><geocode><valueName>Taiwan_Geocode_103</valueName><value>99999</value></geocode></area></info>')).complete).toBe(false);
   expect(parseCap(body.replaceAll('Taiwan_Geocode_103', 'another-code')).counties).toEqual(['臺北市']);
+});
+it('preserves CAP area namespaces, tag casing, encoded text and geocode field order', () => {
+  const area = '<cap:AREA><cap:AREADESC><![CDATA[台北市部分地區]]></cap:AREADESC><cap:GEOCODE><cap:VALUE>100&#49;5</cap:VALUE><cap:VALUENAME><![CDATA[Taiwan_Geocode_103]]></cap:VALUENAME></cap:GEOCODE></cap:AREA>';
+  expect(parseCap(earthquake.replace(/<area>[\s\S]*<\/area>/, area))).toMatchObject({ complete: true, counties: ['臺北市', '花蓮縣'], areas: ['台北市部分地區'], areaCounties: [['臺北市', '花蓮縣']] });
 });
 it('accepts quiet three-hour feeds in both formats and rejects 25-hour evidence', () => {
   for (const [parse, body] of [[parseNcdrJson, json], [parseNcdrAtom, atom]] as const) {
