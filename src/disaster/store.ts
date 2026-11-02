@@ -29,7 +29,7 @@ export function localDisasterStore(dir?: string): DisasterStore {
         return first ? { ...first, sources: Object.assign({}, ...indexes.map(i => i?.sources)) } : null;
       };
       const [worker, gha] = await Promise.allSettled([load('worker'), load('gha')]);
-      return { worker: worker.status === 'fulfilled' ? worker.value : null, gha: gha.status === 'fulfilled' ? gha.value : null, error: worker.status === 'rejected' || gha.status === 'rejected' };
+      return { worker: worker.status === 'fulfilled' ? worker.value : null, gha: gha.status === 'fulfilled' ? gha.value : null, errors: { worker: worker.status === 'rejected', gha: gha.status === 'rejected' } };
     },
     async shard(source, sha) { const raw = await read(shardKey(source, sha), source); return raw ? decodeShard(raw, source) : null; },
   };

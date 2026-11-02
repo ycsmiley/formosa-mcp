@@ -41,8 +41,9 @@ export async function collectGarbage(store: Store, options: { cities?: City[]; f
       }
       if (changed || wrote || renew) {
         data.entry.writtenAt = changed || renew ? now.toISOString() : writtenAt;
-        index.cities[city] = data.entry; dirty = true;
+        index.cities[city] = data.entry;
       }
+      index.cities[city]!.checkedAt = now.toISOString(); dirty = true;
     } catch (error) { failed = true; console.error(`garbage ${city} failed: ${reason(error)}`); }
   }
   try { if (dirty) { index.generatedAt = (options.now ?? (() => new Date()))().toISOString(); await store.put(indexKey, encodeIndex(index), index.generatedAt); } } catch (error) { console.error(`garbage index write failed: ${reason(error)}`); failed = true; }

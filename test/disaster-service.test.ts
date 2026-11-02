@@ -272,12 +272,42 @@ it.each([['花蓮市', '花蓮縣'], ['馬祖', '連江縣']])('resolves %s to %
   for (const tool of [s.service.closure, s.service.alerts]) expect((await tool({ city })).text).toContain(`「${city}」屬${county}`);
   expect((await s.service.alerts({ city: '金馬' })).isError).toBe(true);
 });
-it('reports corrupt indexes distinctly and does not claim absence with an unreadable peer', async () => {
+it.each(['worker', 'gha'] as const)('uses the healthy writer for both tools when the %s index is unreadable', async failed => {
   const s = setup(none, at);
-  s.store.indexes = async () => ({ worker: s.worker, gha: null, error: true });
+  const healthy = failed === 'worker' ? 'gha' : 'worker';
+  s.store.indexes = async () => ({ worker: null, gha: null, [healthy]: { ...s.worker, writer: healthy }, errors: { [failed]: true } });
+  expect((await s.service.closure({ city: '臺北市' })).text).toContain('官方頁面：「無停班停課訊息。」');
+  expect((await s.service.alerts({ city: '臺北市' })).text).toContain('目前沒有臺北市生效中的告警');
+  for (const tool of [s.service.closure, s.service.alerts]) expect((await tool({ city: '臺北市' })).text).not.toContain('索引無法解讀');
+  s.worker.sources.ncdr!.ok = false;
+  expect((await s.service.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
+  s.worker.sources.ncdr!.ok = true; delete s.worker.sources.ncdr!.empty;
+  expect((await s.service.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
+  const stale = createDisasterService(s.store, () => new Date(Date.parse(at) + 91 * 60000));
+  expect((await stale.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
+  expect((await stale.closure({ city: '臺北市' })).text).toContain('資料已過期');
+});
+it('reports unreadable indexes for both tools when both writers fail', async () => {
+  const s = setup(none, at);
+  s.store.indexes = async () => ({ worker: null, gha: null, errors: { worker: true, gha: true } });
   for (const tool of [s.service.closure, s.service.alerts]) {
     const text = (await tool({ city: '臺北市' })).text;
     expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料'); expect(text).not.toContain('目前沒有');
+  }
+});
+it.each(['sourceUpdatedAt', 'lastSuccessAt'] as const)('excludes anomalous %s before ranking either writer for both tools', async key => {
+  for (const writer of ['worker', 'gha'] as const) {
+    const s = setup(none, at);
+    s.indexes.gha = index(structuredClone(s.worker.sources), 'gha');
+    for (const source of ['dgpa', 'ncdr'] as const) s.indexes[writer]!.sources[source]![key] = new Date(Date.parse(at) + 10 * 60000).toISOString();
+    const closure = (await s.service.closure({ city: '臺北市' })).text;
+    const alert = (await s.service.alerts({ city: '臺北市' })).text;
+    expect(closure).toContain('官方頁面：「無停班停課訊息。」');
+    expect(alert).toContain('目前沒有臺北市生效中的告警');
+    expect(closure).not.toContain('資料時間異常'); expect(alert).not.toContain('資料時間異常');
+    const other = writer === 'worker' ? 'gha' : 'worker';
+    for (const source of ['dgpa', 'ncdr'] as const) s.indexes[other]!.sources[source]![key] = new Date(Date.parse(at) + 10 * 60000).toISOString();
+    for (const tool of [s.service.closure, s.service.alerts]) expect((await tool({ city: '臺北市' })).text).toContain('資料時間異常');
   }
 });
 it('accepts a three-hour source with a fresh fetch, but makes 25-hour source evidence unusable', async () => {

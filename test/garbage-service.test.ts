@@ -13,6 +13,14 @@ describe('garbage schedule service', () => {
     expect(result.text).toContain('資料可能已過時');
     expect(result.text).not.toMatch(/[{}]/);
   });
+  it('uses a recent successful check for freshness while preserving the snapshot time', async () => {
+    const checked = { ...index, cities: { ntpc: { ...index.cities.ntpc!, checkedAt: '2026-10-29T23:00:00Z' } } };
+    const svc = createGarbageService({ index: async () => checked, shard: async () => shard }, () => new Date('2026-10-30T00:00:00Z'));
+    const result = await svc.schedule({ city: '新北', district: '板橋', keyword: '文化路' });
+    expect(result.isError).toBe(false); expect(result.text).toContain('文化路１號');
+    expect(result.text).not.toContain('資料可能已過時');
+    expect(result.text).toContain('資料時間：2026-10-25 08:00');
+  });
   it('explains no results and unsupported cities', async () => {
     expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '文化路', time: '17:00' })).text).toContain('新北市板橋區「文化路」：有收運點，但不符合指定的星期或時間。');
     expect((await service.schedule({ city: '新北市', district: '板橋', keyword: '不存在' })).text).toContain('找不到');

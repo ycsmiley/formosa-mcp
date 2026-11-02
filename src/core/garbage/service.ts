@@ -47,7 +47,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       if (!valid(keyword) && fallback && valid(fallback)) { keyword = fallback; fallback = undefined; }
       if (!keyword) return { text: '請提供里名、路名或地點關鍵字，例如「板橋 文化路」。', isError: false };
       if (!valid(keyword)) return { text: '關鍵字太短或無效，請至少輸入兩個字的里名、路名或地點，例如「文化路」。', isError: false };
-      const now = clock(), wantedDay = weekday(q.weekday, now);
+      const now = clock(), wantedDay = weekday(q.weekday, now), freshness = Date.parse(info.checkedAt ?? info.fetchedAt);
       if (q.weekday && wantedDay === undefined) return { text: '請輸入今天、明天或星期一至星期日。', isError: true };
       if (city === 'taipei' && (wantedDay === 3 || wantedDay === 0)) return { text: `臺北市週三、週日停收垃圾、資源回收及廚餘（環保局週收五日規則）。\n資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）\n實際收運以各地環保局公告為準（國定假日可能調整）`, isError: false };
       if (q.time && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(norm(q.time))) return { text: '時間請使用 HH:MM 格式。', isError: true };
@@ -58,7 +58,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
         searchKeyword = keyword;
         shard = await store.shard(city, info.gen, district, searchKeyword, filter);
       }
-      if (!shard) return { text: now.getTime() - Date.parse(info.fetchedAt) > 14 * 86400000 ? '垃圾車資料已過時，請稍後再試。' : '資料更新中，請稍後再試', isError: true };
+      if (!shard) return { text: now.getTime() - freshness > 14 * 86400000 ? '垃圾車資料已過時，請稍後再試。' : '資料更新中，請稍後再試', isError: true };
       const matched = shard.stops.filter(s => [s.name, s.village, s.route].some(v => norm(v).includes(searchKeyword)));
       const stops = matched.map(s => ({ ...s, garbage: s.garbage.filter(filter), recycling: s.recycling.filter(filter), food: s.food.filter(filter) })).filter(s => s.garbage.length + s.recycling.length + s.food.length);
       if (q.time) stops.sort((a, b) => [...a.garbage, ...a.recycling, ...a.food].map(s => s.start).sort()[0].localeCompare([...b.garbage, ...b.recycling, ...b.food].map(s => s.start).sort()[0]));
@@ -73,7 +73,7 @@ export function createGarbageService(store: GarbageStore, clock = () => new Date
       if (shard.truncated) lines.push('符合的收運點太多，請加上里名、路段或時間縮小範圍。');
       else if (stops.length > 15) lines.push('僅顯示前 15 筆，請用里名、關鍵字或時間縮小範圍。');
       const local = new Date(Date.parse(info.fetchedAt) + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
-      lines.push(`資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）`, `資料時間：${local}（台北時間）${now.getTime() - Date.parse(info.fetchedAt) > 3 * 86400000 ? '；資料可能已過時' : ''}`);
+      lines.push(`資料來源：${cities[city].source}，政府資料開放授權條款第1版（OGDL-1）`, `資料時間：${local}（台北時間）${now.getTime() - freshness > 3 * 86400000 ? '；資料可能已過時' : ''}`);
       if (city === 'taipei') lines.push('臺北市收運日依環保局週收五日規則推定，週三、週日停收；部分回收日依站點名稱標示，部分站點僅資源回收車收運；廚餘依環保局規則隨垃圾車收運。');
       lines.push('實際收運以各地環保局公告為準（國定假日可能調整）');
       return { text: lines.join('\n'), isError: false };

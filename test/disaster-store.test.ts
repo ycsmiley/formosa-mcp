@@ -99,7 +99,7 @@ it('surfaces corrupt directory indexes instead of treating them as absent', asyn
     const store = directoryStore(dir);
     await store.put('disaster:index:worker:v1', '{broken', at);
     const local = localDisasterStore(dir);
-    expect((await local.indexes()).error).toBe(true);
+    expect((await local.indexes()).errors).toEqual({ worker: true, gha: false });
     const service = createDisasterService(local, () => new Date(at));
     for (const tool of [service.closure, service.alerts]) expect((await tool({ city: '臺北市' })).text).toContain('索引無法解讀');
   } finally { await rm(dir, { recursive: true, force: true }); }

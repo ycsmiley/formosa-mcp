@@ -49,8 +49,9 @@ it('collects in order, retains failures, and writes shards before the index', as
   writes.length = 0;
   expect(await collectGarbage(store, { ...options, now: () => new Date('2026-10-31T00:00:00Z'), fetch: async c => { if (c === 'ntpc') throw Error('failure'); return fixture(c); } })).toBe(1);
   expect(decodeIndex(values.get(indexKey)!).cities.ntpc).toEqual(old.cities.ntpc);
-  expect(writes).toEqual([]);
+  expect(writes).toEqual([indexKey]);
   expect(decodeIndex(values.get(indexKey)!).cities.taipei!.updatedAt).toBe(old.cities.taipei!.updatedAt);
+  expect(decodeIndex(values.get(indexKey)!).cities.taipei!.checkedAt).toBe('2026-10-31T00:00:00.000Z');
   expect(await collectGarbage(store, { ...options, minimum: { ...minimum, ntpc: 999999 } })).toBe(1);
 });
 it('aborts an oversized source stream', async () => {
@@ -80,7 +81,7 @@ it('logs bounded failure reasons with the token redacted', async () => {
   } finally { error.mockRestore(); }
 });
 
-it('publishes KV shards before the index and skips unchanged runs', async () => {
+it('publishes KV shards before the index and writes only the index on unchanged runs', async () => {
   const { kvStore } = await import('../scripts/publish-garbage.js');
   const values = new Map<string, string>(), writes: string[] = [];
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
@@ -103,7 +104,7 @@ it('publishes KV shards before the index and skips unchanged runs', async () => 
     const previous = decodeIndex(values.get(indexKey)!).cities.ntpc!.updatedAt;
     writes.length = 0;
     expect(await collectGarbage(store, options)).toBe(0);
-    expect(writes).toEqual([]);
+    expect(writes).toEqual([indexKey]);
     expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.updatedAt).toBe(previous);
   } finally { fetchMock.mockRestore(); }
 });
@@ -141,6 +142,22 @@ it('rejects invalid generation identifiers', () => {
   }
 });
 
+it('accepts legacy checkedAt omissions and validates checkedAt when present', () => {
+  const entry = { gen: 'abc', fetchedAt: '2026-10-30T00:00:00Z', updatedAt: '2026-10-30T00:00:00Z', stops: 0, districts: {} };
+  const encode = (city: object) => JSON.stringify({ v: 2, generatedAt: entry.fetchedAt, cities: { ntpc: city } });
+  expect(decodeIndex(encode(entry)).cities.ntpc!.checkedAt).toBeUndefined();
+  expect(decodeIndex(encode({ ...entry, checkedAt: entry.fetchedAt })).cities.ntpc!.checkedAt).toBe(entry.fetchedAt);
+  for (const checkedAt of ['invalid', '', null, 123]) expect(() => decodeIndex(encode({ ...entry, checkedAt }))).toThrow('Invalid garbage city');
+});
+
+it('does not write the index when no city was successfully checked', async () => {
+  const put = vi.fn(), error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    expect(await collectGarbage({ get: async () => null, put }, { cities: ['ntpc', 'taipei'], delay: async () => {}, fetch: async () => { throw Error('unavailable'); } })).toBe(1);
+    expect(put).not.toHaveBeenCalled();
+  } finally { error.mockRestore(); }
+});
+
 it('prefilters only decoded leading fields and caps matches', () => {
   const row = JSON.stringify(['文化里', 'A', '文化路', [[1, '19:00', '']], [], []]);
   const escaped = JSON.stringify(['文化里', 'A', '文化"路', [], [], []]);
@@ -168,7 +185,9 @@ it('keeps unchanged generations, repairs missing/corrupt shards, and renews only
   await collectGarbage(store, options); const first = decodeIndex(values.get(indexKey)!).cities.ntpc!;
   const keys = Object.keys(first.districts).map(d => shardKey('ntpc', first.gen, d));
   writes.length = 0; clock += 86400000; await collectGarbage(store, options);
-  expect(writes).toEqual([]); expect(decodeIndex(values.get(indexKey)!).cities.ntpc).toEqual(first);
+  expect(writes).toEqual([indexKey]);
+  expect(decodeIndex(values.get(indexKey)!).cities.ntpc).toEqual({ ...first, checkedAt: new Date(clock).toISOString() });
+  expect(decodeIndex(values.get(indexKey)!).generatedAt).toBe(new Date(clock).toISOString());
   for (const corrupt of [null, 'corrupt']) {
     if (corrupt === null) values.delete(keys[0]); else values.set(keys[0], corrupt);
     writes.length = 0; await collectGarbage(store, options);
@@ -177,8 +196,8 @@ it('keeps unchanged generations, repairs missing/corrupt shards, and renews only
     expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.writtenAt).toBe(first.writtenAt);
   }
   writes.length = 0; clock = Date.parse(first.writtenAt!) + 7 * 86400000;
-  await collectGarbage(store, options); expect(writes).toEqual([]);
-  clock++; await collectGarbage(store, options); expect(writes).toEqual([...keys, indexKey]);
+  await collectGarbage(store, options); expect(writes).toEqual([indexKey]);
+  writes.length = 0; clock++; await collectGarbage(store, options); expect(writes).toEqual([...keys, indexKey]);
   const renewed = decodeIndex(values.get(indexKey)!).cities.ntpc!;
   expect(renewed.gen).toBe(first.gen); expect(renewed.updatedAt).toBe(first.updatedAt); expect(renewed.writtenAt).toBe(new Date(clock).toISOString());
 });
@@ -190,7 +209,7 @@ it('writes every district of a changed city and preserves references for other c
   writes.length = 0;
   await collectGarbage(store, { ...options, now: () => new Date('2026-10-31T00:00:00Z'), fetch: async c => fixture(c).replace('獅頭路15-1號', '新站點') });
   const next = decodeIndex(values.get(indexKey)!);
-  expect(next.cities.ntpc!.gen).not.toBe(first.cities.ntpc!.gen); expect(next.cities.taipei).toEqual(first.cities.taipei);
+  expect(next.cities.ntpc!.gen).not.toBe(first.cities.ntpc!.gen); expect(next.cities.taipei).toEqual({ ...first.cities.taipei, checkedAt: '2026-10-31T00:00:00.000Z' });
   expect(writes).toEqual([...Object.keys(next.cities.ntpc!.districts).map(d => shardKey('ntpc', next.cities.ntpc!.gen, d)), indexKey]);
 });
 it('renews legacy cities from fetchedAt when writtenAt is absent', async () => {
@@ -200,7 +219,8 @@ it('renews legacy cities from fetchedAt when writtenAt is absent', async () => {
   const options = { cities: ['ntpc'] as City[], fetch: async () => fixture('ntpc'), now: () => new Date(at), minimum: { ntpc: 1, taipei: 1, taichung: 1 } };
   await collectGarbage(store, options);
   const legacy = decodeIndex(values.get(indexKey)!); delete legacy.cities.ntpc!.writtenAt; values.set(indexKey, JSON.stringify(legacy));
-  writes.length = 0; await collectGarbage(store, options); expect(writes).toEqual([]);
+  writes.length = 0; await collectGarbage(store, options); expect(writes).toEqual([indexKey]);
+  writes.length = 0;
   await collectGarbage(store, { ...options, now: () => new Date(at + 8 * 86400000) });
   expect(writes.length).toBe(Object.keys(legacy.cities.ntpc!.districts).length + 1);
   expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.gen).toBe(legacy.cities.ntpc!.gen);

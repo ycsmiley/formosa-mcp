@@ -1,6 +1,6 @@
 import type { City, Slot, Stop } from './normalize.js';
 import { norm } from './text.js';
-export interface CityIndex { gen: string; fetchedAt: string; updatedAt: string; writtenAt?: string; stops: number; districts: Record<string, { stops: number; sha256: string }> }
+export interface CityIndex { gen: string; fetchedAt: string; checkedAt?: string; updatedAt: string; writtenAt?: string; stops: number; districts: Record<string, { stops: number; sha256: string }> }
 export interface Index { v: 2; generatedAt: string; cities: Partial<Record<City, CityIndex>> }
 export interface Shard { v: 2; stops: Stop[]; truncated?: boolean; matched?: number }
 export const indexKey = 'garbage:index:v2';
@@ -14,7 +14,7 @@ export function decodeIndex(text: string): Index {
   for (const [city, entry] of Object.entries(x.cities)) {
     // TODO(p33): remove once the production index has been rewritten without tainan/kaohsiung and the 14-day shard TTL has passed.
     if (city === 'tainan' || city === 'kaohsiung') { delete x.cities[city]; continue; }
-    if (!['ntpc', 'taipei', 'taichung'].includes(city) || !object(entry) || (typeof entry.gen !== 'string' || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || !timestamp(entry.updatedAt) || (entry.writtenAt !== undefined && !timestamp(entry.writtenAt)) || !count(entry.stops) || !object(entry.districts)) throw new Error('Invalid garbage city');
+    if (!['ntpc', 'taipei', 'taichung'].includes(city) || !object(entry) || (typeof entry.gen !== 'string' || !/^[0-9a-z]{1,16}$/.test(entry.gen)) || !timestamp(entry.fetchedAt) || (entry.checkedAt !== undefined && !timestamp(entry.checkedAt)) || !timestamp(entry.updatedAt) || (entry.writtenAt !== undefined && !timestamp(entry.writtenAt)) || !count(entry.stops) || !object(entry.districts)) throw new Error('Invalid garbage city');
     for (const [name, district] of Object.entries(entry.districts)) if (!name || !object(district) || !count(district.stops) || typeof district.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(district.sha256)) throw new Error('Invalid garbage district');
   }
   return x as unknown as Index;
