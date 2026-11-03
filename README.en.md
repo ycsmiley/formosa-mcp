@@ -231,3 +231,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 ## License
 
 [MIT](LICENSE)
+
+[Want another kind of Taiwan data?](https://github.com/ycsmiley/formosa-mcp/issues/new?template=data-request.yml)

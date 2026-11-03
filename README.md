@@ -244,3 +244,5 @@ npm run remote-check
 ## 授權
 
 [MIT](LICENSE)
+
+[想要哪種台灣資料？](https://github.com/ycsmiley/formosa-mcp/issues/new?template=data-request.yml)

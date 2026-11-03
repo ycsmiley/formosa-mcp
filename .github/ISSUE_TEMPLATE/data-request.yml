@@ -1,0 +1,36 @@
+name: 資料需求／Data request
+description: 建議新增的資料 / Suggest data to add
+title: "[資料需求] "
+labels: [data-request]
+body:
+  - type: textarea
+    id: data
+    attributes:
+      label: 想查的資料 / Data you want
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 使用情境／會問 agent 的問題 / Use case or questions you'd ask your agent
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: 知道的官方來源連結 / Official source links you know
+    validations:
+      required: false
+  - type: dropdown
+    id: client
+    attributes:
+      label: 用哪個 AI 工具 / Which AI tool
+      options:
+        - Claude
+        - ChatGPT
+        - Cursor
+        - Claude Code
+        - Codex
+        - 其他 Other
+    validations:
+      required: false

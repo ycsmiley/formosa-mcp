@@ -1,0 +1,55 @@
+name: 錯誤回報 / Bug report
+description: 回報使用時遇到的問題 / Report a problem
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 請勿貼上 TDX 金鑰或其他機密資訊。 / Do not paste TDX keys or other secrets.
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: 發生了什麼事 / What happened
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重現步驟，包含工具名稱與輸入內容 / Steps to reproduce, including tool name and input
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期結果 / Expected result
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: 使用的 AI 工具 / AI tool used
+      options:
+        - Claude
+        - ChatGPT
+        - Cursor
+        - Claude Code
+        - Codex
+        - 其他 Other
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: 連線方式 / How you connected
+      options:
+        - 遠端網址 / Remote URL
+        - 本機 npx / Local npx
+        - 從原始碼 / From source
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或日期 / Version or date
+    validations:
+      required: false
