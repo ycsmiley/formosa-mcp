@@ -10,7 +10,8 @@ function setup() {
   const fetchText = vi.fn(async (url: string) => { const start = clock; clock += 25; calls.push({ url, start, end: clock }); return { status: 200, text: url === official.dgpa ? none : url === feedUrls[0] ? json : url === feedUrls[1] ? atom : url.includes('CWA') ? wind : reservoir }; });
   const options: Options = { writer: 'gha', store, fetchText, now: () => new Date(clock), sleep: async ms => { clock += ms; }, maxCaps: 20 };
   const read = () => decodeIndex(values.get(indexKey(options.writer))!);
-  return { values, writes, store, calls, fetchText, options, read, advance: (ms: number) => { clock += ms; } };
+  const alertsText = async () => (await createDisasterService({ indexes: async () => ({ worker: null, gha: null, [options.writer]: read() }), shard: async (source, sha) => decodeShard(values.get(shardKey(source, sha))!, source) }, options.now).alerts({ city: '臺北市' })).text;
+  return { values, writes, store, calls, fetchText, options, read, alertsText, advance: (ms: number) => { clock += ms; } };
 }
 it.each(['{broken', '{}', ''])('rebuilds a corrupt own index and publishes fresh shards (%s)', async raw => {
   const s = setup(); s.options.warn = vi.fn(); s.values.set(indexKey(s.options.writer), raw);
@@ -311,8 +312,7 @@ it.each(['gha', 'worker'] as const)('records an NCDR fetch failure even when the
   const result = await collectDisaster(s.options);
   expect(result.writes).toBe(1); expect(s.writes.map(w => w.key)).toEqual([indexKey(writer)]);
   expect(s.read().sources.ncdr!.ok).toBe(false); expect(s.read().budget!.tokens).toBeGreaterThanOrEqual(-1); expect(s.read().budget!.tokens).toBeLessThan(0);
-  const service = createDisasterService({ indexes: async () => ({ worker: null, gha: null, [writer]: s.read() }), shard: async (source, sha) => decodeShard(s.values.get(shardKey(source, sha))!, source) }, s.options.now);
-  expect((await service.alerts({ city: '臺北市' })).text).not.toContain('沒有');
+  expect(await s.alertsText()).not.toContain('沒有');
 });
 it('records NCDR login-required (closed) when DGPA has budget priority', async () => {
   const s = setup(); s.options.maxCaps = 0; s.options.budget = { perHour: 3, burst: 9 }; s.options.warn = vi.fn();
@@ -354,7 +354,68 @@ it.each([
   const fast = await collectDisaster(s.options), published = s.read();
   release(); const result = await slow;
   expect(s.read().sources.ncdr!.sourceUpdatedAt).toBe(newer); expect(s.read().sources.ncdr!.sha).toBe(fast.index.sources.ncdr!.sha);
-  expect(result.index).toEqual(published); expect(s.writes.filter(w => w.key === indexKey('gha'))).toHaveLength(1);
+  // The superseded shard attempt still requires an index publication for accounting.
+  expect(result.index).toEqual(published); expect(s.writes.filter(w => w.key === indexKey('gha'))).toHaveLength(2);
+});
+it('keeps a later NCDR failure attempt over a concurrent newer success (never answers 沒有)', async () => {
+  const s = setup(); s.options.only = ['ncdr']; s.options.maxCaps = 0;
+  await collectDisaster(s.options); const previous = s.read(); s.advance(2 * 3600000);
+  let release!: () => void, reached!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; }), waiting = new Promise<void>(resolve => { reached = resolve; });
+  const slow = collectDisaster({ ...s.options, fetchText: async () => { reached(); await hold; throw Error('slow NCDR timeout'); } });
+  await waiting; s.advance(60000);
+  const newer = '2026-11-02T03:00:00Z';
+  s.fetchText.mockImplementation(async url => ({ status: 200, text: url === feedUrls[0] ? emptyJson(newer) : emptyAtom(newer) }));
+  await collectDisaster(s.options); const published = s.read().sources.ncdr!;
+  expect(published.sourceUpdatedAt).toBe(newer); expect(published.ok).toBe(true);
+  expect(published.sha).not.toBe(previous.sources.ncdr!.sha);
+  s.advance(60000); release(); const result = await slow;
+  expect(result.previous).toEqual(previous);
+  expect(s.read().sources.ncdr).toMatchObject({ ok: false, reason: 'slow NCDR timeout', sha: published.sha, sourceUpdatedAt: newer, lastSuccessAt: published.lastSuccessAt, count: 0, empty: true });
+  expect(Date.parse(s.read().sources.ncdr!.fetchedAt!)).toBeGreaterThan(Date.parse(published.fetchedAt!));
+  expect(await s.alertsText()).not.toContain('沒有');
+});
+it('persists the budget charge for shards written before a concurrent newer index', async () => {
+  const s = setup(); s.options.only = ['ncdr']; s.options.maxCaps = 0;
+  await collectDisaster(s.options); s.advance(2 * 3600000);
+  s.options.budget = { perHour: 0, burst: 2 };
+  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), budget: { tokens: 2, at: s.options.now!().toISOString() } }));
+  let release!: () => void, reached!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; }), waiting = new Promise<void>(resolve => { reached = resolve; });
+  const body = (updated: string, summary: string) => JSON.stringify({ ...JSON.parse(json), updated, entry: [{ ...JSON.parse(json).entry[0], summary }] });
+  const put = s.store.put; let first = true;
+  s.store.put = async (key, value, ttl) => {
+    await put(key, value, ttl);
+    if (first && key.startsWith('disaster:v1:ncdr:')) { first = false; reached(); await hold; }
+  };
+  const slow = collectDisaster({ ...s.options, fetchText: async () => ({ status: 200, text: body('2026-11-02T02:00:00Z', '較早公告') }) });
+  await waiting; s.advance(60000);
+  s.fetchText.mockResolvedValue({ status: 200, text: body('2026-11-02T03:00:00Z', '較新公告') });
+  const fast = await collectDisaster(s.options);
+  expect(fast.index.budget!.tokens).toBe(0);
+  release(); const result = await slow;
+  expect(s.read().sources.ncdr).toEqual(fast.index.sources.ncdr);
+  expect(s.read().budget!.tokens).toBeLessThan(fast.index.budget!.tokens);
+  expect(s.read().budget!.tokens).toBe(-1); expect(result.writes).toBe(2);
+});
+it.each(['success', 'failure', 'closed'])('rechecks the budget before shards and applies shortfall rules for %s', async outcome => {
+  const s = setup(); s.options.only = ['ncdr']; s.options.maxCaps = 0; s.options.warn = vi.fn();
+  await collectDisaster(s.options); s.options.budget = { perHour: 0, burst: 2 };
+  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), budget: { tokens: 2, at: s.options.now!().toISOString() } }));
+  let release!: () => void, reached!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; }), waiting = new Promise<void>(resolve => { reached = resolve; });
+  const slow = collectDisaster({ ...s.options, fetchText: async () => {
+    reached(); await hold;
+    if (outcome === 'failure') throw Error('timeout');
+    return { status: 200, text: outcome === 'closed' ? '請先登入會員' : json.replace('東北風增強', '東北風再次增強') };
+  } });
+  await waiting; s.advance(1000); s.writes.length = 0;
+  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), budget: { tokens: 0, at: s.options.now!().toISOString() } }));
+  release(); await slow;
+  expect(s.writes.map(w => w.key)).toEqual(outcome === 'success' ? [] : [indexKey('gha')]);
+  expect(s.read().budget!.tokens).toBe(outcome === 'success' ? 0 : -1);
+  expect(s.read().sources.ncdr!.ok).toBe(outcome === 'success');
+  if (outcome === 'closed') expect(s.read().sources.ncdr!.closed).toBe(true);
 });
 it('merges concurrent source publications and charges the later stored budget', async () => {
   const s = setup(); s.options.maxCaps = 0; await collectDisaster(s.options);

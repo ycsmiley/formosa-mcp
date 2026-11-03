@@ -18,6 +18,18 @@ const version = (a?: State, b?: State) => {
   }
   return 0;
 };
+const mergeState = (ours?: State, latest?: State): State | undefined => {
+  if (!ours || !latest) return ours ?? latest;
+  const attempt = (latest.fetchedAt ? Date.parse(latest.fetchedAt) : -Infinity) >
+    (ours.fetchedAt ? Date.parse(ours.fetchedAt) : -Infinity) ? latest : ours;
+  const evidence = version(latest, ours) > 0 ? latest : ours;
+  // A successful attempt cannot replace newer evidence with its older payload.
+  if (attempt.ok) return evidence;
+  const { ok: _ok, closed: _closed, skipped: _skipped, reason: _reason, fetchedAt: _fetchedAt, ...success } = evidence;
+  return { ...success, ok: attempt.ok, closed: attempt.closed, skipped: attempt.skipped, reason: attempt.reason, fetchedAt: attempt.fetchedAt };
+};
+const sameState = (a?: State, b?: State) => a === b || !!a && !!b &&
+  (Object.keys({ ...a, ...b }) as (keyof State)[]).every(key => a[key] === b[key]);
 export async function collectDisaster(o: Options): Promise<{ index: Index; previous: Index; writes: number; exitCode: number }> {
   const now = o.now ?? (() => new Date()), started = now().getTime(), scheduled = o.scheduledAt ?? started;
   const guardEnd = Math.floor(scheduled / 600000) * 600000 + 7 * 60000;
@@ -153,9 +165,19 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     }
     const publicationAt = now().toISOString();
     const refill = (saved: Index['budget']) => o.budget ? Math.min(o.budget.burst, (saved?.tokens ?? o.budget.burst) + o.budget.perHour * Math.max(0, Date.parse(publicationAt) - Date.parse(saved?.at ?? publicationAt)) / 3600000) : Infinity;
+    const reread = async (): Promise<Index | null> => {
+      try {
+        const raw = await o.store.get(indexKey(o.writer));
+        if (raw !== null) { const decoded = decodeIndex(raw); if (decoded.writer === o.writer) return decoded; }
+      } catch { /* Missing/corrupt/unavailable indexes retain the original publication path. */ }
+      return null;
+    };
+    // Observe concurrent budget charges before committing to any shard writes.
+    const beforeShards = await reread();
     let tokens = Infinity;
     if (o.budget) {
       tokens = refill(previous.budget);
+      if (beforeShards?.budget && Date.parse(beforeShards.budget.at) > Date.parse(previous.budget?.at ?? '1970-01-01')) tokens = Math.min(tokens, refill(beforeShards.budget));
       if (tokens < shards.size + 1) {
         (o.warn ?? console.warn)('disaster KV 預算不足，延後發布');
         // Reserve the index, then fit DGPA before NCDR. Only dropped successes revert.
@@ -165,16 +187,18 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
           shards.delete(source);
           if (previous.sources[source]) index.sources[source] = previous.sources[source]; else delete index.sources[source];
         }
-        if (tokens < 1 && !(mustRecord(previous) && tokens >= 0)) {
-          if (mustRecord(previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
-          return { index: previous, previous, writes, exitCode };
+        if (tokens < 1 && !(mustRecord(beforeShards ?? previous) && tokens >= 0)) {
+          if (mustRecord(beforeShards ?? previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
+          return { index: beforeShards ?? previous, previous, writes, exitCode };
         }
         if (!needsIndex()) return { index: previous, previous, writes, exitCode };
       }
     }
     index.heartbeatAt = new Date(started).toISOString();
     // Shards first, writer's index last; failed shard writes retain last-good references.
+    let shardAttempts = 0;
     for (const [source, shard] of shards) {
+      shardAttempts++;
       try {
         await o.store.put(shardKey(source, shard.sha), shard.encoded, 8 * 86400); writes++;
         index.sources[source]!.writtenAt = now().toISOString();
@@ -183,28 +207,29 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
         exitCode = 1;
       }
     }
-    // Re-read after shard writes so a slower run cannot replace newer source evidence.
-    let latest: Index | null = null;
-    try {
-      const raw = await o.store.get(indexKey(o.writer));
-      if (raw !== null) { const decoded = decodeIndex(raw); if (decoded.writer === o.writer) latest = decoded; }
-    } catch { /* Missing/corrupt/unavailable indexes retain the original publication path. */ }
+    // Merge attempt status independently of last-good evidence after shard writes.
+    const latest = await reread() ?? beforeShards;
     if (latest) {
-      const oursNewer = sources.some(s => version(index.sources[s], latest.sources[s]) > 0);
-      for (const source of sources) if (version(latest.sources[source], index.sources[source]) > 0) index.sources[source] = latest.sources[source];
-      // Preserve ordinary heartbeat/skip publications when the stored index is unchanged.
-      if (!oursNewer && JSON.stringify(latest) !== JSON.stringify(previous)) return { index: latest, previous, writes, exitCode };
+      for (const source of sources) {
+        const merged = mergeState(index.sources[source], latest.sources[source]);
+        if (merged) index.sources[source] = merged;
+      }
+      const oursNewer = sources.some(s => !sameState(index.sources[s], latest.sources[s]));
+      const heartbeatNeeded = started - Date.parse(latest.heartbeatAt) >= 55 * 60000 && sources.some(s => index.sources[s] && !index.sources[s]?.skipped && (!o.only || o.only.includes(s)));
+      // Even superseded shard attempts must persist their charge in an index.
+      if (!shardAttempts && !oursNewer && !heartbeatNeeded) return { index: latest, previous, writes, exitCode };
       if (latest.budget && Date.parse(latest.budget.at) > Date.parse(previous.budget?.at ?? '1970-01-01')) tokens = Math.min(tokens, refill(latest.budget));
       if (Date.parse(latest.heartbeatAt) > Date.parse(index.heartbeatAt)) index.heartbeatAt = latest.heartbeatAt;
     }
     if (o.budget) {
-      const charged = tokens - shards.size - 1;
-      if (charged < 0 && !(mustRecord(latest ?? previous) && !shards.size && charged >= -1)) {
+      const charged = tokens - shardAttempts - 1;
+      if (!shardAttempts && charged < 0 && !(mustRecord(latest ?? previous) && charged >= -1)) {
         (o.warn ?? console.warn)('disaster KV 預算不足，延後發布');
         if (mustRecord(latest ?? previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
         return { index: latest ?? previous, previous, writes, exitCode };
       }
-      index.budget = { tokens: charged, at: latest?.budget && Date.parse(latest.budget.at) > Date.parse(publicationAt) ? latest.budget.at : publicationAt };
+      // KV has no CAS: concurrent in-flight writes can overdraw; the index requires tokens >= -1.
+      index.budget = { tokens: Math.max(-1, charged), at: latest?.budget && Date.parse(latest.budget.at) > Date.parse(publicationAt) ? latest.budget.at : publicationAt };
     }
     try { await o.store.put(indexKey(o.writer), JSON.stringify(index)); writes++; } catch { return { index: latest ?? previous, previous, writes, exitCode: 1 }; }
     return { index, previous, writes, exitCode };
