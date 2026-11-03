@@ -542,7 +542,8 @@ async function collectDisaster(o) {
     const state = index.sources[s], old = base.sources[s];
     return (!o.only || o.only.includes(s)) && state?.ok === false && !state.skipped && (old?.ok !== false || !!old.closed !== !!state.closed);
   });
-  if (needsIndex()) {
+  const recheck = !needsIndex() && sources.some((s) => (!o.only || o.only.includes(s)) && index.sources[s]?.ok === false && !index.sources[s]?.skipped);
+  if (needsIndex() || recheck) {
     for (const [source, shard] of shards) {
       const old = previous.sources[source];
       if (old?.sha === shard.sha && old.writtenAt && now().getTime() - Date.parse(old.writtenAt) <= 3 * 864e5) shards.delete(source);
@@ -561,6 +562,13 @@ async function collectDisaster(o) {
       return null;
     };
     const beforeShards = await reread();
+    if (recheck) {
+      if (!beforeShards || !sources.some((s) => {
+        const state = index.sources[s], old = beforeShards.sources[s], merged = mergeState(state, old);
+        return (!o.only || o.only.includes(s)) && state?.ok === false && !state.skipped && merged?.ok === false && (old?.ok !== merged.ok || !!old.closed !== !!merged.closed);
+      })) return { index: previous, previous, writes, exitCode };
+      shards.clear();
+    }
     let tokens = Infinity;
     if (o.budget) {
       tokens = refill(previous.budget);
@@ -584,7 +592,7 @@ async function collectDisaster(o) {
           }
           return { index: beforeShards ?? previous, previous, writes, exitCode };
         }
-        if (!needsIndex()) return { index: previous, previous, writes, exitCode };
+        if (!needsIndex() && !recheck) return { index: previous, previous, writes, exitCode };
       }
     }
     index.heartbeatAt = new Date(started).toISOString();
