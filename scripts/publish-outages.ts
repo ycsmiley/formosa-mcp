@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { filename } from '../src/garbage/store.js';
 import { buildShards } from '../src/core/outage/build.js';
@@ -27,7 +27,7 @@ export function describeError(e: unknown): string {
   const cause = e instanceof Error ? e.cause ?? (e instanceof AggregateError ? e.errors[0] : undefined) : undefined;
   return message(e) + (cause == null ? '' : ` (cause: ${details(cause)})`);
 }
-export async function collectOutages(store: Store, options: { fetch?: (source: Source) => Promise<SourceData>; now?: () => Date; token?: string; sleep?: (ms: number) => Promise<void> } = {}): Promise<number> {
+export async function collectOutages(store: Store, options: { fetch?: (source: Source) => Promise<SourceData>; now?: () => Date; token?: string; sleep?: (ms: number) => Promise<void>; summaryPath?: string } = {}): Promise<number> {
   const reason = (e: unknown) => (options.token ? String(e instanceof Error ? e.message : e).replaceAll(options.token, '[redacted]') : String(e instanceof Error ? e.message : e)).replace(/https?:\/\/[^\s]+/g, '[url]').replace(/\s+/g, ' ').slice(0, 200);
   let previous: Index; let writes = 0, failed = false;
   try { const raw = await store.get(indexKey); previous = raw ? decodeIndex(raw) : { v: 1, generatedAt: '', sources: {} }; }
@@ -44,6 +44,7 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
   });
   const results = await Promise.allSettled(sources.map(s => fetch(s)));
   const index: Index = { v: 1, generatedAt: (options.now ?? (() => new Date()))().toISOString(), sources: {} };
+  const down = (lastSuccessAt?: string) => lastSuccessAt ? `${Math.floor((Date.parse(index.generatedAt) - Date.parse(lastSuccessAt)) / 3600000)}h` : 'never';
   for (const [i, source] of sources.entries()) {
     const old = previous.sources[source]; let dropped = 0, count = 0, largest = 0;
     let publicationFailed = false;
@@ -65,16 +66,20 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties, dropped, ...(data.droppedBy ? { droppedBy: data.droppedBy } : {}) };
     } catch (e) {
       const emptyTaiwater = source === 'taiwater' && reason(e) === taiwaterEmptyReason;
-      const expired = !emptyTaiwater && (!old?.lastSuccessAt || Date.parse(index.generatedAt) - Date.parse(old.lastSuccessAt) > 86400000);
-      if (publicationFailed || expired) failed = true;
+      if (publicationFailed) failed = true;
       index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {}, ...(old?.dropped !== undefined ? { dropped: old.dropped } : {}), ...(old?.droppedBy ? { droppedBy: old.droppedBy } : {}) };
-      console.warn(`::warning::outage ${source} unavailable: ${reason(describeError(e))}`);
-      if (publicationFailed || expired) console.error(`outage ${source} failed: ${reason(describeError(e))}`);
+      console.warn(`::warning::outage ${source} unavailable: ${reason(describeError(e))}${emptyTaiwater ? '' : old?.lastSuccessAt ? ` (down ${down(old.lastSuccessAt)} since ${old.lastSuccessAt})` : ' (never succeeded)'}`);
+      if (publicationFailed) console.error(`outage ${source} failed: ${reason(describeError(e))}`);
     }
     console.log(`outage ${source} ok=${index.sources[source]!.ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
   }
   if (sources.every(source => !index.sources[source]!.ok)) { console.error('outage all sources failed'); failed = true; }
   try { await store.put(indexKey, JSON.stringify(index), index.generatedAt); writes++; } catch (e) { console.error(`outage index write failed: ${reason(e)}`); failed = true; }
+  const summaryPath = options.summaryPath ?? process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    const rows = sources.map(source => { const info = index.sources[source]!; return `| ${source} | ${info.ok ? 'ok' : 'failed'} | ${info.lastSuccessAt ?? '—'} | ${info.ok ? '0h' : down(info.lastSuccessAt)} |`; });
+    try { await appendFile(summaryPath, `| 來源 | 狀態 | 最後成功 | 中斷時間 |\n| --- | --- | --- | --- |\n${rows.join('\n')}\n`); } catch (e) { console.warn(`outage summary write failed: ${reason(e)}`); }
+  }
   console.log(`outage KV writes=${writes}`);
   return failed ? 1 : 0;
 }

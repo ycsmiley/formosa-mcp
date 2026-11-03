@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // src/core/garbage/text.ts
@@ -476,6 +476,7 @@ async function collectOutages(store, options = {}) {
   });
   const results = await Promise.allSettled(sources.map((s) => fetch2(s)));
   const index = { v: 1, generatedAt: (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString(), sources: {} };
+  const down = (lastSuccessAt) => lastSuccessAt ? `${Math.floor((Date.parse(index.generatedAt) - Date.parse(lastSuccessAt)) / 36e5)}h` : "never";
   for (const [i, source] of sources.entries()) {
     const old = previous.sources[source];
     let dropped = 0, count = 0, largest = 0;
@@ -508,11 +509,10 @@ async function collectOutages(store, options = {}) {
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, dropped, ...data.droppedBy ? { droppedBy: data.droppedBy } : {} };
     } catch (e) {
       const emptyTaiwater = source === "taiwater" && reason(e) === taiwaterEmptyReason;
-      const expired = !emptyTaiwater && (!old?.lastSuccessAt || Date.parse(index.generatedAt) - Date.parse(old.lastSuccessAt) > 864e5);
-      if (publicationFailed || expired) failed = true;
+      if (publicationFailed) failed = true;
       index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {}, ...old?.dropped !== void 0 ? { dropped: old.dropped } : {}, ...old?.droppedBy ? { droppedBy: old.droppedBy } : {} };
-      console.warn(`::warning::outage ${source} unavailable: ${reason(describeError(e))}`);
-      if (publicationFailed || expired) console.error(`outage ${source} failed: ${reason(describeError(e))}`);
+      console.warn(`::warning::outage ${source} unavailable: ${reason(describeError(e))}${emptyTaiwater ? "" : old?.lastSuccessAt ? ` (down ${down(old.lastSuccessAt)} since ${old.lastSuccessAt})` : " (never succeeded)"}`);
+      if (publicationFailed) console.error(`outage ${source} failed: ${reason(describeError(e))}`);
     }
     console.log(`outage ${source} ok=${index.sources[source].ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
   }
@@ -526,6 +526,21 @@ async function collectOutages(store, options = {}) {
   } catch (e) {
     console.error(`outage index write failed: ${reason(e)}`);
     failed = true;
+  }
+  const summaryPath = options.summaryPath ?? process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    const rows = sources.map((source) => {
+      const info = index.sources[source];
+      return `| ${source} | ${info.ok ? "ok" : "failed"} | ${info.lastSuccessAt ?? "\u2014"} | ${info.ok ? "0h" : down(info.lastSuccessAt)} |`;
+    });
+    try {
+      await appendFile(summaryPath, `| \u4F86\u6E90 | \u72C0\u614B | \u6700\u5F8C\u6210\u529F | \u4E2D\u65B7\u6642\u9593 |
+| --- | --- | --- | --- |
+${rows.join("\n")}
+`);
+    } catch (e) {
+      console.warn(`outage summary write failed: ${reason(e)}`);
+    }
   }
   console.log(`outage KV writes=${writes}`);
   return failed ? 1 : 0;

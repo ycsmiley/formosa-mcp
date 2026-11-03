@@ -1,9 +1,9 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { collectOutages, describeError, directoryStore, kvStore, main, type Store } from '../scripts/publish-outages.js';
-import { decodeIndex, indexKey, shardKey, type Source } from '../src/core/outage/model.js';
+import { decodeIndex, indexKey, shardKey, sources, type Source } from '../src/core/outage/model.js';
 import { downloadLimit, fetchSource, urls } from '../src/outage/source.js';
 import { localOutageStore } from '../src/outage/store.js';
 import { createOutageService } from '../src/core/outage/service.js';
@@ -153,7 +153,7 @@ it('retries failed live fetches immediately and caches the recovered source', as
   await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledTimes(2);
 });
 
-it('returns nonzero for expired upstream unavailability and still publishes failing-source heartbeats', async () => {
+it('publishes failing-source heartbeats through prolonged upstream unavailability', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
   const fetch = mockSources(), original = fetch.getMockImplementation()!;
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {}), error = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -164,10 +164,11 @@ it('returns nonzero for expired upstream unavailability and still publishes fail
   error.mockClear();
   const later = () => new Date('2026-11-01T06:00:00Z');
   expect(await collectOutages(store, { now: later, sleep: async () => {} })).toBe(0);
-  expect(error).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledWith('::warning::outage taipower unavailable: offline');
+  expect(error).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledWith(`::warning::outage taipower unavailable: offline (down 6h since ${now().toISOString()})`);
   expect(decodeIndex(values.get(indexKey)!)).toMatchObject({ generatedAt: later().toISOString(), sources: { taipower: { ok: false, lastSuccessAt: now().toISOString(), counties: failed.sources.taipower!.counties } } });
   expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:00Z'), sleep: async () => {} })).toBe(0);
-  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:01Z'), sleep: async () => {} })).toBe(1);
+  expect(await collectOutages(store, { now: () => new Date('2026-11-02T03:35:28Z'), sleep: async () => {} })).toBe(0);
+  expect(warn).toHaveBeenCalledWith(`::warning::outage taipower unavailable: offline (down 27h since ${now().toISOString()})`); expect(error).not.toHaveBeenCalled();
 });
 it('fails when all sources fail despite recent successful snapshots', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
@@ -180,14 +181,28 @@ it('fails when all sources fail despite recent successful snapshots', async () =
   fetch.mockRejectedValue(Error('offline'));
   expect(await collectOutages(store, { now: later, sleep })).toBe(1); expect(error).toHaveBeenCalledWith('outage all sources failed');
 });
-it('fails for a source without a prior healthy snapshot and for an index write', async () => {
+it('warns for a source without a prior healthy snapshot and fails for an index write', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
-  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-  const fetch = async () => { throw Error('offline'); };
-  expect(await collectOutages(store, { now, fetch })).toBe(1); expect(error).toHaveBeenCalledTimes(4);
-  expect(Object.values(decodeIndex(values.get(indexKey)!).sources).every(s => !s.ok)).toBe(true);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); mockSources();
+  const fetch = async (source: Source) => { if (source === 'taipower') throw Error('offline'); return fetchSource(source); };
+  expect(await collectOutages(store, { now, fetch })).toBe(0); expect(warn).toHaveBeenCalledWith('::warning::outage taipower unavailable: offline (never succeeded)');
   store.put = async () => { throw Error('index unavailable'); };
   expect(await collectOutages(store, { now, fetch })).toBe(1);
+});
+it('appends a summary when configured and skips it when unset', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'outage-summary-')), path = join(dir, 'summary');
+  const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
+  const fetch = mockSources(), original = fetch.getMockImplementation()!;
+  vi.stubEnv('GITHUB_STEP_SUMMARY', '');
+  try {
+    expect(await collectOutages(store, { now })).toBe(0); expect(await readdir(dir)).toEqual([]);
+    fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower) throw Error('offline'); return original(input, init); });
+    expect(await collectOutages(store, { now: () => new Date('2026-11-02T03:00:00Z'), sleep: async () => {}, summaryPath: path })).toBe(0);
+    const summary = await readFile(path, 'utf8'); expect(summary).toContain('| 來源 | 狀態 | 最後成功 | 中斷時間 |');
+    expect(summary).toContain(`| taipower | failed | ${now().toISOString()} | 27h |`);
+    for (const source of sources) expect(summary).toContain(`| ${source} |`);
+    expect(await collectOutages(store, { now, sleep: async () => {}, summaryPath: dir })).toBe(0);
+  } finally { vi.unstubAllEnvs(); await rm(dir, { recursive: true, force: true }); }
 });
 it('stores dropped counts and displays the matching warning for each water source', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
