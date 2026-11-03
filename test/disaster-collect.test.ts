@@ -281,14 +281,14 @@ it('does not heartbeat GHA while all sources remain skipped, and checks each sha
   const get = vi.spyOn(s.store, 'get'); await collectDisaster(s.options);
   expect(s.writes).toEqual([]); expect(get.mock.calls.filter(([key]) => key.startsWith('disaster:v1:'))).toHaveLength(1);
 });
-it('defers an exhausted bucket without writes, then refills enough for a heartbeat', async () => {
+it.each([0, -3.5])('defers an exhausted bucket without writes, then refills enough for a heartbeat (%s tokens)', async tokens => {
   const s = setup(); s.options.only = ['dgpa']; s.options.budget = { perHour: 3, burst: 2 }; s.options.warn = vi.fn();
   await collectDisaster(s.options); expect(s.read().budget?.tokens).toBe(0);
   const old = s.values.get(indexKey('gha')); s.writes.length = 0; s.advance(55 * 60000);
-  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), budget: { tokens: 0, at: s.options.now!().toISOString() } }));
+  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), budget: { tokens, at: s.options.now!().toISOString() } }));
   const exhausted = s.values.get(indexKey('gha'));
   await collectDisaster(s.options); expect(s.writes).toEqual([]); expect(s.values.get(indexKey('gha'))).toBe(exhausted); expect(s.options.warn).toHaveBeenCalled();
-  s.advance(20 * 60000); await collectDisaster(s.options);
+  s.advance((1 - tokens) / 3 * 3600000); await collectDisaster(s.options);
   expect(s.writes.map(w => w.key)).toEqual([indexKey('gha')]); expect(s.read().sources.dgpa!.ok).toBe(true); expect(s.values.get(indexKey('gha'))).not.toBe(old);
   expect(s.read().budget!.tokens).toBeLessThan(0.001);
 });
@@ -324,16 +324,32 @@ it('records NCDR login-required (closed) when DGPA has budget priority', async (
   expect(s.read().sources.ncdr).toMatchObject({ ok: false, closed: true, sha: previous.sources.ncdr!.sha });
   expect(s.read().sources.dgpa!.sha).not.toBe(previous.sources.dgpa!.sha); expect(s.read().budget!.tokens).toBeGreaterThanOrEqual(0);
 });
+it('records an NCDR fetch failure when DGPA has budget priority (never answers 沒有)', async () => {
+  const s = setup(); s.options.maxCaps = 0; s.options.budget = { perHour: 3, burst: 9 }; s.options.warn = vi.fn();
+  await collectDisaster(s.options); const previous = s.read();
+  s.values.set(indexKey('gha'), JSON.stringify({ ...previous, budget: { tokens: 2, at: s.options.now!().toISOString() } }));
+  s.fetchText.mockImplementation(async url => {
+    if (url === official.dgpa) return { status: 200, text: none.replace(/<TR><TD headers='city_Name'[\s\S]*?<\/TR>/, '<tr><td headers="city_Name">臺北市</td><td>今天停止上班、停止上課。</td></tr>') };
+    throw Error('timeout');
+  });
+  s.writes.length = 0; const result = await collectDisaster(s.options);
+  expect(result.writes).toBe(2); expect(s.writes[0].key).toMatch(/^disaster:v1:dgpa:/); expect(s.writes[1].key).toBe(indexKey('gha'));
+  expect(s.read().sources.ncdr).toMatchObject({ ok: false, closed: false, sha: previous.sources.ncdr!.sha }); expect(s.read().sources.ncdr!.reason).toBeTruthy();
+  expect(s.read().sources.dgpa!.sha).not.toBe(previous.sources.dgpa!.sha); expect(s.read().budget!.tokens).toBeGreaterThanOrEqual(0);
+  expect(await s.alertsText()).not.toContain('沒有');
+});
 it('bounds failure overdrafts, records failure-to-closed transitions and reports exhausted overdrafts', async () => {
   const s = setup(); s.options.only = ['ncdr']; s.options.budget = { perHour: 0, burst: 6 }; s.options.warn = vi.fn();
   s.values.set(indexKey('gha'), JSON.stringify({ ...index({ ncdr: { ok: false, closed: false, fetchedAt: at } }, 'gha'), budget: { tokens: 0, at } }));
   s.fetchText.mockResolvedValue({ status: 200, text: '請先登入會員' });
   await collectDisaster(s.options); expect(s.read().sources.ncdr).toMatchObject({ ok: false, closed: true }); expect(s.read().budget!.tokens).toBe(-1);
   // An inconsistent stored success with an exhausted overdraft must fail visibly.
-  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), sources: { ncdr: state({ empty: true }) } }));
-  s.writes.length = 0;
-  expect((await collectDisaster(s.options)).exitCode).toBe(1); expect(s.writes).toEqual([]);
-  expect(s.options.warn).toHaveBeenCalledWith('disaster failure state cannot be recorded: KV overdraft exhausted');
+  for (const tokens of [-1, -3.5]) {
+    s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), sources: { ncdr: state({ empty: true }) }, budget: { tokens, at } }));
+    s.writes.length = 0;
+    expect((await collectDisaster(s.options)).exitCode).toBe(1); expect(s.writes).toEqual([]); expect(s.read().budget!.tokens).toBe(tokens);
+    expect(s.options.warn).toHaveBeenCalledWith('disaster failure state cannot be recorded: KV overdraft exhausted');
+  }
 });
 it.each([
   ['does not regress the index when a slow older response finishes after a newer run (same writer)', false],

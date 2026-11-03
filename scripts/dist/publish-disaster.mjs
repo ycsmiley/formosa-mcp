@@ -120,7 +120,7 @@ var strings = (x) => Array.isArray(x) && x.every((v) => typeof v === "string" &&
 function decodeIndex2(raw) {
   const x = JSON.parse(raw);
   if (!object(x) || x.v !== 1 || !["worker", "gha"].includes(x.writer) || !timestamp(x.heartbeatAt) || !object(x.sources)) throw Error("\u707D\u9632\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
-  if (x.budget !== void 0 && (!object(x.budget) || typeof x.budget.tokens !== "number" || !Number.isFinite(x.budget.tokens) || x.budget.tokens < -1 || !timestamp(x.budget.at))) throw Error("\u707D\u9632\u9810\u7B97\u683C\u5F0F\u932F\u8AA4");
+  if (x.budget !== void 0 && (!object(x.budget) || typeof x.budget.tokens !== "number" || !Number.isFinite(x.budget.tokens) || !timestamp(x.budget.at))) throw Error("\u707D\u9632\u9810\u7B97\u683C\u5F0F\u932F\u8AA4");
   for (const [s, v] of Object.entries(x.sources)) {
     if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || ["closed", "skipped", "empty"].some((k) => v[k] !== void 0 && typeof v[k] !== "boolean") || v.reason !== void 0 && (typeof v.reason !== "string" || v.reason.length > 200) || ["fetchedAt", "lastSuccessAt", "sourceUpdatedAt", "writtenAt"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.sha !== void 0 && (typeof v.sha !== "string" || !/^[a-f0-9]{12}$/.test(v.sha)) || v.count !== void 0 && (!Number.isSafeInteger(v.count) || v.count < 0) || v.empty !== void 0 && v.count !== 0 || v.closed && v.ok || v.sha !== void 0 && (!v.lastSuccessAt || !v.sourceUpdatedAt || !v.writtenAt || v.count === void 0) || v.ok && !v.sha && !v.skipped) throw Error("\u707D\u9632\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
   }

@@ -37,7 +37,8 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
     const chosen = healthy.filter(s => s.lastSuccessAt && s.sha).sort((a, b) => (Date.parse(b.sourceUpdatedAt ?? '') || 0) - (Date.parse(a.sourceUpdatedAt ?? '') || 0) || Date.parse(b.lastSuccessAt!) - Date.parse(a.lastSuccessAt!))[0];
     const attempt = healthy.filter(s => s.fetchedAt && !s.skipped).sort((a, b) => Date.parse(b.fetchedAt!) - Date.parse(a.fetchedAt!) || Number(a.ok) - Number(b.ok))[0];
     const anomalous = !chosen && states.some(s => s.lastSuccessAt && s.sha && !healthy.includes(s));
-    const unreadable = !states.length && Object.values(indexes.errors ?? {}).some(Boolean);
+    const partial = Object.values(indexes.errors ?? {}).some(Boolean);
+    const unreadable = !states.length && partial;
     const expiredSource = !!chosen && (!chosen.sourceUpdatedAt || instant - Date.parse(chosen.sourceUpdatedAt) > (source === 'ncdr' ? 24 * 3600000 : 90 * 60000));
     const stale = !!chosen && (expiredSource || instant - Date.parse(chosen.lastSuccessAt!) >= 90 * 60000);
     let data: Dgpa | Alert[] | null = null, reason = unreadable ? '索引無法解讀' : anomalous ? '資料時間異常' : source === 'ncdr' && expiredSource ? '來源更新時間已超過 24 小時或缺失' : attempt?.reason || '尚無成功取得的資料';
@@ -45,7 +46,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
       try { data = await store.shard(source, chosen.sha!); if (!data || (Array.isArray(data) ? data.length : Object.keys(data.counties).length) !== chosen.count) { data = null; reason = '資料快照遺失或無法解讀'; } }
       catch { reason = '資料快照遺失或無法解讀'; }
     }
-    return { chosen, attempt, stale, anomalous, data, reason: safeReason(reason) };
+    return { chosen, attempt, stale, anomalous, partial, data, reason: safeReason(reason) };
   }
   function cities(city: string) {
     const cs = city.length >= 1 && city.length <= 30 ? resolveCities(city) : [];
@@ -85,7 +86,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
     },
     async alerts(q: { city: string }) {
       const { cs, prefix } = cities(q.city); if (!cs.length) return invalid(ncdrSource);
-      const { chosen, attempt, stale, data, reason } = await load('ncdr');
+      const { chosen, attempt, stale, partial, data, reason } = await load('ncdr');
       const lines = [...(stale && !attempt?.closed && data ? [`⚠️ 資料可能過期，請以官方公告為準：${official.ncdr}`] : []), ...prefix];
       if (attempt?.closed) lines.push(`disaster_alerts 尚未支援：NCDR 匿名告警來源已要求登入會員（${safeReason(attempt.reason)}），本服務不使用金鑰。請至 ${official.ncdr} 查詢。`);
       else if (!Array.isArray(data)) lines.push(`目前無法取得 NCDR 災防告警（${reason}），請至 ${official.ncdr} 查詢。`);
@@ -94,7 +95,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
         const live = data.filter(e => !e.expires || Date.parse(e.expires) > instant);
         const incomplete = live.some(e => e.complete !== true);
         const verified = data.length > 0 || chosen?.empty === true;
-        const reliable = !stale && attempt?.ok === true && verified && !incomplete;
+        const reliable = !partial && !stale && attempt?.ok === true && verified && !incomplete;
         const sort = (a: Alert, b: Alert) => severities.indexOf(a.severity ?? 'Unknown') - severities.indexOf(b.severity ?? 'Unknown') || (Date.parse(b.effective ?? '') || 0) - (Date.parse(a.effective ?? '') || 0);
         function list(items: Alert[], county: string, upcoming = false) {
           for (const item of items.slice(0, 20)) {
@@ -113,6 +114,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
           const items = matches.filter(e => !e.effective || Date.parse(e.effective) <= instant).sort(sort);
           const upcoming = matches.filter(e => e.effective && Date.parse(e.effective) > instant).sort(sort);
           const unknown = live.filter(e => e.complete !== true && !e.counties.includes(county));
+          if (partial) lines.push(`部分寫入端索引讀取失敗，無法確認${county}目前是否有告警，請至 ${official.ncdr} 查詢。`);
           if (!attempt) lines.push(`缺少最近一次抓取狀態，無法確認${county}目前是否有告警，請至 ${official.ncdr} 查詢。`);
           if (attempt && !attempt.ok) lines.push(`最近一次抓取失敗（${safeReason(attempt.reason)}），無法確認${county}目前是否有告警，請至 ${official.ncdr} 查詢。`);
           if (stale) lines.push(`資料已過期（${time(chosen?.sourceUpdatedAt)}），無法確認${county}目前是否有告警，請至 ${official.ncdr} 查詢。`);

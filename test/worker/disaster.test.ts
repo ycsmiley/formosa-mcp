@@ -84,6 +84,9 @@ it('serves fresh GHA shards through both disaster tools when the Worker index is
       const response = await worker.fetch(new Request('http://localhost/mcp', { method: 'POST', headers: { Host: 'localhost', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'CF-Connecting-IP': '203.0.113.137' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { city: '臺北市' } } }) }), bindings, createExecutionContext());
       const text = await response.text(); expect(response.status).toBe(200); expect(text).not.toContain('索引無法解讀');
       expect(text).toContain(name === 'work_school_closure' ? '今天停止上班、停止上課。' : 'GHA 強風資料');
+      if (name === 'disaster_alerts') {
+        expect(text).toContain('部分寫入端索引讀取失敗'); expect(text).toContain('無法確認'); expect(text).not.toContain('目前沒有');
+      }
     }
     expect(fetch).not.toHaveBeenCalled();
   } finally {

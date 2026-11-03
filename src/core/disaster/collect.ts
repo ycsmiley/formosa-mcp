@@ -246,9 +246,11 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
         if (mustRecord(latest ?? previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
         return { index: latest ?? previous, previous, writes, exitCode };
       }
-      // KV has no CAS: concurrent in-flight writes can overdraw; the index requires tokens >= -1.
+      // KV has no CAS: concurrent in-flight writes can overdraw; clamp the published balance at -1.
       index.budget = { tokens: Math.max(-1, charged), at: latest?.budget && Date.parse(latest.budget.at) > Date.parse(publicationAt) ? latest.budget.at : publicationAt };
     }
+    // KV has no CAS: an overlapping same-writer put after the final re-read can regress 03:00 to 02:00.
+    // Accepted rare window: at most one version stale, corrected on the next collection.
     try { await o.store.put(indexKey(o.writer), JSON.stringify(index)); writes++; } catch { return { index: latest ?? previous, previous, writes, exitCode: 1 }; }
     return { index, previous, writes, exitCode };
   }

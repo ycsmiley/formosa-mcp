@@ -5,7 +5,7 @@ import { createServer } from '../src/mcp/server.js';
 import { createDisasterService, type DisasterStore } from '../src/core/disaster/service.js';
 import { counties } from '../src/core/outage/districts.js';
 import { parseDgpa, parseNcdrJson, parseCap } from '../src/core/disaster/parse.js';
-import type { Alert, Dgpa, Index } from '../src/core/disaster/model.js';
+import { decodeIndex, type Alert, type Dgpa, type Index } from '../src/core/disaster/model.js';
 import { fixture, htmlFiles, none, json, wind, earthquake, at, state, index } from './disaster-fixtures.js';
 function setup(html = none, date?: string) {
   const { updatedAt, ...snapshot } = parseDgpa(html), now = date ?? updatedAt;
@@ -277,8 +277,16 @@ it.each(['worker', 'gha'] as const)('uses the healthy writer for both tools when
   const healthy = failed === 'worker' ? 'gha' : 'worker';
   s.store.indexes = async () => ({ worker: null, gha: null, [healthy]: { ...s.worker, writer: healthy }, errors: { [failed]: true } });
   expect((await s.service.closure({ city: '臺北市' })).text).toContain('官方頁面：「無停班停課訊息。」');
-  expect((await s.service.alerts({ city: '臺北市' })).text).toContain('目前沒有臺北市生效中的告警');
-  for (const tool of [s.service.closure, s.service.alerts]) expect((await tool({ city: '臺北市' })).text).not.toContain('索引無法解讀');
+  const text = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(text).not.toContain('目前沒有'); expect(text).toContain('無法確認');
+  expect((await s.service.closure({ city: '臺北市' })).text).not.toContain('索引無法解讀');
+  const item = { ...alerts()[0], counties: ['臺北市'], detail: true, complete: true, effective: at };
+  s.shards.set('ncdr', [item]); s.worker.sources.ncdr!.count = 1;
+  expect((await s.service.alerts({ city: '臺北市' })).text).toContain('【強風】');
+  item.effective = '2026-11-02T02:00:00Z';
+  const upcoming = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(upcoming).toContain('臺北市 即將生效的告警'); expect(upcoming).not.toContain('目前沒有'); expect(upcoming).toContain('無法確認');
+  s.shards.set('ncdr', []); s.worker.sources.ncdr!.count = 0;
   s.worker.sources.ncdr!.ok = false;
   expect((await s.service.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
   s.worker.sources.ncdr!.ok = true; delete s.worker.sources.ncdr!.empty;
@@ -286,6 +294,32 @@ it.each(['worker', 'gha'] as const)('uses the healthy writer for both tools when
   const stale = createDisasterService(s.store, () => new Date(Date.parse(at) + 91 * 60000));
   expect((await stale.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
   expect((await stale.closure({ city: '臺北市' })).text).toContain('資料已過期');
+});
+it('one corrupted index plus a healthy empty list answers 無法確認, never 沒有', async () => {
+  const s = setup(none, at), raw = { worker: '{broken', gha: JSON.stringify({ ...s.worker, writer: 'gha' }) };
+  s.store.indexes = async () => {
+    const indexes: Awaited<ReturnType<DisasterStore['indexes']>> = { worker: null, gha: null, errors: {} };
+    for (const writer of ['worker', 'gha'] as const) {
+      try { indexes[writer] = decodeIndex(raw[writer]); } catch { indexes.errors![writer] = true; }
+    }
+    return indexes;
+  };
+  const text = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(text).toContain('無法確認'); expect(text).not.toContain('沒有');
+});
+it('decodes an overdrawn tokens=-1 index and still answers from it', async () => {
+  const s = setup(none, at), raw = JSON.stringify({ ...s.worker, budget: { tokens: -1, at } });
+  s.store.indexes = async () => ({ worker: decodeIndex(raw), gha: null });
+  expect((await s.store.indexes()).worker?.budget).toEqual({ tokens: -1, at });
+  expect((await s.service.alerts({ city: '臺北市' })).text).toContain('目前沒有臺北市生效中的告警');
+});
+it('DGPA preferred and NCDR failure together', async () => {
+  const s = setup(none, at);
+  s.worker.sources.ncdr = state({ ok: false, empty: true, sourceUpdatedAt: at, fetchedAt: new Date(Date.parse(at) + 1000).toISOString(), reason: 'timeout' });
+  const closure = (await s.service.closure({ city: '臺北市' })).text;
+  expect(closure).toContain('官方頁面：「無停班停課訊息。」'); expect(closure).not.toContain('無法取得');
+  const text = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(text).toContain('最近一次抓取失敗'); expect(text).not.toContain('目前沒有');
 });
 it('reports unreadable indexes for both tools when both writers fail', async () => {
   const s = setup(none, at);
