@@ -105,8 +105,8 @@ it('never prints the unpublished remote host', () => {
   expect(zh).toContain('**繁體中文** · [English](README.en.md)');
   expect(en).toContain('[繁體中文](README.md) · **English**');
   for (const [name, content] of [['README.md', zh], ['README.en.md', en]]) {
-    const allowedSentence = 'A keyless public URL is coming soon; you will be able to paste it into a Claude custom connector.';
-    expect(content.replace(allowedSentence, ''), name).not.toMatch(/存取權限|access required|即將公開|coming soon/i);
+    expect(content, name).not.toMatch(/存取權限|access required|即將公開|即將推出|coming soon/i);
+    expect(content, name).not.toMatch(/work_school_closure|disaster_alerts/i);
     for (const match of content.matchAll(/\]\(([^)]+)\)/g)) {
       const target = match[1].split('#')[0];
       if (!target || /^(?:https?:|mailto:)/i.test(target)) continue;

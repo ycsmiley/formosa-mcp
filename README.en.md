@@ -8,7 +8,33 @@ Taiwan e-invoice lottery, TWSE/TPEx end-of-day stocks, garbage schedules for New
 
 ## Get started
 
-Node.js 20+ is required.
+The remote service needs no key and provides invoices, stocks, garbage schedules, planned water and power outages, HSR and TRA timetables for today and tomorrow, and TRA live data within quota.
+
+Remote URL: `https://<public-host>/mcp` (the official URL will replace this placeholder on launch day).
+
+Claude (Desktop / web): Go to Settings → Connectors → Add custom connector and paste the URL.
+
+Claude Code:
+
+```sh
+claude mcp add --transport http formosa https://<public-host>/mcp
+```
+
+Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`) and other clients supporting streamable HTTP:
+
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "url": "https://<public-host>/mcp"
+    }
+  }
+}
+```
+
+### Local execution (developers)
+
+Node.js 20+ is required. npm version 0.1.0 includes invoices, stocks and a rail preview; use the remote URL or run from source for garbage schedules and outages.
 
 Add this configuration to Claude Desktop's `claude_desktop_config.json` or Cursor's `.cursor/mcp.json` (or `~/.cursor/mcp.json`), then restart the app:
 
@@ -35,10 +61,6 @@ Claude Code plugin:
 claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
-
-Invoices and stocks need no key; for HSR and TRA see the [rail section](#remote-rail).
-
-A keyless public URL is coming soon; you will be able to paste it into a Claude custom connector.
 
 ## What can I ask?
 

@@ -9,7 +9,33 @@ Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API ke
 
 ## 開始使用
 
-需要 Node.js 20 以上。
+遠端免金鑰，可查發票、台股、垃圾車、停水停電、高鐵／台鐵今天與明天的時刻表，以及額度內的臺鐵即時資料。
+
+遠端網址：`https://<公開網址>/mcp`（公開當天會換成正式網址）
+
+Claude（Desktop／網頁）：在「設定 → 連接器 → 新增自訂連接器」貼上網址。
+
+Claude Code：
+
+```sh
+claude mcp add --transport http formosa https://<公開網址>/mcp
+```
+
+Cursor（`.cursor/mcp.json` 或 `~/.cursor/mcp.json`）與其他支援 streamable HTTP 的用戶端：
+
+```json
+{
+  "mcpServers": {
+    "formosa": {
+      "url": "https://<公開網址>/mcp"
+    }
+  }
+}
+```
+
+### 本機執行（開發者）
+
+需要 Node.js 20 以上。npm 版 0.1.0 包含發票、台股與鐵路預覽；垃圾車、停水停電請用遠端網址或從原始碼執行。
 
 在 Claude Desktop 的 `claude_desktop_config.json` 或 Cursor 的 `.cursor/mcp.json`（或 `~/.cursor/mcp.json`）加入以下設定，然後重新啟動應用程式：
 
@@ -36,10 +62,6 @@ Claude Code plugin：
 claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
-
-發票與台股免金鑰；高鐵／台鐵見[鐵路說明](#遠端鐵路)。
-
-免金鑰的公開網址即將推出，屆時貼到 Claude 的自訂連接器即可使用。
 
 ## 可以問什麼
 
