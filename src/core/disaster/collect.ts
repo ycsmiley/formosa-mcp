@@ -158,7 +158,8 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     const state = index.sources[s], old = base.sources[s];
     return (!o.only || o.only.includes(s)) && state?.ok === false && !state.skipped && (old?.ok !== false || !!old.closed !== !!state.closed);
   });
-  if (needsIndex()) {
+  const recheck = !needsIndex() && sources.some(s => (!o.only || o.only.includes(s)) && index.sources[s]?.ok === false && !index.sources[s]?.skipped);
+  if (needsIndex() || recheck) {
     // Renew unchanged shards only when we are already publishing an index.
     for (const [source, shard] of shards) {
       const old = previous.sources[source];
@@ -175,6 +176,14 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     };
     // Observe concurrent budget charges before committing to any shard writes.
     const beforeShards = await reread();
+    if (recheck) {
+      if (!beforeShards || !sources.some(s => {
+        const state = index.sources[s], old = beforeShards.sources[s], merged = mergeState(state, old);
+        return (!o.only || o.only.includes(s)) && state?.ok === false && !state.skipped && merged?.ok === false && (old?.ok !== merged.ok || !!old.closed !== !!merged.closed);
+      })) return { index: previous, previous, writes, exitCode };
+      // An unchanged failure can supersede a recovery; publish only its merged index.
+      shards.clear();
+    }
     let tokens = Infinity;
     if (o.budget) {
       tokens = refill(previous.budget);
@@ -192,7 +201,7 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
           if (mustRecord(beforeShards ?? previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
           return { index: beforeShards ?? previous, previous, writes, exitCode };
         }
-        if (!needsIndex()) return { index: previous, previous, writes, exitCode };
+        if (!needsIndex() && !recheck) return { index: previous, previous, writes, exitCode };
       }
     }
     index.heartbeatAt = new Date(started).toISOString();

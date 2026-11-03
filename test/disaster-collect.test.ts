@@ -378,6 +378,32 @@ it.each([
   expect(Date.parse(s.read().sources.ncdr!.fetchedAt!)).toBeGreaterThan(Date.parse(published.fetchedAt!));
   expect(await s.alertsText()).not.toContain('沒有');
 });
+it('records a slow unchanged failure after a concurrent recovery (never answers 沒有)', async () => {
+  const s = setup(); s.options.only = ['ncdr']; s.options.maxCaps = 0; s.options.warn = vi.fn();
+  await collectDisaster(s.options);
+  s.fetchText.mockRejectedValue(Error('slow NCDR timeout'));
+  await collectDisaster(s.options);
+  s.writes.length = 0;
+  expect((await collectDisaster(s.options)).writes).toBe(0); expect(s.writes).toEqual([]);
+  s.options.budget = { perHour: 0, burst: 2 };
+  s.values.set(indexKey('gha'), JSON.stringify({ ...s.read(), budget: { tokens: 2, at: s.options.now!().toISOString() } }));
+  const previous = s.read();
+  let release!: () => void, reached!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; }), waiting = new Promise<void>(resolve => { reached = resolve; });
+  const slow = collectDisaster({ ...s.options, fetchText: async () => { reached(); await hold; throw Error('slow NCDR timeout'); } });
+  await waiting; s.advance(60000);
+  const newer = s.options.now!().toISOString();
+  s.fetchText.mockImplementation(async url => ({ status: 200, text: url === feedUrls[0] ? emptyJson(newer) : emptyAtom(newer) }));
+  await collectDisaster(s.options); const published = s.read().sources.ncdr!;
+  expect(published.ok).toBe(true); expect(published.sha).not.toBe(previous.sources.ncdr!.sha);
+  expect(s.read().budget!.tokens).toBe(0); expect(await s.alertsText()).toContain('沒有');
+  s.advance(60000); s.writes.length = 0; release(); const result = await slow;
+  expect(result.previous).toEqual(previous); expect(result.writes).toBe(1);
+  expect(s.writes.map(w => w.key)).toEqual([indexKey('gha')]);
+  expect(s.read().sources.ncdr).toMatchObject({ ok: false, reason: 'slow NCDR timeout', fetchedAt: s.options.now!().toISOString(), sha: published.sha, sourceUpdatedAt: newer, lastSuccessAt: published.lastSuccessAt, count: 0, empty: true });
+  expect(Date.parse(s.read().sources.ncdr!.fetchedAt!)).toBeGreaterThan(Date.parse(published.fetchedAt!));
+  expect(s.read().budget!.tokens).toBe(-1); expect(await s.alertsText()).not.toContain('沒有');
+});
 it('persists the budget charge for shards written before a concurrent newer index', async () => {
   const s = setup(); s.options.only = ['ncdr']; s.options.maxCaps = 0;
   await collectDisaster(s.options); s.advance(2 * 3600000);

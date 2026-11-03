@@ -29,7 +29,7 @@ Rail writes its usage record **before every HTTP call**, including token acquisi
 
 ## Disaster publication policy
 
-Both writers publish indexes only for changes to `ok`, `closed`, `sha`, `reason`, `empty` or `skipped`, or a heartbeat after **55 minutes**. Heartbeats anchor to run start, yielding roughly 60–70 minutes on these schedules, inside the 90-minute reader freshness window. GHA suppresses heartbeat-only publications when every selected source is skipped; an unchanged healthy-Worker skip writes nothing. Source/fetch times can therefore advance in memory without advancing KV on each poll.
+Both writers publish indexes only for changes to `ok`, `closed`, `sha`, `reason`, `empty` or `skipped`, or a heartbeat after **55 minutes**. Heartbeats anchor to run start, yielding roughly 60–70 minutes on these schedules, inside the 90-minute reader freshness window. GHA suppresses heartbeat-only publications when every selected source is skipped; an unchanged healthy-Worker skip writes nothing. Source/fetch times can therefore advance in memory without advancing KV on each poll. Before discarding an otherwise unchanged selected, non-skipped failure/closed attempt, re-read the writer index and, if merging changes its `ok`/`closed` state, publish the merged index alone under the same must-record budget/overdraft rules; missing, corrupt or unreadable rechecks and unchanged merged status write nothing.
 
 Immutable shards retain eight-day TTLs. A changed sha writes a shard; an unchanged shard renews after three days **only alongside an index publication already due**. Shards precede the writer's independent index. Failed publication retains that source's previous reference.
 
