@@ -110,7 +110,7 @@ it('uses TTL only for shard KV REST writes and redacts failed index reads', asyn
 it('publishes healthy sources even when one source is empty', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'outage-empty-')); const fetch = mockSources(); const original = fetch.getMockImplementation()!;
   fetch.mockImplementation(async (input, init) => String(input) === urls.taiwater ? new Response('[]') : original(input, init));
-  try { expect(await main(['--out', dir], {})).toBe(0); const index = decodeIndex((await directoryStore(dir).get(indexKey))!); expect(index.sources.taiwater).toMatchObject({ ok: false, reason: expect.stringContaining('空清單'), counties: {} }); expect(index.sources.taipower!.ok).toBe(true); }
+  try { expect(await collectOutages(directoryStore(dir), { sleep: async () => {} })).toBe(0); const index = decodeIndex((await directoryStore(dir).get(indexKey))!); expect(index.sources.taiwater).toMatchObject({ ok: false, reason: expect.stringContaining('空清單'), counties: {} }); expect(index.sources.taipower!.ok).toBe(true); }
   finally { await rm(dir, { recursive: true, force: true }); }
 });
 it('retains Taiwan Water snapshots through an empty export and recovers on the next non-empty export', async () => {
@@ -168,6 +168,17 @@ it('returns nonzero for expired upstream unavailability and still publishes fail
   expect(decodeIndex(values.get(indexKey)!)).toMatchObject({ generatedAt: later().toISOString(), sources: { taipower: { ok: false, lastSuccessAt: now().toISOString(), counties: failed.sources.taipower!.counties } } });
   expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:00Z'), sleep: async () => {} })).toBe(0);
   expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:01Z'), sleep: async () => {} })).toBe(1);
+});
+it('fails when all sources fail despite recent successful snapshots', async () => {
+  const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
+  const fetch = mockSources(), original = fetch.getMockImplementation()!, error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect(await collectOutages(store, { now })).toBe(0);
+  expect(Object.values(decodeIndex(values.get(indexKey)!).sources).every(s => s.lastSuccessAt === now().toISOString())).toBe(true);
+  const later = () => new Date('2026-11-01T06:00:00Z'), sleep = async () => {};
+  fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower) throw Error('offline'); return original(input, init); });
+  expect(await collectOutages(store, { now: later, sleep })).toBe(0); expect(error).not.toHaveBeenCalled();
+  fetch.mockRejectedValue(Error('offline'));
+  expect(await collectOutages(store, { now: later, sleep })).toBe(1); expect(error).toHaveBeenCalledWith('outage all sources failed');
 });
 it('fails for a source without a prior healthy snapshot and for an index write', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
