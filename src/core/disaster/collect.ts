@@ -12,8 +12,9 @@ export function quietDelayMs(date: Date): number {
 const responseTimes = new WeakMap<Store, number>();
 const changed = (a?: State, b?: State) => ['ok', 'closed', 'sha', 'reason', 'empty', 'skipped'].some(k => a?.[k as keyof State] !== b?.[k as keyof State]);
 const version = (a?: State, b?: State) => {
-  for (const key of ['sourceUpdatedAt', 'fetchedAt'] as const) {
-    const x = a?.[key] ? Date.parse(a[key]) : -Infinity, y = b?.[key] ? Date.parse(b[key]) : -Infinity;
+  for (const key of ['sourceUpdatedAt', 'lastSuccessAt', 'fetchedAt'] as const) {
+    const x = a?.[key] && (key !== 'fetchedAt' || a.ok) ? Date.parse(a[key]) : -Infinity;
+    const y = b?.[key] && (key !== 'fetchedAt' || b.ok) ? Date.parse(b[key]) : -Infinity;
     if (x !== y) return x > y ? 1 : -1;
   }
   return 0;
@@ -208,17 +209,25 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
       }
     }
     // Merge attempt status independently of last-good evidence after shard writes.
-    const latest = await reread() ?? beforeShards;
-    if (latest) {
+    let latest: Index | null = null;
+    for (const observed of [beforeShards, await reread()]) {
+      if (!observed) continue;
+      latest ??= { ...observed, sources: { ...observed.sources } };
       for (const source of sources) {
-        const merged = mergeState(index.sources[source], latest.sources[source]);
+        const saved = mergeState(latest.sources[source], observed.sources[source]);
+        if (saved) latest.sources[source] = saved;
+        const merged = mergeState(index.sources[source], observed.sources[source]);
         if (merged) index.sources[source] = merged;
       }
+      if (observed.budget && Date.parse(observed.budget.at) > Date.parse(previous.budget?.at ?? '1970-01-01')) tokens = Math.min(tokens, refill(observed.budget));
+      if (observed.budget && Date.parse(observed.budget.at) > Date.parse(latest.budget?.at ?? '1970-01-01')) latest.budget = observed.budget;
+      if (Date.parse(observed.heartbeatAt) > Date.parse(latest.heartbeatAt)) latest.heartbeatAt = observed.heartbeatAt;
+    }
+    if (latest) {
       const oursNewer = sources.some(s => !sameState(index.sources[s], latest.sources[s]));
       const heartbeatNeeded = started - Date.parse(latest.heartbeatAt) >= 55 * 60000 && sources.some(s => index.sources[s] && !index.sources[s]?.skipped && (!o.only || o.only.includes(s)));
       // Even superseded shard attempts must persist their charge in an index.
       if (!shardAttempts && !oursNewer && !heartbeatNeeded) return { index: latest, previous, writes, exitCode };
-      if (latest.budget && Date.parse(latest.budget.at) > Date.parse(previous.budget?.at ?? '1970-01-01')) tokens = Math.min(tokens, refill(latest.budget));
       if (Date.parse(latest.heartbeatAt) > Date.parse(index.heartbeatAt)) index.heartbeatAt = latest.heartbeatAt;
     }
     if (o.budget) {
