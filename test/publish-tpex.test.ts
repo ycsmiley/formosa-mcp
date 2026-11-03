@@ -216,7 +216,9 @@ it('workflow keeps the token in step env, pins every action and limits permissio
   expect(text).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version: 22');
   expect(text).not.toContain('cache:');
   expect(text).toContain('      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}');
-  expect(text).not.toContain('3c676fc88af6a57ca934efd0627c9cde');
+  for (const line of text.split('\n').filter(line => line.includes('ACCOUNT_ID'))) {
+    expect(line).not.toMatch(/[0-9a-f]{32}/i);
+  }
   expect(text).toContain('      KV_NAMESPACE_ID: e92149e1efec4434835310d434b69f7d');
   const guard = '      - run: test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID repo variable is empty"; exit 1; }';
   expect(text).toContain(guard);

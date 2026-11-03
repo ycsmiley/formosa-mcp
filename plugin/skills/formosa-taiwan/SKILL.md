@@ -10,4 +10,4 @@ description: Use Taiwan invoice lottery and end-of-day stock tools for 發票, �
 - 發票中獎號碼與對獎：讀取 [發票指引](references/invoice.md)。
 - 台股盤後行情與除權息：讀取 [台股指引](references/stock.md)。
 
-高鐵／台鐵工具開發中。
+本機高鐵／台鐵工具須以 `--toolsets` 啟用 `rail` 並自備 TDX 金鑰，也可使用遠端網址。

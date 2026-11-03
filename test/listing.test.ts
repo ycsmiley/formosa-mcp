@@ -65,14 +65,15 @@ it('lists the default server tools in the LobeHub manifest', async () => {
   }
 });
 
-it('marks rail as in development in listing descriptions when no rail tools are listed', () => {
+it('describes the TDX key requirement when no rail tools are listed', () => {
   if (lhm.tools.some(({ name }: { name: string }) => /^(thsr_|tra_|rail)/i.test(name))) return;
 
   for (const listing of [lhm, glama, registry]) {
     const descriptions = [listing.description, ...(listing.localizations ?? []).map((localization: { description?: string }) => localization.description)];
     for (const description of descriptions) {
       if (typeof description === 'string' && /rail|台鐵|高鐵|timetable/i.test(description)) {
-        expect(description).toMatch(/in development|開發中/i);
+        expect(description).toMatch(/TDX/i);
+        expect(description).not.toMatch(/in development|開發中/i);
       }
     }
     expect(listing.tags ?? []).not.toContain('rail');

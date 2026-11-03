@@ -1,7 +1,7 @@
 {
   "name": "formosa-mcp",
   "version": "0.1.0",
-  "description": "讓 AI agent 懂台灣的 MCP server：發票對獎、台股（上市＋上櫃）；高鐵、台鐵開發中",
+  "description": "台灣發票、台股、垃圾車、停水停電與高鐵／台鐵資訊；本機鐵路工具須自備 TDX 金鑰",
   "license": "MIT",
   "repository": {
     "type": "git",
