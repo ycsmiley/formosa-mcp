@@ -171,44 +171,6 @@
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
-    },
-    {
-      "name": "work_school_closure",
-      "description": "查詢縣市今天與明天的天然災害停班停課官方公告。",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "city": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 30,
-            "description": "縣市名稱；新竹、嘉義會列出市與縣"
-          }
-        },
-        "required": [
-          "city"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      }
-    },
-    {
-      "name": "disaster_alerts",
-      "description": "查詢縣市生效中的 NCDR 災防告警，含地震、停水與颱風。",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "city": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 30,
-            "description": "縣市名稱；新竹、嘉義會列出市與縣"
-          }
-        },
-        "required": [
-          "city"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      }
     }
   ]
 }

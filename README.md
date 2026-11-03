@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
 
-讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻、計畫性停水停電、停班停課與災防告警，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
+讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻、計畫性停水停電，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
 Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
 
 ## 開始使用
@@ -95,8 +95,6 @@ claude plugin install formosa@formosa-mcp
 - `tra_timetable {origin, destination, date?, time?}`：台鐵時刻、車種、停駛與加班車。
 - `garbage_schedule {city, district?, keyword?, weekday?, time?}`：定點收運時刻。
 - `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`：計畫性停水停電，`type` 為 `water`、`power` 或 `all`（預設）；省略日期時查臺北時間今天起七天，最多顯示 30 筆。
-- `work_school_closure {city}`：查縣市今天／明天的天然災害停班停課官方原文；`disaster` 工具集，預設啟用。
-- `disaster_alerts {city}`：查縣市生效中的 NCDR 告警（含地震、停水），依嚴重度排序，最多顯示 20 則。新竹／嘉義未指定市縣時兩者都列出。
 - `tra_live {train_no?, station?}`：恰填一項，查車次目前位置／誤點或車站即時看板。
 
 行情資料日期遇假日可能落後；除權息以公司公告為準。
@@ -150,7 +148,7 @@ claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
 
-`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage`、`disaster` 五組，鐵路須明確啟用。`--help` 顯示用法。
+`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage` 四組，鐵路須明確啟用。`--help` 顯示用法。
 
 資料來源與快取：
 
@@ -232,19 +230,7 @@ npm run remote-check
 
 驗證可執行 `npm run typecheck:worker`、`npm run test:worker`。`@modelcontextprotocol/sdk` 為配合 `agents` 固定於精確版本 `1.32.1`。
 
-停班停課與告警採雙層收集：Worker 每 10 分鐘 x5（`5,15,25,35,45,55 * * * *`），每輪最多 4 個 CAP，NCDR 請求須在 cron 的 scheduledTime 起 60 秒內、且該排程週期 x7:00 前開始（延遲啟動會扣掉已耗時間）；[GHA collector](.github/workflows/disaster-collect.yml) 每小時 `20 * * * *`、最多 20 個 CAP。GHA 僅在 Worker 該來源成功、未關閉、有可讀分片、來源更新符合各來源時間限制（DGPA 未滿 90 分鐘；NCDR 不超過 24 小時；均未超前逾 5 分鐘）、成功抓取距今非負且嚴格小於 25 分鐘時跳過。每輪 NCDR JSON／Atom／CAP 請求在前一回應結束後至少等 3.1 秒；延遲 GHA 另避開 x4:30～x7:00。此安排不保證跨程序互斥；共享協調器列為後續工作。兩個 feed 或任一 CAP 要求登入時顯示「尚未支援」，不使用金鑰。
-
-Cloudflare 出口可達性尚待部署驗證；每小時 GHA 為備援。逐來源按 `sourceUpdatedAt` 新到舊選資料，同時才比較 `lastSuccessAt`；收集時拒絕自身來源版本倒退，對方已有更新版本便跳過發布。NCDR 新鮮度以最近一次非 skipped 抓取成功、所選 `lastSuccessAt` 未滿 90 分鐘為準；feed `updated` 是最新告警時間，安靜期可早於 90 分鐘，只有超過 24 小時、超前逾 5 分鐘或版本倒退才拒用。DGPA 保留頁面更新與成功抓取的 90 分鐘規則。缺少來源時間仍不可用，任一時間超前逾 5 分鐘顯示「資料時間異常」；索引損毀顯示「索引無法解讀」。停班停課引用官方原文，過期時隱藏「照常」、無事件頁面標為歷史資料，頁面日期不同另行提示。
-
-只有資料新鮮、最近一次非 skipped 抓取成功、非空或經雙格式驗證為空、且所有告警範圍完整時，才可說「目前沒有…生效中的告警」。NCDR 沒有明確空清單訊號，也無真實空樣本：JSON 必須有非空 id/title、author.name===NCDR、符合 24 小時／5 分鐘限制的 updated，且缺少/null/[] entry 或全部非 Actual/Cancel 過濾後為零；接著以同一請求節流 helper 取得 Atom，也須符合相同結構／時間／零筆條件，才發布 `[]` 與 `empty:true`。兩格式不同、任一無效或只有單格式時皆視為失敗，保留舊分片。CAP 至少有一個 area，且每個區域都能由 areaDesc 縣市前綴或 Taiwan_Geocode_103 地理碼判定縣市才標為 `complete:true`；縣市取兩者聯集，查詢範圍列出該縣市的 areaDesc（包含地震震度區域），保留上限 200 處／每處 100 字；摘要與舊版缺少標記者不完整，阻止無告警宣稱，並列出可能涵蓋查詢縣市的未確認項目。已知告警仍列出，未生效者顯示「即將生效」與臺北時間。縣轄市／鄉鎮市區可唯一對應縣市時加註轉換，新竹／嘉義歧義維持兩者並列。欄位有長度與清理限制，連結僅允許 NCDR HTTPS 網域，兩工具回應最多 16 KiB UTF-8，截斷後保留來源。
-
-KV 採獨立索引 `disaster:index:{worker|gha}:v1`、不可變分片 `disaster:v1:{dgpa|ncdr}:{sha12}`（SHA-256 前 12 碼）；分片 TTL 8 天，超過 3 天才搭配已需寫入的索引續期，索引最後發布。兩 writer 僅狀態變更或 55 分鐘心跳才寫索引；GHA 全部跳過且無變更時零寫入。Worker token bucket 每小時 3、burst 9，保守上限 81 次／24h；GHA 每小時 1.5、burst 6，上限 42 次／24h，額度不足優先 DGPA。KV Free **每帳號共用 1,000 次／日**；全部排程最壞估算約 700（703）次／日，嚴格 ≤700 的最小後續調整與完整逐項計算見 [KV 寫入預算](docs/kv-budget.md)。Free 五條 cron 上限亦為每帳號，本 Worker 全數用完。
-
-本機執行 `npm run collect:disaster -- --out /tmp/formosa-disaster`，再設 `FORMOSA_DISASTER_DIR=/tmp/formosa-disaster` 供 stdio 讀取。未設時 Node 按查詢來源獨立執行共用 collector、最多 6 個 CAP，每次請求逾時 12 秒，成功快取 10 分鐘、失敗快取 2 分鐘並保留失敗原因及先前成功資料；停班停課查詢不等候 NCDR，不採 GHA 的 peer skip 或 quiet window。更新 publisher 後由 `npm run build:collectors` 重建 `scripts/dist/`，workflow 直接執行已提交的 bundle。
-
 ## 資料來源與授權
-
-- 停班停課：[行政院人事行政總處 DGPA 官方頁面](https://www.dgpa.gov.tw/typh/daily/nds.html)，政府網站內容；無官方機器可讀版。災防告警：[NCDR 民生示警公開資料平臺](https://alerts.ncdr.nat.gov.tw/)，匿名 JSON／Atom feed 標示 `rights: Public Domain`；CAP 提供範圍、等級與有效時間，優先於 feed 摘要。
 
 - 計畫性停水停電：[台水](https://data.gov.tw/dataset/6050)、[北水](https://data.gov.tw/dataset/128236)、[台電](https://data.gov.tw/dataset/26144)，採政府資料開放授權條款第1版（OGDL-1）。北水涵蓋臺北與部分新北，台水用於臺北市以外；台電開放資料未涵蓋連江縣。
 - 僅提供計畫性公告，不包含即時供應狀態、緊急搶修、事故、颱風、通知或水質。台水官方開放資料目前回傳空清單，台水結果可能不完整，請至[台水停水公告查詢系統](https://web.water.gov.tw/wateroff/)查詢；無法解析的公告時間保留原文，仍列入日期查詢，資料超過 24 小時會警示。請以台電 1911、台水 1910、北水 1999（臺北市外 02-27371999）及官方網站為準。
