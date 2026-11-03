@@ -8,6 +8,13 @@ const dgpaSource = `來源：行政院人事行政總處 ${official.dgpa}`;
 const ncdrSource = `資料來源：國家災害防救科技中心（NCDR）民生示警公開資料平臺 ${official.ncdr}`;
 const time = (s?: string, seconds = false) => s ? new Date(Date.parse(s) + 8 * 3600000).toISOString().slice(0, seconds ? 19 : 16).replace('T', ' ') : '未知';
 const safeReason = (s?: string) => !s || s.includes('照常') ? '尚無成功取得的資料' : s;
+function partialEntry(entry: string) {
+  const withheld = '（此行因部分寫入端索引讀取失敗不予顯示，請查官方頁面）';
+  const spans = entry.match(/照常[^、，,；;。]*/g) ?? [];
+  if (!spans.every(span => /^照常(上班|上課)$/.test(span))) return withheld;
+  const masked = entry.replace(/照常[^、，,；;。]*/g, '［略］');
+  return masked.includes('停止') ? `節錄（部分內容因部分寫入端索引讀取失敗不予顯示）：${masked}` : withheld;
+}
 // Encode each line once; retain attribution at the end within the UTF-8 byte budget.
 function response(lines: string[], tail: string[], link: string) {
   const encoder = new TextEncoder(), size = (s: string) => encoder.encode(s).length;
@@ -46,7 +53,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
       try { data = await store.shard(source, chosen.sha!); if (!data || (Array.isArray(data) ? data.length : Object.keys(data.counties).length) !== chosen.count) { data = null; reason = '資料快照遺失或無法解讀'; } }
       catch { reason = '資料快照遺失或無法解讀'; }
     }
-    return { chosen, attempt, stale, anomalous, partial, data, reason: safeReason(reason) };
+    return { chosen, attempt, stale, anomalous, partial: partial && !unreadable, data, reason: safeReason(reason) };
   }
   function cities(city: string) {
     const cs = city.length >= 1 && city.length <= 30 ? resolveCities(city) : [];
@@ -56,16 +63,17 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
   return {
     async closure(q: { city: string }) {
       const { cs, prefix } = cities(q.city); if (!cs.length) return invalid(dgpaSource + '\n' + reminder);
-      const { chosen, attempt, stale, data, reason } = await load('dgpa'), snapshot = data && !Array.isArray(data) ? data : null;
+      const { chosen, attempt, stale, partial, data, reason } = await load('dgpa'), snapshot = data && !Array.isArray(data) ? data : null;
       const lines = [...(stale && snapshot ? [`⚠️ 資料可能過期，請以官方公告為準：${official.dgpa}`] : []), ...prefix];
       for (const county of cs) {
         lines.push(`${county} 天然災害停止上班及上課情形`);
         lines.push(`官方頁面更新時間：${time(chosen?.sourceUpdatedAt, true)}（臺北時間）`, `本服務抓取時間：${time(chosen?.lastSuccessAt)}（臺北時間）`);
+        if (partial) lines.push(`部分寫入端索引讀取失敗，無法確認${county}目前停班停課狀態，請至 ${official.dgpa} 查詢。`);
         if (!snapshot) { lines.push(`目前無法取得人事行政總處停班停課資料（${reason}），請至 ${official.dgpa} 查詢。`); continue; }
         if (attempt && !attempt.ok && !stale) lines.push(`最近一次抓取失敗，以下為 ${time(chosen?.lastSuccessAt).slice(11)} 的資料。`);
         const today = local(clock()).slice(0, 10), tomorrow = addDays(today, 1);
         if (snapshot.pageDate !== today) lines.push(`注意：官方頁面日期為 ${snapshot.pageDate}，與今天不同。`);
-        if (snapshot.noEvent) { lines.push(stale ? '資料已過期，官方頁面當時顯示「無停班停課訊息。」，目前狀態請查官方頁面。' : '官方頁面：「無停班停課訊息。」'); continue; }
+        if (snapshot.noEvent) { if (!partial) lines.push(stale ? '資料已過期，官方頁面當時顯示「無停班停課訊息。」，目前狀態請查官方頁面。' : '官方頁面：「無停班停課訊息。」'); continue; }
         const original = snapshot.counties[county]; if (!original) { lines.push('官方頁面未列本縣市'); continue; }
         const groups = new Map<string, string[]>();
         for (const line of original) {
@@ -79,7 +87,7 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
           lines.push(`${label}：`);
           const entries = groups.get(day);
           if (!entries) lines.push('官方頁面未列本縣市該日訊息');
-          else for (const entry of entries) lines.push(stale && entry.includes('照常') ? '（此行原文含「照常」，因資料可能過期不予顯示，請查官方頁面）' : `「${entry}」`);
+          else for (const entry of entries) lines.push((partial || stale) && entry.includes('照常') ? partial ? partialEntry(entry) : '（此行原文含「照常」，因資料可能過期不予顯示，請查官方頁面）' : `「${entry}」`);
         }
       }
       return { text: response(lines, [dgpaSource, reminder], official.dgpa), isError: false };
@@ -89,7 +97,10 @@ export function createDisasterService(store: DisasterStore, clock = () => new Da
       const { chosen, attempt, stale, partial, data, reason } = await load('ncdr');
       const lines = [...(stale && !attempt?.closed && data ? [`⚠️ 資料可能過期，請以官方公告為準：${official.ncdr}`] : []), ...prefix];
       if (attempt?.closed) lines.push(`disaster_alerts 尚未支援：NCDR 匿名告警來源已要求登入會員（${safeReason(attempt.reason)}），本服務不使用金鑰。請至 ${official.ncdr} 查詢。`);
-      else if (!Array.isArray(data)) lines.push(`目前無法取得 NCDR 災防告警（${reason}），請至 ${official.ncdr} 查詢。`);
+      else if (!Array.isArray(data)) {
+        if (partial) for (const county of cs) lines.push(`部分寫入端索引讀取失敗，無法確認${county}目前是否有告警，請至 ${official.ncdr} 查詢。`);
+        lines.push(`目前無法取得 NCDR 災防告警（${reason}），請至 ${official.ncdr} 查詢。`);
+      }
       else {
         const instant = clock().getTime();
         const live = data.filter(e => !e.expires || Date.parse(e.expires) > instant);

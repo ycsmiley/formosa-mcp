@@ -276,7 +276,8 @@ it.each(['worker', 'gha'] as const)('uses the healthy writer for both tools when
   const s = setup(none, at);
   const healthy = failed === 'worker' ? 'gha' : 'worker';
   s.store.indexes = async () => ({ worker: null, gha: null, [healthy]: { ...s.worker, writer: healthy }, errors: { [failed]: true } });
-  expect((await s.service.closure({ city: '臺北市' })).text).toContain('官方頁面：「無停班停課訊息。」');
+  const closure = (await s.service.closure({ city: '臺北市' })).text;
+  expect(closure).toContain('部分寫入端索引讀取失敗，無法確認臺北市目前停班停課狀態'); expect(closure).not.toContain('無停班停課訊息');
   const text = (await s.service.alerts({ city: '臺北市' })).text;
   expect(text).not.toContain('目前沒有'); expect(text).toContain('無法確認');
   expect((await s.service.closure({ city: '臺北市' })).text).not.toContain('索引無法解讀');
@@ -293,7 +294,64 @@ it.each(['worker', 'gha'] as const)('uses the healthy writer for both tools when
   expect((await s.service.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
   const stale = createDisasterService(s.store, () => new Date(Date.parse(at) + 91 * 60000));
   expect((await stale.alerts({ city: '臺北市' })).text).not.toContain('目前沒有');
-  expect((await stale.closure({ city: '臺北市' })).text).toContain('資料已過期');
+  const staleClosure = (await stale.closure({ city: '臺北市' })).text;
+  expect(staleClosure).toContain('⚠️ 資料可能過期'); expect(staleClosure).toContain('部分寫入端索引讀取失敗'); expect(staleClosure).not.toContain('無停班停課訊息');
+});
+it('closure with one corrupted index never says 照常 or 無停班停課訊息', async () => {
+  const s = setup(none, at);
+  s.shards.set('dgpa', { pageDate: '2026-11-02', layout: 'flat', noEvent: false, counties: { 臺北市: ['今天照常上班、照常上課。'], 新北市: ['今天停止上班、停止上課。'] } }); s.worker.sources.dgpa!.count = 2;
+  expect((await s.service.closure({ city: '臺北市' })).text).toContain('「今天照常上班、照常上課。」');
+  s.store.indexes = async () => ({ worker: s.worker, gha: null, errors: { gha: true } });
+  for (const date of [at, new Date(Date.parse(at) + 91 * 60000).toISOString()]) {
+    const service = createDisasterService(s.store, () => new Date(date));
+    const taipei = (await service.closure({ city: '臺北市' })).text;
+    expect(taipei).toContain('部分寫入端索引讀取失敗，無法確認臺北市目前停班停課狀態，請至 https://www.dgpa.gov.tw/typh/daily/nds.html 查詢。');
+    expect(taipei).toContain('（此行因部分寫入端索引讀取失敗不予顯示，請查官方頁面）'); expect(taipei).not.toContain('照常');
+    expect(taipei).toMatch(/本服務抓取時間：[^\n]+\n部分寫入端索引讀取失敗/);
+    const newTaipei = (await service.closure({ city: '新北市' })).text;
+    expect(newTaipei).toContain('「今天停止上班、停止上課。」'); expect(newTaipei).toContain('官方頁面更新時間：'); expect(newTaipei).toContain('本服務抓取時間：');
+  }
+  s.shards.set('dgpa', parseDgpa(none)); s.worker.sources.dgpa!.count = 0;
+  expect((await s.service.closure({ city: '臺北市' })).text).not.toContain('無停班停課訊息');
+  s.shards.delete('dgpa');
+  const missing = (await s.service.closure({ city: '臺北市' })).text;
+  expect(missing).toContain('部分寫入端索引讀取失敗'); expect(missing).toContain('目前無法取得人事行政總處停班停課資料（資料快照遺失或無法解讀）');
+});
+it('keeps closure scope and effective time of mixed 照常 lines when one index is corrupted', async () => {
+  for (const delimiter of ['、', '，', ',', '；', ';', '。']) {
+    const s = setup(none, at);
+    const mixed = '復興區立幼兒園華陵分班:今天中午12:00起照常上班、停止上課。'.replace('、', delimiter);
+    s.shards.set('dgpa', { pageDate: '2026-11-02', layout: 'flat', noEvent: false, counties: { 桃園市: [mixed, '今天照常上班、照常上課。'] } }); s.worker.sources.dgpa!.count = 1;
+    s.store.indexes = async () => ({ worker: s.worker, gha: null, errors: { gha: true } });
+    const text = (await s.service.closure({ city: '桃園市' })).text;
+    expect(text).toContain(`\n節錄（部分內容因部分寫入端索引讀取失敗不予顯示）：復興區立幼兒園華陵分班:今天中午12:00起［略］${delimiter}停止上課。\n`);
+    expect(text).toContain('（此行因部分寫入端索引讀取失敗不予顯示，請查官方頁面）'); expect(text).not.toContain('照常');
+  }
+});
+it('withholds the whole partial entry when a 照常 span includes additional conditions', async () => {
+  const s = setup(none, at);
+  s.shards.set('dgpa', { pageDate: '2026-11-02', layout: 'flat', noEvent: false, counties: { 臺北市: ['今天照常上班但下午停止上課、停止上班。'] } }); s.worker.sources.dgpa!.count = 1;
+  s.store.indexes = async () => ({ worker: s.worker, gha: null, errors: { gha: true } });
+  const text = (await s.service.closure({ city: '臺北市' })).text;
+  expect(text).toContain('\n（此行因部分寫入端索引讀取失敗不予顯示，請查官方頁面）\n');
+  const announcements = text.split('11/02（今天）：\n')[1];
+  expect(announcements).toBeDefined(); expect(announcements).not.toContain('停止上班'); expect(text).not.toContain('照常');
+});
+it('healthy side has only other-county alerts + other side corrupt', async () => {
+  const s = setup(none, at);
+  s.shards.set('ncdr', [{ ...alerts()[0], counties: ['高雄市'], detail: true, complete: true }]); s.worker.sources.ncdr!.count = 1;
+  s.store.indexes = async () => ({ worker: s.worker, gha: null, errors: { gha: true } });
+  const text = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(text).toContain('無法確認'); expect(text).not.toContain('沒有');
+});
+it('puts the partial alert notice first even when the healthy snapshot is missing', async () => {
+  const s = setup(none, at);
+  s.store.indexes = async () => ({ worker: s.worker, gha: null, errors: { gha: true } });
+  s.worker.sources.ncdr!.skipped = true;
+  expect((await s.service.alerts({ city: '臺北市' })).text).toMatch(/^部分寫入端索引讀取失敗[^\n]+\n缺少最近一次抓取狀態/);
+  s.shards.delete('ncdr');
+  const text = (await s.service.alerts({ city: '臺北市' })).text;
+  expect(text).toMatch(/^部分寫入端索引讀取失敗，無法確認臺北市目前是否有告警[^\n]+\n目前無法取得 NCDR/); expect(text).not.toContain('沒有');
 });
 it('one corrupted index plus a healthy empty list answers 無法確認, never 沒有', async () => {
   const s = setup(none, at), raw = { worker: '{broken', gha: JSON.stringify({ ...s.worker, writer: 'gha' }) };
@@ -326,7 +384,7 @@ it('reports unreadable indexes for both tools when both writers fail', async () 
   s.store.indexes = async () => ({ worker: null, gha: null, errors: { worker: true, gha: true } });
   for (const tool of [s.service.closure, s.service.alerts]) {
     const text = (await tool({ city: '臺北市' })).text;
-    expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料'); expect(text).not.toContain('目前沒有');
+    expect(text).toContain('索引無法解讀'); expect(text).not.toContain('尚無成功取得的資料'); expect(text).not.toContain('目前沒有'); expect(text).not.toContain('部分寫入端');
   }
 });
 it.each(['sourceUpdatedAt', 'lastSuccessAt'] as const)('excludes anomalous %s before ranking either writer for both tools', async key => {
