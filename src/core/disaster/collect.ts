@@ -1,4 +1,4 @@
-import { decodeIndex, decodeAlerts, indexKey, shardKey, official, safeLink, feedUrls, sources, type Index, type State, type Writer, type Alert, type Source } from './model.js';
+import { decodeIndex, decodeAlerts, decodeShard, indexKey, shardKey, official, safeLink, feedUrls, sources, type Index, type State, type Writer, type Alert, type Source } from './model.js';
 import { parseDgpa, parseNcdrJson, parseNcdrAtom, parseCap, LoginRequired, type Feed } from './parse.js';
 export interface Store { get(key: string): Promise<string | null>; put(key: string, value: string, ttlSeconds?: number): Promise<void> }
 export interface Options { writer: Writer; store: Store; fetchText: (url: string) => Promise<{ status: number; text: string }>; now?: () => Date; sleep: (ms: number) => Promise<void>; peerIndex?: () => Promise<Index | null>; maxCaps: number; ncdrDeadlineMs?: number; scheduledAt?: number; quietWindow?: boolean; token?: string; only?: Source[]; budget?: { perHour: number; burst: number }; warn?: (message: string) => void }
@@ -11,6 +11,13 @@ export function quietDelayMs(date: Date): number {
 }
 const responseTimes = new WeakMap<Store, number>();
 const changed = (a?: State, b?: State) => ['ok', 'closed', 'sha', 'reason', 'empty', 'skipped'].some(k => a?.[k as keyof State] !== b?.[k as keyof State]);
+const version = (a?: State, b?: State) => {
+  for (const key of ['sourceUpdatedAt', 'fetchedAt'] as const) {
+    const x = a?.[key] ? Date.parse(a[key]) : -Infinity, y = b?.[key] ? Date.parse(b[key]) : -Infinity;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+};
 export async function collectDisaster(o: Options): Promise<{ index: Index; previous: Index; writes: number; exitCode: number }> {
   const now = o.now ?? (() => new Date()), started = now().getTime(), scheduled = o.scheduledAt ?? started;
   const guardEnd = Math.floor(scheduled / 600000) * 600000 + 7 * 60000;
@@ -103,8 +110,13 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     if (o.only && !o.only.includes(source)) continue;
     const old = previous.sources[source], peerState = peer?.sources[source];
     const current = now().getTime();
-    if (o.writer === 'gha' && peer?.writer === 'worker' && peerState?.ok === true && !peerState.skipped && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 60000 && (source === 'ncdr' ? current - Date.parse(peerState.sourceUpdatedAt) <= 24 * 3600000 : current - Date.parse(peerState.sourceUpdatedAt) < 90 * 60000) && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 60000 && await o.store.get(shardKey(source, peerState.sha)) !== null) {
-      index.sources[source] = { ...(old ?? { ok: false }), skipped: true }; continue;
+    if (o.writer === 'gha' && peer?.writer === 'worker' && peerState?.ok === true && !peerState.skipped && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 60000 && (source === 'ncdr' ? current - Date.parse(peerState.sourceUpdatedAt) <= 24 * 3600000 : current - Date.parse(peerState.sourceUpdatedAt) < 90 * 60000) && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 60000) {
+      try {
+        const raw = await o.store.get(shardKey(source, peerState.sha)), data = raw === null ? null : decodeShard(raw, source);
+        if (data && (Array.isArray(data) ? data.length : Object.keys(data.counties).length) === peerState.count) {
+          index.sources[source] = { ...(old ?? { ok: false }), skipped: true }; continue;
+        }
+      } catch { /* Collect normally if the peer shard is unreadable. */ }
     }
     try {
       let data: unknown, updated: string, count: number;
@@ -129,6 +141,10 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
     }
   }
   const needsIndex = () => sources.some(s => changed(previous.sources[s], index.sources[s])) || heartbeatDue && sources.some(s => index.sources[s] && !index.sources[s]?.skipped && (!o.only || o.only.includes(s)));
+  const mustRecord = (base: Index) => sources.some(s => {
+    const state = index.sources[s], old = base.sources[s];
+    return (!o.only || o.only.includes(s)) && state?.ok === false && !state.skipped && (old?.ok !== false || !!old.closed !== !!state.closed);
+  });
   if (needsIndex()) {
     // Renew unchanged shards only when we are already publishing an index.
     for (const [source, shard] of shards) {
@@ -136,21 +152,27 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
       if (old?.sha === shard.sha && old.writtenAt && now().getTime() - Date.parse(old.writtenAt) <= 3 * 86400000) shards.delete(source);
     }
     const publicationAt = now().toISOString();
+    const refill = (saved: Index['budget']) => o.budget ? Math.min(o.budget.burst, (saved?.tokens ?? o.budget.burst) + o.budget.perHour * Math.max(0, Date.parse(publicationAt) - Date.parse(saved?.at ?? publicationAt)) / 3600000) : Infinity;
     let tokens = Infinity;
     if (o.budget) {
-      const saved = previous.budget;
-      tokens = Math.min(o.budget.burst, (saved?.tokens ?? o.budget.burst) + o.budget.perHour * Math.max(0, Date.parse(publicationAt) - Date.parse(saved?.at ?? publicationAt)) / 3600000);
+      tokens = refill(previous.budget);
       if (tokens < shards.size + 1) {
         (o.warn ?? console.warn)('disaster KV 預算不足，延後發布');
-        // DGPA changes take priority; NCDR's state and reference stay exactly as stored.
-        if (changed(previous.sources.dgpa, index.sources.dgpa) && tokens >= (shards.has('dgpa') ? 2 : 1)) {
-          if (previous.sources.ncdr) index.sources.ncdr = previous.sources.ncdr; else delete index.sources.ncdr;
-          shards.delete('ncdr');
-        } else return { index: previous, previous, writes, exitCode };
+        // Reserve the index, then fit DGPA before NCDR. Only dropped successes revert.
+        let available = tokens - 1;
+        for (const [source] of shards) {
+          if (available >= 1) { available--; continue; }
+          shards.delete(source);
+          if (previous.sources[source]) index.sources[source] = previous.sources[source]; else delete index.sources[source];
+        }
+        if (tokens < 1 && !(mustRecord(previous) && tokens >= 0)) {
+          if (mustRecord(previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
+          return { index: previous, previous, writes, exitCode };
+        }
+        if (!needsIndex()) return { index: previous, previous, writes, exitCode };
       }
     }
     index.heartbeatAt = new Date(started).toISOString();
-    if (o.budget) index.budget = { tokens: tokens - shards.size - 1, at: publicationAt };
     // Shards first, writer's index last; failed shard writes retain last-good references.
     for (const [source, shard] of shards) {
       try {
@@ -161,7 +183,31 @@ export async function collectDisaster(o: Options): Promise<{ index: Index; previ
         exitCode = 1;
       }
     }
-    try { await o.store.put(indexKey(o.writer), JSON.stringify(index)); writes++; } catch { exitCode = 1; }
+    // Re-read after shard writes so a slower run cannot replace newer source evidence.
+    let latest: Index | null = null;
+    try {
+      const raw = await o.store.get(indexKey(o.writer));
+      if (raw !== null) { const decoded = decodeIndex(raw); if (decoded.writer === o.writer) latest = decoded; }
+    } catch { /* Missing/corrupt/unavailable indexes retain the original publication path. */ }
+    if (latest) {
+      const oursNewer = sources.some(s => version(index.sources[s], latest.sources[s]) > 0);
+      for (const source of sources) if (version(latest.sources[source], index.sources[source]) > 0) index.sources[source] = latest.sources[source];
+      // Preserve ordinary heartbeat/skip publications when the stored index is unchanged.
+      if (!oursNewer && JSON.stringify(latest) !== JSON.stringify(previous)) return { index: latest, previous, writes, exitCode };
+      if (latest.budget && Date.parse(latest.budget.at) > Date.parse(previous.budget?.at ?? '1970-01-01')) tokens = Math.min(tokens, refill(latest.budget));
+      if (Date.parse(latest.heartbeatAt) > Date.parse(index.heartbeatAt)) index.heartbeatAt = latest.heartbeatAt;
+    }
+    if (o.budget) {
+      const charged = tokens - shards.size - 1;
+      if (charged < 0 && !(mustRecord(latest ?? previous) && !shards.size && charged >= -1)) {
+        (o.warn ?? console.warn)('disaster KV 預算不足，延後發布');
+        if (mustRecord(latest ?? previous)) { (o.warn ?? console.warn)('disaster failure state cannot be recorded: KV overdraft exhausted'); exitCode = 1; }
+        return { index: latest ?? previous, previous, writes, exitCode };
+      }
+      index.budget = { tokens: charged, at: latest?.budget && Date.parse(latest.budget.at) > Date.parse(publicationAt) ? latest.budget.at : publicationAt };
+    }
+    try { await o.store.put(indexKey(o.writer), JSON.stringify(index)); writes++; } catch { return { index: latest ?? previous, previous, writes, exitCode: 1 }; }
+    return { index, previous, writes, exitCode };
   }
-  return { index, previous, writes, exitCode };
+  return { index: previous, previous, writes, exitCode };
 }

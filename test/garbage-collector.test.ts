@@ -225,3 +225,38 @@ it('renews legacy cities from fetchedAt when writtenAt is absent', async () => {
   expect(writes.length).toBe(Object.keys(legacy.cities.ntpc!.districts).length + 1);
   expect(decodeIndex(values.get(indexKey)!).cities.ntpc!.gen).toBe(legacy.cities.ntpc!.gen);
 });
+it('stops garbage publication after the daily index write cap', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } };
+  const fetch = vi.fn(async () => fixture('ntpc')), log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const options = { cities: ['ntpc'] as City[], fetch, minimum: { ntpc: 1, taipei: 1, taichung: 1 }, now: () => new Date('2026-10-30T23:59:00Z') };
+  try {
+    for (let i = 0; i < 3; i++) expect(await collectGarbage(store, options)).toBe(0);
+    expect(decodeIndex(values.get(indexKey)!).indexWrites).toEqual({ day: '2026-10-30', count: 3 });
+    writes.length = 0; fetch.mockClear();
+    // Even a missing shard must remain untouched once publication is capped.
+    values.delete([...values.keys()].find(key => key !== indexKey)!);
+    expect(await collectGarbage(store, options)).toBe(0);
+    expect(fetch).not.toHaveBeenCalled(); expect(writes).toEqual([]); expect(log).toHaveBeenCalledWith('garbage daily index write cap reached');
+  } finally { log.mockRestore(); }
+});
+it('resets the garbage index write cap on a new UTC day', async () => {
+  const values = new Map<string, string>(), writes: string[] = [];
+  const store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); writes.push(k); } };
+  let clock = Date.parse('2026-10-30T23:59:00Z');
+  const fetch = vi.fn(async () => fixture('ntpc')), log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const options = { cities: ['ntpc'] as City[], fetch, minimum: { ntpc: 1, taipei: 1, taichung: 1 }, now: () => new Date(clock), maxIndexWritesPerDay: 1 };
+  try {
+    await collectGarbage(store, options); writes.length = 0; fetch.mockClear();
+    expect(await collectGarbage(store, options)).toBe(0); expect(fetch).not.toHaveBeenCalled(); expect(writes).toEqual([]);
+    clock += 60000;
+    expect(await collectGarbage(store, options)).toBe(0); expect(fetch).toHaveBeenCalledOnce(); expect(writes).toEqual([indexKey]);
+    expect(decodeIndex(values.get(indexKey)!).indexWrites).toEqual({ day: '2026-10-31', count: 1 });
+  } finally { log.mockRestore(); }
+});
+it('accepts legacy garbage indexes and validates optional daily write counters', () => {
+  const old = { v: 2, generatedAt: '2026-10-30T00:00:00Z', cities: {} };
+  expect(decodeIndex(JSON.stringify(old)).indexWrites).toBeUndefined();
+  expect(decodeIndex(JSON.stringify({ ...old, indexWrites: { day: '2026-10-30', count: 0 } })).indexWrites!.count).toBe(0);
+  for (const indexWrites of [null, [], { day: '2026-02-30', count: 1 }, { day: '2026-10-30T00:00:00Z', count: 1 }, { day: '2026-10-30', count: -1 }, { day: '2026-10-30', count: 1.5 }, { day: '2026-10-30', count: '1' }]) expect(() => decodeIndex(JSON.stringify({ ...old, indexWrites }))).toThrow();
+});

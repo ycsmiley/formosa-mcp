@@ -14,10 +14,12 @@ export function kvStore(env: Record<string, string | undefined>): Store {
   return { async get(key) { const r = await request(key); if (r.status === 404) return null; if (r.status !== 200) throw Error(`kv read failed HTTP ${r.status}`); return r.text(); }, async put(key, value, updatedAt, ttlSeconds) { const body = new FormData(); body.set('value', value); body.set('metadata', JSON.stringify({ updatedAt })); const r = await request(key, { method: 'PUT', body }, ttlSeconds === undefined ? '' : `?expiration_ttl=${ttlSeconds}`); const data = await r.json().catch(() => null); if (r.status !== 200 || data?.success !== true) throw Error(`kv put failed HTTP ${r.status}`); } };
 }
 const minimum: Record<City, number> = { ntpc: 10000, taipei: 2000, taichung: 8000 };
-export async function collectGarbage(store: Store, options: { cities?: City[]; fetch?: (city: City) => Promise<string>; delay?: () => Promise<void>; now?: () => Date; minimum?: Record<City, number>; token?: string } = {}): Promise<number> {
+export async function collectGarbage(store: Store, options: { cities?: City[]; fetch?: (city: City) => Promise<string>; delay?: () => Promise<void>; now?: () => Date; minimum?: Record<City, number>; token?: string; maxIndexWritesPerDay?: number } = {}): Promise<number> {
   const reason = (error: unknown) => { const message = error instanceof Error ? error.message : String(error); return (options.token ? message.replaceAll(options.token, '[redacted]') : message).replace(/\s+/g, ' ').slice(0, 200); };
   const cities = options.cities ?? Object.keys(urls) as City[]; let index: Index;
   try { const old = await store.get(indexKey); index = old ? decodeIndex(old) : { v: 2, generatedAt: new Date().toISOString(), cities: {} }; } catch (error) { console.error(`garbage index read failed: ${reason(error)}`); return 1; }
+  const day = (options.now ?? (() => new Date()))().toISOString().slice(0, 10), count = index.indexWrites?.day === day ? index.indexWrites.count : 0;
+  if (count >= (options.maxIndexWritesPerDay ?? 3)) { console.log('garbage daily index write cap reached'); return 0; }
   let failed = false, dirty = false;
   for (let i = 0; i < cities.length; i++) {
     if (i) await (options.delay ?? (() => new Promise<void>(r => setTimeout(r, 2000))))();
@@ -46,7 +48,12 @@ export async function collectGarbage(store: Store, options: { cities?: City[]; f
       index.cities[city]!.checkedAt = now.toISOString(); dirty = true;
     } catch (error) { failed = true; console.error(`garbage ${city} failed: ${reason(error)}`); }
   }
-  try { if (dirty) { index.generatedAt = (options.now ?? (() => new Date()))().toISOString(); await store.put(indexKey, encodeIndex(index), index.generatedAt); } } catch (error) { console.error(`garbage index write failed: ${reason(error)}`); failed = true; }
+  try { if (dirty) {
+    index.generatedAt = (options.now ?? (() => new Date()))().toISOString();
+    const day = index.generatedAt.slice(0, 10);
+    index.indexWrites = { day, count: (index.indexWrites?.day === day ? index.indexWrites.count : 0) + 1 };
+    await store.put(indexKey, encodeIndex(index), index.generatedAt);
+  } } catch (error) { console.error(`garbage index write failed: ${reason(error)}`); failed = true; }
   return failed ? 1 : 0;
 }
 export async function main(args = process.argv.slice(2), env = process.env): Promise<number> {

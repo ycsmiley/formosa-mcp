@@ -23,7 +23,7 @@ const strings = (x: unknown): x is string[] => Array.isArray(x) && x.every(v => 
 export function decodeIndex(raw: string): Index {
   const x: unknown = JSON.parse(raw);
   if (!object(x) || x.v !== 1 || !['worker', 'gha'].includes(x.writer) || !timestamp(x.heartbeatAt) || !object(x.sources)) throw Error('災防索引格式錯誤');
-  if (x.budget !== undefined && (!object(x.budget) || typeof x.budget.tokens !== 'number' || !Number.isFinite(x.budget.tokens) || x.budget.tokens < 0 || !timestamp(x.budget.at))) throw Error('災防預算格式錯誤');
+  if (x.budget !== undefined && (!object(x.budget) || typeof x.budget.tokens !== 'number' || !Number.isFinite(x.budget.tokens) || x.budget.tokens < -1 || !timestamp(x.budget.at))) throw Error('災防預算格式錯誤');
   for (const [s, v] of Object.entries(x.sources)) {
     if (!sources.includes(s as Source) || !object(v) || typeof v.ok !== 'boolean' || ['closed', 'skipped', 'empty'].some(k => v[k] !== undefined && typeof v[k] !== 'boolean') || (v.reason !== undefined && (typeof v.reason !== 'string' || v.reason.length > 200)) || ['fetchedAt', 'lastSuccessAt', 'sourceUpdatedAt', 'writtenAt'].some(k => v[k] !== undefined && !timestamp(v[k])) || (v.sha !== undefined && (typeof v.sha !== 'string' || !/^[a-f0-9]{12}$/.test(v.sha))) || (v.count !== undefined && (!Number.isSafeInteger(v.count) || v.count < 0)) || (v.empty !== undefined && v.count !== 0) || (v.closed && v.ok) || (v.sha !== undefined && (!v.lastSuccessAt || !v.sourceUpdatedAt || !v.writtenAt || v.count === undefined)) || (v.ok && !v.sha && !v.skipped)) throw Error('災防來源格式錯誤');
   }

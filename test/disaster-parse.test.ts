@@ -144,7 +144,8 @@ it('bounds and sanitizes displayed fields, validates the same bounds in persiste
 it('validates empty markers and token bucket metadata', () => {
   for (const patch of [{ empty: 'yes' }, { empty: true, count: 1 }]) expect(() => decodeIndex(JSON.stringify(index({ ncdr: state(patch as never) })))).toThrow();
   expect(decodeIndex(JSON.stringify(index({ ncdr: state({ empty: true }) }))).sources.ncdr?.empty).toBe(true);
-  for (const budget of [{ tokens: -1, at }, { tokens: 1, at: 'bad' }, { tokens: '1', at }]) expect(() => decodeIndex(JSON.stringify({ ...index({}), budget }))).toThrow();
+  for (const budget of [{ tokens: -1.01, at }, { tokens: 1, at: 'bad' }, { tokens: '1', at }]) expect(() => decodeIndex(JSON.stringify({ ...index({}), budget }))).toThrow();
+  expect(decodeIndex(JSON.stringify({ ...index({}), budget: { tokens: -1, at } })).budget?.tokens).toBe(-1);
   expect(decodeIndex(JSON.stringify({ ...index({}), budget: { tokens: 0.5, at } })).budget?.tokens).toBe(0.5);
 });
 

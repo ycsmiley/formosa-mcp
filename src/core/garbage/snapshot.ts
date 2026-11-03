@@ -1,7 +1,8 @@
 import type { City, Slot, Stop } from './normalize.js';
 import { norm } from './text.js';
+import { validDay } from '../outage/time.js';
 export interface CityIndex { gen: string; fetchedAt: string; checkedAt?: string; updatedAt: string; writtenAt?: string; stops: number; districts: Record<string, { stops: number; sha256: string }> }
-export interface Index { v: 2; generatedAt: string; cities: Partial<Record<City, CityIndex>> }
+export interface Index { v: 2; generatedAt: string; cities: Partial<Record<City, CityIndex>>; indexWrites?: { day: string; count: number } }
 export interface Shard { v: 2; stops: Stop[]; truncated?: boolean; matched?: number }
 export const indexKey = 'garbage:index:v2';
 export const shardKey = (city: City, gen: string, district: string) => `garbage:v2:${city}:${gen}:${district}`;
@@ -11,6 +12,7 @@ const count = (x: unknown) => Number.isSafeInteger(x) && (x as number) >= 0;
 export function decodeIndex(text: string): Index {
   const x: unknown = JSON.parse(text);
   if (!object(x) || x.v !== 2 || !timestamp(x.generatedAt) || !object(x.cities)) throw new Error('Invalid garbage index');
+  if (x.indexWrites !== undefined && (!object(x.indexWrites) || typeof x.indexWrites.day !== 'string' || !validDay(x.indexWrites.day) || !count(x.indexWrites.count))) throw new Error('Invalid garbage index write count');
   for (const [city, entry] of Object.entries(x.cities)) {
     // TODO(p33): remove once the production index has been rewritten without tainan/kaohsiung and the 14-day shard TTL has passed.
     if (city === 'tainan' || city === 'kaohsiung') { delete x.cities[city]; continue; }
