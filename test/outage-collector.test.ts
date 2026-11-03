@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { collectOutages, directoryStore, kvStore, main, type Store } from '../scripts/publish-outages.js';
+import { collectOutages, describeError, directoryStore, kvStore, main, type Store } from '../scripts/publish-outages.js';
 import { decodeIndex, indexKey, shardKey, type Source } from '../src/core/outage/model.js';
 import { downloadLimit, fetchSource, urls } from '../src/outage/source.js';
 import { localOutageStore } from '../src/outage/store.js';
@@ -40,7 +40,7 @@ it('fetches sources concurrently, writes only changed shards, and publishes the 
   expect(await collectOutages(store, { now: () => new Date('2026-11-01T06:00:00Z') })).toBe(0); expect(writes).toEqual([indexKey]);
   const second = decodeIndex(values.get(indexKey)!); expect(second.sources.taipower!.counties).toEqual(first.sources.taipower!.counties); expect(second.sources.taipower!.lastSuccessAt).not.toBe(first.sources.taipower!.lastSuccessAt);
   writes.length = 0;
-  expect(await collectOutages(store, { now, fetch: async s => { if (s === 'taipower') throw Error('temporarily down'); return fetchSource(s); } })).toBe(1);
+  expect(await collectOutages(store, { now, fetch: async s => { if (s === 'taipower') throw Error('temporarily down'); return fetchSource(s); } })).toBe(0);
   const failed = decodeIndex(values.get(indexKey)!); expect(failed.sources.taipower).toMatchObject({ ok: false, counties: second.sources.taipower!.counties, lastSuccessAt: second.sources.taipower!.lastSuccessAt, droppedBy: second.sources.taipower!.droppedBy }); expect(writes).toEqual([indexKey]);
   writes.length = 0;
   expect(await collectOutages(store, { now, fetch: async s => s === 'taipeiwater' ? { items: [], dropped: 0, rows: 0 } : fetchSource(s) })).toBe(0);
@@ -121,8 +121,8 @@ it('retains Taiwan Water snapshots through an empty export and recovers on the n
   const before = decodeIndex(values.get(indexKey)!).sources.taiwater!; writes.length = 0;
   fetch.mockImplementation(async (input, init) => String(input) === urls.taiwater ? new Response('[]') : original(input, init));
   const failedAt = '2026-11-03T00:00:00.000Z';
-  expect(await collectOutages(store, { now: () => new Date(failedAt) })).toBe(0);
-  expect(warn).toHaveBeenCalledWith(`outage taiwater unavailable: ${taiwaterEmptyReason}`);
+  expect(await collectOutages(store, { now: () => new Date(failedAt), sleep: async () => {} })).toBe(0);
+  expect(warn).toHaveBeenCalledWith(`::warning::outage taiwater unavailable: ${taiwaterEmptyReason}`);
   const failed = decodeIndex(values.get(indexKey)!).sources.taiwater!;
   expect(failed).toMatchObject({ ok: false, reason: taiwaterEmptyReason, fetchedAt: failedAt, lastSuccessAt: before.lastSuccessAt, counties: before.counties });
   expect(writes.some(key => key.startsWith('outage:v1:taiwater:'))).toBe(false);
@@ -153,27 +153,27 @@ it('retries failed live fetches immediately and caches the recovered source', as
   await store.shard('taipower', '臺北市', '0'.repeat(64)); await store.index(['taipower']); expect(fetch).toHaveBeenCalledTimes(2);
 });
 
-it('returns nonzero for upstream unavailability only on a healthy source regression and still publishes failing-source heartbeats', async () => {
+it('returns nonzero for expired upstream unavailability and still publishes failing-source heartbeats', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
   const fetch = mockSources(), original = fetch.getMockImplementation()!;
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {}), error = vi.spyOn(console, 'error').mockImplementation(() => {});
   expect(await collectOutages(store, { now })).toBe(0);
   fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower) throw Error('offline'); return original(input, init); });
-  expect(await collectOutages(store, { now })).toBe(1); expect(error).toHaveBeenCalledWith('outage taipower failed: offline');
+  expect(await collectOutages(store, { now, sleep: async () => {} })).toBe(0); expect(error).not.toHaveBeenCalled();
   const failed = decodeIndex(values.get(indexKey)!); expect(failed.sources.taipower).toMatchObject({ ok: false, reason: 'offline' });
   error.mockClear();
   const later = () => new Date('2026-11-01T06:00:00Z');
-  expect(await collectOutages(store, { now: later })).toBe(0);
-  expect(error).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledWith('outage taipower unavailable: offline');
+  expect(await collectOutages(store, { now: later, sleep: async () => {} })).toBe(0);
+  expect(error).not.toHaveBeenCalled(); expect(warn).toHaveBeenCalledWith('::warning::outage taipower unavailable: offline');
   expect(decodeIndex(values.get(indexKey)!)).toMatchObject({ generatedAt: later().toISOString(), sources: { taipower: { ok: false, lastSuccessAt: now().toISOString(), counties: failed.sources.taipower!.counties } } });
-  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:00Z') })).toBe(0);
-  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:01Z') })).toBe(1);
+  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:00Z'), sleep: async () => {} })).toBe(0);
+  expect(await collectOutages(store, { now: () => new Date('2026-11-02T00:00:01Z'), sleep: async () => {} })).toBe(1);
 });
 it('fails for a source without a prior healthy snapshot and for an index write', async () => {
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   const fetch = async () => { throw Error('offline'); };
-  expect(await collectOutages(store, { now, fetch })).toBe(1); expect(error).toHaveBeenCalledTimes(3);
+  expect(await collectOutages(store, { now, fetch })).toBe(1); expect(error).toHaveBeenCalledTimes(4);
   expect(Object.values(decodeIndex(values.get(indexKey)!).sources).every(s => !s.ok)).toBe(true);
   store.put = async () => { throw Error('index unavailable'); };
   expect(await collectOutages(store, { now, fetch })).toBe(1);
@@ -210,4 +210,28 @@ it('rejects oversized Content-Length before reading and cancels an overflowing s
     }, { highWaterMark: 0 }), { headers }));
     await expect(fetchSource('taipeiwater')).rejects.toThrow('檔案過大'); expect(cancel).toHaveBeenCalledOnce(); expect(reads).toBe(2);
   }
+});
+
+it('retries source fetches with backoff and reports the real cause without storing it', async () => {
+  const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
+  const fetch = mockSources(), original = fetch.getMockImplementation()!, sleep = vi.fn(async (_ms: number) => {});
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  expect(await collectOutages(store, { now })).toBe(0);
+  const before = decodeIndex(values.get(indexKey)!).sources.taipower!;
+  const cause = Object.assign(Error('read ECONNRESET'), { code: 'ECONNRESET' });
+  const failure = new TypeError('fetch failed', { cause });
+  expect(describeError(failure)).toBe('fetch failed (cause: ECONNRESET read ECONNRESET)');
+  expect(describeError(new Error('outer', { cause: new Error('middle', { cause }) }))).toContain('ECONNRESET read ECONNRESET');
+  expect(describeError(new AggregateError([cause], 'aggregate'))).toContain('ECONNRESET read ECONNRESET');
+  let attempts = 0;
+  fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower && ++attempts === 1) throw failure; return original(input, init); });
+  expect(await collectOutages(store, { now, sleep })).toBe(0); expect(attempts).toBe(2); expect(sleep.mock.calls).toEqual([[1000]]);
+  attempts = 0; sleep.mockClear();
+  fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower) { attempts++; throw failure; } return original(input, init); });
+  expect(await collectOutages(store, { now, sleep })).toBe(0); expect(attempts).toBe(3); expect(sleep.mock.calls).toEqual([[1000], [2000]]);
+  expect(decodeIndex(values.get(indexKey)!).sources.taipower).toMatchObject({ ok: false, reason: 'fetch failed', counties: before.counties });
+  expect(warn.mock.calls.some(([line]) => line.includes('::warning::') && line.includes('ECONNRESET'))).toBe(true);
+  fetch.mockImplementation(async (input, init) => String(input) === urls.taipower ? new Response(null, { status: 503 }) : original(input, init));
+  expect(await collectOutages(store, { now, sleep })).toBe(0);
+  expect(warn.mock.calls.some(([line]) => line.includes('::warning::') && line.includes('HTTP 503'))).toBe(true);
 });

@@ -15,12 +15,34 @@ export function kvStore(env: Record<string, string | undefined>): Store {
   const request = (key: string, init: RequestInit = {}, query = '') => fetch(base + encodeURIComponent(key) + query, { ...init, headers: { Authorization: `Bearer ${env.CLOUDFLARE_KV_WRITE_TOKEN}` }, redirect: 'manual', signal: AbortSignal.timeout(30_000) });
   return { async get(key) { const r = await request(key); if (r.status === 404) return null; if (r.status !== 200) throw Error(`kv read failed HTTP ${r.status}`); return r.text(); }, async put(key, value, updatedAt, ttlSeconds) { const body = new FormData(); body.set('value', value); body.set('metadata', JSON.stringify({ updatedAt })); const r = await request(key, { method: 'PUT', body }, ttlSeconds === undefined ? '' : `?expiration_ttl=${ttlSeconds}`); const data = await r.json().catch(() => null); if (r.status !== 200 || data?.success !== true) throw Error(`kv put failed HTTP ${r.status}`); } };
 }
-export async function collectOutages(store: Store, options: { fetch?: (source: Source) => Promise<SourceData>; now?: () => Date; token?: string } = {}): Promise<number> {
+export function describeError(e: unknown): string {
+  const message = (value: unknown) => value instanceof Error ? value.message : String(value);
+  const details = (value: unknown, depth = 0): string => {
+    if (!value || typeof value !== 'object') return message(value);
+    const error = value as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown[] };
+    const text = [error.code, error.message].filter(Boolean).join(' ');
+    const cause = error.cause ?? error.errors?.[0];
+    return [text, cause == null || depth === 1 ? '' : details(cause, depth + 1)].filter(Boolean).join(' ');
+  };
+  const cause = e instanceof Error ? e.cause ?? (e instanceof AggregateError ? e.errors[0] : undefined) : undefined;
+  return message(e) + (cause == null ? '' : ` (cause: ${details(cause)})`);
+}
+export async function collectOutages(store: Store, options: { fetch?: (source: Source) => Promise<SourceData>; now?: () => Date; token?: string; sleep?: (ms: number) => Promise<void> } = {}): Promise<number> {
   const reason = (e: unknown) => (options.token ? String(e instanceof Error ? e.message : e).replaceAll(options.token, '[redacted]') : String(e instanceof Error ? e.message : e)).replace(/https?:\/\/[^\s]+/g, '[url]').replace(/\s+/g, ' ').slice(0, 200);
   let previous: Index; let writes = 0, failed = false;
   try { const raw = await store.get(indexKey); previous = raw ? decodeIndex(raw) : { v: 1, generatedAt: '', sources: {} }; }
   catch (e) { console.error(`outage index read failed: ${reason(e)}`); return 1; }
-  const results = await Promise.allSettled(sources.map(s => (options.fetch ?? fetchSource)(s)));
+  const fetch = options.fetch ?? (async (source: Source) => {
+    for (let attempt = 1; ; attempt++) {
+      try { return await fetchSource(source); }
+      catch (e) {
+        console.warn(`outage ${source} attempt ${attempt}/3 failed: ${reason(describeError(e))}`);
+        if (attempt === 3) throw e;
+        await (options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(attempt * 1000);
+      }
+    }
+  });
+  const results = await Promise.allSettled(sources.map(s => fetch(s)));
   const index: Index = { v: 1, generatedAt: (options.now ?? (() => new Date()))().toISOString(), sources: {} };
   for (const [i, source] of sources.entries()) {
     const old = previous.sources[source]; let dropped = 0, count = 0, largest = 0;
@@ -43,15 +65,15 @@ export async function collectOutages(store: Store, options: { fetch?: (source: S
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties, dropped, ...(data.droppedBy ? { droppedBy: data.droppedBy } : {}) };
     } catch (e) {
       const emptyTaiwater = source === 'taiwater' && reason(e) === taiwaterEmptyReason;
-      const regressed = old?.ok === true && !emptyTaiwater;
       const expired = !emptyTaiwater && (!old?.lastSuccessAt || Date.parse(index.generatedAt) - Date.parse(old.lastSuccessAt) > 86400000);
-      if (publicationFailed || regressed || expired) failed = true;
+      if (publicationFailed || expired) failed = true;
       index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...(old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}), counties: old?.counties ?? {}, ...(old?.dropped !== undefined ? { dropped: old.dropped } : {}), ...(old?.droppedBy ? { droppedBy: old.droppedBy } : {}) };
-      if (publicationFailed || regressed || expired) console.error(`outage ${source} failed: ${reason(e)}`);
-      else console.warn(`outage ${source} unavailable: ${reason(e)}`);
+      console.warn(`::warning::outage ${source} unavailable: ${reason(describeError(e))}`);
+      if (publicationFailed || expired) console.error(`outage ${source} failed: ${reason(describeError(e))}`);
     }
     console.log(`outage ${source} ok=${index.sources[source]!.ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
   }
+  if (sources.every(source => !index.sources[source]!.ok)) { console.error('outage all sources failed'); failed = true; }
   try { await store.put(indexKey, JSON.stringify(index), index.generatedAt); writes++; } catch (e) { console.error(`outage index write failed: ${reason(e)}`); failed = true; }
   console.log(`outage KV writes=${writes}`);
   return failed ? 1 : 0;

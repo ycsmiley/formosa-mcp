@@ -440,6 +440,18 @@ function kvStore(env) {
     if (r.status !== 200 || data?.success !== true) throw Error(`kv put failed HTTP ${r.status}`);
   } };
 }
+function describeError(e) {
+  const message = (value) => value instanceof Error ? value.message : String(value);
+  const details = (value, depth = 0) => {
+    if (!value || typeof value !== "object") return message(value);
+    const error = value;
+    const text = [error.code, error.message].filter(Boolean).join(" ");
+    const cause2 = error.cause ?? error.errors?.[0];
+    return [text, cause2 == null || depth === 1 ? "" : details(cause2, depth + 1)].filter(Boolean).join(" ");
+  };
+  const cause = e instanceof Error ? e.cause ?? (e instanceof AggregateError ? e.errors[0] : void 0) : void 0;
+  return message(e) + (cause == null ? "" : ` (cause: ${details(cause)})`);
+}
 async function collectOutages(store, options = {}) {
   const reason = (e) => (options.token ? String(e instanceof Error ? e.message : e).replaceAll(options.token, "[redacted]") : String(e instanceof Error ? e.message : e)).replace(/https?:\/\/[^\s]+/g, "[url]").replace(/\s+/g, " ").slice(0, 200);
   let previous;
@@ -451,7 +463,18 @@ async function collectOutages(store, options = {}) {
     console.error(`outage index read failed: ${reason(e)}`);
     return 1;
   }
-  const results = await Promise.allSettled(sources.map((s) => (options.fetch ?? fetchSource2)(s)));
+  const fetch2 = options.fetch ?? (async (source) => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fetchSource2(source);
+      } catch (e) {
+        console.warn(`outage ${source} attempt ${attempt}/3 failed: ${reason(describeError(e))}`);
+        if (attempt === 3) throw e;
+        await (options.sleep ?? ((ms) => new Promise((resolve2) => setTimeout(resolve2, ms))))(attempt * 1e3);
+      }
+    }
+  });
+  const results = await Promise.allSettled(sources.map((s) => fetch2(s)));
   const index = { v: 1, generatedAt: (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString(), sources: {} };
   for (const [i, source] of sources.entries()) {
     const old = previous.sources[source];
@@ -485,14 +508,17 @@ async function collectOutages(store, options = {}) {
       index.sources[source] = { ok: true, fetchedAt: index.generatedAt, lastSuccessAt: index.generatedAt, counties: counties2, dropped, ...data.droppedBy ? { droppedBy: data.droppedBy } : {} };
     } catch (e) {
       const emptyTaiwater = source === "taiwater" && reason(e) === taiwaterEmptyReason;
-      const regressed = old?.ok === true && !emptyTaiwater;
       const expired = !emptyTaiwater && (!old?.lastSuccessAt || Date.parse(index.generatedAt) - Date.parse(old.lastSuccessAt) > 864e5);
-      if (publicationFailed || regressed || expired) failed = true;
+      if (publicationFailed || expired) failed = true;
       index.sources[source] = { ok: false, fetchedAt: index.generatedAt, reason: reason(e), ...old?.lastSuccessAt ? { lastSuccessAt: old.lastSuccessAt } : {}, counties: old?.counties ?? {}, ...old?.dropped !== void 0 ? { dropped: old.dropped } : {}, ...old?.droppedBy ? { droppedBy: old.droppedBy } : {} };
-      if (publicationFailed || regressed || expired) console.error(`outage ${source} failed: ${reason(e)}`);
-      else console.warn(`outage ${source} unavailable: ${reason(e)}`);
+      console.warn(`::warning::outage ${source} unavailable: ${reason(describeError(e))}`);
+      if (publicationFailed || expired) console.error(`outage ${source} failed: ${reason(describeError(e))}`);
     }
     console.log(`outage ${source} ok=${index.sources[source].ok} count=${count} largestBytes=${largest} dropped=${dropped}`);
+  }
+  if (sources.every((source) => !index.sources[source].ok)) {
+    console.error("outage all sources failed");
+    failed = true;
   }
   try {
     await store.put(indexKey2, JSON.stringify(index), index.generatedAt);
@@ -519,6 +545,7 @@ async function main(args = process.argv.slice(2), env = process.env) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await main();
 export {
   collectOutages,
+  describeError,
   directoryStore,
   kvStore,
   main
