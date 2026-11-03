@@ -5,6 +5,8 @@ import { expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp/server.js';
+import { parseToolsetsArg } from '../src/mcp/cli.js';
+import { DEFAULT_TOOLSETS, toolsets } from '../src/mcp/toolsets.js';
 
 const read = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 const pkg = JSON.parse(read('package.json'));
@@ -114,4 +116,20 @@ it('never prints the unpublished remote host', () => {
       expect(existsSync(resolve(dirname(join(root, name)), target)), `${name}: ${target}`).toBe(true);
     }
   }
+});
+
+it('keeps README default toolsets and their Chinese count consistent', () => {
+  const chinese = read('README.md').match(/預設啟用 ([^；。]+?) ([一二三四五六七八九十]+)組/);
+  const english = read('README.en.md').match(/([^\n;.]+?) toolsets are enabled by default/);
+  expect(chinese).not.toBeNull();
+  expect(english).not.toBeNull();
+  const names = (text: string) => [...text.matchAll(/`([^`]+)`/g)].map(match => match[1]).sort();
+  expect(names(chinese![1])).toEqual([...DEFAULT_TOOLSETS].sort());
+  expect(names(english![1])).toEqual([...DEFAULT_TOOLSETS].sort());
+  const chineseCounts: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  expect(chineseCounts[chinese![2]]).toBe(DEFAULT_TOOLSETS.length);
+});
+
+it('defaults the CLI to the shared default toolsets', () => {
+  expect(parseToolsetsArg([], toolsets.map(t => t.name))).toEqual(DEFAULT_TOOLSETS);
 });

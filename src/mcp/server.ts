@@ -5,7 +5,7 @@ import type { GarbageStore } from '../core/garbage/service.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RailHttp } from '../core/rail/client.js';
 import type { Clock } from '../core/clock.js';
-import { registerToolsets, toolsets } from './toolsets.js';
+import { DEFAULT_TOOLSETS, registerToolsets, toolsets } from './toolsets.js';
 export interface ServerOptions {
   garbageStore?: GarbageStore;
   outageStore?: OutageStore;
@@ -20,7 +20,7 @@ export interface ServerOptions {
 }
 export function createServer(options: ServerOptions = {}): McpServer {
   const available = toolsets.map(t => t.name);
-  const selected = options.toolsets ?? ['invoice', 'stock', 'garbage', 'outage'];
+  const selected = options.toolsets ?? DEFAULT_TOOLSETS;
   for (const name of selected) {
     if (!available.includes(name)) throw new Error(`未知工具集「${name}」。有效工具集：${available.join(', ')}`);
   }

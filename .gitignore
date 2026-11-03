@@ -9,3 +9,4 @@ out/
 .env.*
 !.env.example
 .dev.vars
+.dev.vars.*

@@ -9,7 +9,7 @@ formosa-mcp 讓 AI 助手查詢台灣發票、台股、交通及公共服務資�
 
 <!-- 公開當天換成正式網址 -->
 ```sh
-claude mcp add --transport http formosa https://<公開網址>/mcp
+claude mcp add --transport http formosa "https://<公開網址>/mcp"
 ```
 
 Cursor 的 MCP 設定：
@@ -41,7 +41,7 @@ For the remote service, paste the URL into a Claude custom connector, or use Cla
 
 <!-- 公開當天換成正式網址 -->
 ```sh
-claude mcp add --transport http formosa https://<公開網址>/mcp
+claude mcp add --transport http formosa "https://<公開網址>/mcp"
 ```
 
 Cursor MCP configuration:

@@ -17,10 +17,13 @@ Claude (Desktop / web): Go to Settings → Connectors → Add custom connector a
 Claude Code:
 
 ```sh
-claude mcp add --transport http formosa https://<public-host>/mcp
+claude mcp add --transport http formosa "https://<public-host>/mcp"
 ```
 
 Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`) and other clients supporting streamable HTTP:
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=formosa&config=eyJ1cmwiOiJodHRwczovLzxwdWJsaWMtaG9zdD4vbWNwIn0%3D)
+<!-- Regenerate the base64 config with the real URL on launch day -->
 
 ```json
 {

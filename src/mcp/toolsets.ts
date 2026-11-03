@@ -30,6 +30,7 @@ export interface Toolset {
   requiredEnv?: string[];
   register(server: ToolRegistrar, ctx: ToolsetContext): void;
 }
+export const DEFAULT_TOOLSETS = ['invoice', 'stock', 'garbage', 'outage'];
 export const toolsets: Toolset[] = [invoice, stock, garbage, outage, rail];
 export function registerToolsets(server: ToolRegistrar, selected: Toolset[], env: Record<string, string | undefined>, ctx: ToolsetContext = {}): void {
   const log = ctx.log ?? console.error;

@@ -18,10 +18,13 @@ Claude（Desktop／網頁）：在「設定 → 連接器 → 新增自訂連接
 Claude Code：
 
 ```sh
-claude mcp add --transport http formosa https://<公開網址>/mcp
+claude mcp add --transport http formosa "https://<公開網址>/mcp"
 ```
 
 Cursor（`.cursor/mcp.json` 或 `~/.cursor/mcp.json`）與其他支援 streamable HTTP 的用戶端：
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=formosa&config=eyJ1cmwiOiJodHRwczovLzzlhazplovntrLlnYA%2BL21jcCJ9)
+<!-- 公開當天以正式網址重新產生 config（base64） -->
 
 ```json
 {

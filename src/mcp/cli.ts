@@ -1,3 +1,5 @@
+import { DEFAULT_TOOLSETS } from './toolsets.js';
+
 export function parseToolsetsArg(argv: string[], available: readonly string[]): string[] {
   let selected: string[] | undefined;
   for (let i = 0; i < argv.length; i++) {
@@ -13,5 +15,5 @@ export function parseToolsetsArg(argv: string[], available: readonly string[]): 
     }
     selected = [...new Set([...(selected ?? []), ...names])];
   }
-  return selected ?? available.filter(name => name !== 'rail');
+  return selected ?? DEFAULT_TOOLSETS.filter(name => available.includes(name));
 }
