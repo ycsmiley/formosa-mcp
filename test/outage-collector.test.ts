@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { collectOutages, describeError, directoryStore, kvStore, main, type Store } from '../scripts/publish-outages.js';
 import { decodeIndex, indexKey, shardKey, sources, type Source } from '../src/core/outage/model.js';
 import { downloadLimit, fetchSource, urls } from '../src/outage/source.js';
@@ -15,7 +15,8 @@ const mockSources = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async
   if (!source) throw Error('unexpected request');
   return source === 'taipower' ? new Response(Buffer.from(zip())) : new Response(fixture(`${source}.json`), { headers: { 'Content-Type': 'application/octet-stream' } });
 });
-afterEach(() => { vi.restoreAllMocks(); });
+beforeEach(() => { vi.stubEnv('GITHUB_STEP_SUMMARY', ''); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 it('runs --out with mocked official fetches and serves those files through local stdio storage', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'outage-')); const fetch = mockSources();
   try {
@@ -193,7 +194,6 @@ it('appends a summary when configured and skips it when unset', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'outage-summary-')), path = join(dir, 'summary');
   const values = new Map<string, string>(), store: Store = { get: async k => values.get(k) ?? null, put: async (k, v) => { values.set(k, v); } };
   const fetch = mockSources(), original = fetch.getMockImplementation()!;
-  vi.stubEnv('GITHUB_STEP_SUMMARY', '');
   try {
     expect(await collectOutages(store, { now })).toBe(0); expect(await readdir(dir)).toEqual([]);
     fetch.mockImplementation(async (input, init) => { if (String(input) === urls.taipower) throw Error('offline'); return original(input, init); });
