@@ -188,7 +188,7 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 抓取三市；內容未變沿用 generation，分片存在且內容相同便零寫入，僅距上次整市寫入超過 7 天續期（TTL 14 天）。任一區變更會重寫該市全部分片，索引只在變更、修復缺失／損毀分片或續期時寫入；`fetchedAt` 為上次發布時的成功抓取時間。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 

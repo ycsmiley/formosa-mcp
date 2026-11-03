@@ -328,6 +328,14 @@ it('keeps closure scope and effective time of mixed 照常 lines when one index 
     expect(text).toContain('（此行因部分寫入端索引讀取失敗不予顯示，請查官方頁面）'); expect(text).not.toContain('照常');
   }
 });
+it.each(['照常辦公', '照常上班上課'])('masks %s while retaining closure text when one index is corrupted', async span => {
+  const s = setup(none, at);
+  s.shards.set('dgpa', { pageDate: '2026-11-02', layout: 'flat', noEvent: false, counties: { 臺北市: [`${span}、停止上課`] } }); s.worker.sources.dgpa!.count = 1;
+  s.store.indexes = async () => ({ worker: s.worker, gha: null, errors: { gha: true } });
+  const text = (await s.service.closure({ city: '臺北市' })).text;
+  expect(text).toContain('\n節錄（部分內容因部分寫入端索引讀取失敗不予顯示）：［略］、停止上課\n');
+  expect(text).not.toContain('照常');
+});
 it('withholds the whole partial entry when a 照常 span includes additional conditions', async () => {
   const s = setup(none, at);
   s.shards.set('dgpa', { pageDate: '2026-11-02', layout: 'flat', noEvent: false, counties: { 臺北市: ['今天照常上班但下午停止上課、停止上班。'] } }); s.worker.sources.dgpa!.count = 1;

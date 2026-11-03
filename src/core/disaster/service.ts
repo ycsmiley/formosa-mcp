@@ -11,7 +11,7 @@ const safeReason = (s?: string) => !s || s.includes('照常') ? '尚無成功取
 function partialEntry(entry: string) {
   const withheld = '（此行因部分寫入端索引讀取失敗不予顯示，請查官方頁面）';
   const spans = entry.match(/照常[^、，,；;。]*/g) ?? [];
-  if (!spans.every(span => /^照常(上班|上課)$/.test(span))) return withheld;
+  if (!spans.every(span => /^照常(上班|上課|辦公|上班上課)$/.test(span))) return withheld;
   const masked = entry.replace(/照常[^、，,；;。]*/g, '［略］');
   return masked.includes('停止') ? `節錄（部分內容因部分寫入端索引讀取失敗不予顯示）：${masked}` : withheld;
 }

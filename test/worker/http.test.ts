@@ -1,6 +1,6 @@
 import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import worker, { keys, metaKeys, cronJobs, type Env } from '../../src/worker/index.js';
+import worker, { keys, metaKeys, cronJobs, disasterCron, type Env } from '../../src/worker/index.js';
 import { collectKeys } from '../../src/worker/snapshot-keys.js';
 import * as stockSource from '../../src/worker/stock-source.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot } from '../../src/core/snapshot.js';
@@ -114,11 +114,11 @@ it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failu
     expect(warn).toHaveBeenCalledExactlyOnceWith('mcp rate limit unavailable');
   },
 );
-it('lists exactly eleven tools and serves seeded snapshots without upstream fetch', async () => {
+it('lists exactly nine tools and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
   try {
-    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['disaster_alerts', 'garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable', 'work_school_closure']);
+    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
     for (const [name, args, expected] of [ ['stock_quote', { query: '2330' }, '台積電'], ['stock_quote', { query: '6488' }, '環球晶'], ['stock_dividends', {}, '近期除權息'], ['invoice_get_winning_numbers', {}, '統一發票中獎號碼'], ['invoice_check', { number: '54348835' }, '頭獎'] ] as const) {
       const result = await rpc('tools/call', { name, arguments: args }); const text = result.content[0].text;
       expect(text).toContain(expected); expect(text).not.toMatch(/undefined|null|NaN|\[object/);
@@ -174,8 +174,8 @@ it('returns updating for empty KV and hides malformed data errors', async () => 
 });
 it('matches configured crons and both SQLite bindings and migrations', () => {
   const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
-  expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs));
-  expect(Object.values(cronJobs)).toEqual(['twse', 'twse', 'invoice', 'invoice', 'disaster']);
+  expect([Object.keys(cronJobs), [...Object.keys(cronJobs), disasterCron]]).toContainEqual(parsed.triggers.crons);
+  expect(Object.values(cronJobs)).toEqual(['twse', 'twse', 'invoice', 'invoice']);
   expect(parsed).not.toHaveProperty('ratelimits');
   expect(parsed.durable_objects.bindings).toContainEqual({ name: 'MCP_RATE_LIMIT', class_name: 'FixedWindowCounter' });
   expect(parsed.migrations).toContainEqual({ tag: 'v1', new_sqlite_classes: ['FixedWindowCounter'] });
@@ -195,7 +195,7 @@ it.each(['twse', 'tpex'] as const)('serves a missing %s market with partial warn
     expect(spy).not.toHaveBeenCalled();
   } finally { spy.mockRestore(); }
 });
-const schedules = Object.entries(cronJobs).filter(([, job]) => job !== 'disaster').map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
+const schedules = Object.entries(cronJobs).map(([cron, job]) => ({ cron, job, scheduledTime: Date.UTC(2026, 9, 27) }));
 it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cron, job, scheduledTime }) => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
@@ -490,7 +490,7 @@ it('serves planned outages from only the index and requested county KV shard', a
   const get = vi.spyOn(bindings.SNAPSHOTS, 'get'), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   const result = await rpc('tools/call', { name: 'outage_schedule', arguments: { city: '台北', district: '信義區', type: 'power', start_date: '2026-11-06', end_date: '2026-11-06' } });
   expect(result.content[0].text).toContain('松仁路'); expect(result.content[0].text).toContain('11/06（五）00:49');
-  expect(get.mock.calls.map(([key]) => key)).toEqual([indexKey, 'outage:v1:taipower:臺北市:aaaaaaaaaaaa']); expect(fetch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(Object.keys(cronJobs)).toHaveLength(5);
+  expect(get.mock.calls.map(([key]) => key)).toEqual([indexKey, 'outage:v1:taipower:臺北市:aaaaaaaaaaaa']); expect(fetch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(Object.keys(cronJobs)).toHaveLength(4);
 });
 it('reports missing or undecodable outage KV data without upstream fallback', async () => {
   const { outageIndexKey: indexKey, outageShardKey: shardKey } = await import('../../src/worker/snapshot-keys.js');

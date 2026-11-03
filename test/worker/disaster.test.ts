@@ -1,16 +1,34 @@
 import { env, createExecutionContext, createScheduledController } from 'cloudflare:test';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import worker, { cronJobs, type Env } from '../../src/worker/index.js';
+import worker, { cronJobs, disasterCron, type Env } from '../../src/worker/index.js';
 import { indexKey, shardKey, decodeIndex, official, feedUrls } from '../../src/core/disaster/model.js';
 import none from '../fixtures/disaster/dgpa-nds-2026-11-02-no-event.html?raw';
 import config from '../../wrangler.jsonc?raw';
-const bindings = env as unknown as Env, cron = '5,15,25,35,45,55 * * * *';
+const bindings: Env = { ...env as unknown as Env, DISASTER_ENABLED: 'true' }, cron = disasterCron;
 const clearIndexes = async () => { await Promise.all((['worker', 'gha'] as const).map(writer => bindings.SNAPSHOTS.delete(indexKey(writer)))); };
 beforeEach(clearIndexes);
 afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); await clearIndexes(); });
-it('configures exactly five cron keys with an independent disaster route', () => {
+it('configures only the default four crons or those four followed by disasterCron', () => {
   const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
-  expect(parsed.triggers.crons).toHaveLength(5); expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs)); expect(cronJobs[cron]).toBe('disaster');
+  expect([Object.keys(cronJobs), [...Object.keys(cronJobs), disasterCron]]).toContainEqual(parsed.triggers.crons);
+});
+it('keeps checked-in wrangler.jsonc at the default four crons', () => {
+  const parsed = JSON.parse(config.replace(/\/\/[^\n]*/g, ''));
+  expect(parsed.triggers.crons).toEqual(Object.keys(cronJobs));
+});
+it.each([undefined, 'false', 'TRUE', 'true'])('lists disaster tools only when DISASTER_ENABLED is exactly true (%s)', async flag => {
+  const response = await worker.fetch(new Request('http://localhost/mcp', { method: 'POST', headers: { Host: 'localhost', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'CF-Connecting-IP': '203.0.113.138' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }), { ...bindings, DISASTER_ENABLED: flag }, createExecutionContext());
+  const body = await response.text(); expect(response.status).toBe(200);
+  const reply = JSON.parse(body.startsWith('event:') || body.startsWith('data:') ? body.split('\n').find(l => l.startsWith('data:'))!.slice(5) : body).result;
+  const names = reply.tools.map((tool: { name: string }) => tool.name);
+  for (const name of ['work_school_closure', 'disaster_alerts']) expect(names.includes(name)).toBe(flag === 'true');
+});
+it.each([undefined, 'false', 'TRUE'])('does nothing for the disaster cron when DISASTER_ENABLED is %s', async flag => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(Error('must not fetch'));
+  const get = vi.spyOn(bindings.SNAPSHOTS, 'get'), getWithMetadata = vi.spyOn(bindings.SNAPSHOTS, 'getWithMetadata');
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), remove = vi.spyOn(bindings.SNAPSHOTS, 'delete');
+  await worker.scheduled(createScheduledController({ cron, scheduledTime: Date.now() }), { ...bindings, DISASTER_ENABLED: flag }, createExecutionContext());
+  expect(fetch).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled(); expect(getWithMetadata).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
 });
 it('runs only disaster on x5, writes shards before its index, and serves formatted text through Worker MCP', async () => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T09:15:00+08:00'));
