@@ -10,6 +10,11 @@ import { join } from "node:path";
 var norm = (s) => s.trim().replaceAll("\u53F0", "\u81FA").replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 65296));
 var stripZeroWidth = (s) => s.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 
+// src/core/outage/time.ts
+function validDay(s) {
+  return /^\d{4}-\d\d-\d\d$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+}
+
 // src/garbage/store.ts
 var filename = (key) => `${key.replaceAll(":", "_")}.json`;
 
@@ -82,11 +87,6 @@ function resolveDistrict(county, value) {
   return matches.length === 1 ? matches[0] : void 0;
 }
 
-// src/core/outage/time.ts
-function validDay(s) {
-  return /^\d{4}-\d\d-\d\d$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
-}
-
 // src/core/outage/normalize.ts
 var clean = (s, limit = Infinity) => {
   const text2 = typeof s === "string" || typeof s === "number" ? stripZeroWidth(String(s)).replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim() : "";
@@ -120,10 +120,15 @@ var strings = (x) => Array.isArray(x) && x.every((v) => typeof v === "string" &&
 function decodeIndex2(raw) {
   const x = JSON.parse(raw);
   if (!object(x) || x.v !== 1 || !["worker", "gha"].includes(x.writer) || !timestamp(x.heartbeatAt) || !object(x.sources)) throw Error("\u707D\u9632\u7D22\u5F15\u683C\u5F0F\u932F\u8AA4");
-  if (x.budget !== void 0 && (!object(x.budget) || typeof x.budget.tokens !== "number" || !Number.isFinite(x.budget.tokens) || x.budget.tokens < 0 || !timestamp(x.budget.at))) throw Error("\u707D\u9632\u9810\u7B97\u683C\u5F0F\u932F\u8AA4");
+  if (x.budget !== void 0 && (!object(x.budget) || typeof x.budget.tokens !== "number" || !Number.isFinite(x.budget.tokens) || x.budget.tokens < -1 || !timestamp(x.budget.at))) throw Error("\u707D\u9632\u9810\u7B97\u683C\u5F0F\u932F\u8AA4");
   for (const [s, v] of Object.entries(x.sources)) {
     if (!sources.includes(s) || !object(v) || typeof v.ok !== "boolean" || ["closed", "skipped", "empty"].some((k) => v[k] !== void 0 && typeof v[k] !== "boolean") || v.reason !== void 0 && (typeof v.reason !== "string" || v.reason.length > 200) || ["fetchedAt", "lastSuccessAt", "sourceUpdatedAt", "writtenAt"].some((k) => v[k] !== void 0 && !timestamp(v[k])) || v.sha !== void 0 && (typeof v.sha !== "string" || !/^[a-f0-9]{12}$/.test(v.sha)) || v.count !== void 0 && (!Number.isSafeInteger(v.count) || v.count < 0) || v.empty !== void 0 && v.count !== 0 || v.closed && v.ok || v.sha !== void 0 && (!v.lastSuccessAt || !v.sourceUpdatedAt || !v.writtenAt || v.count === void 0) || v.ok && !v.sha && !v.skipped) throw Error("\u707D\u9632\u4F86\u6E90\u683C\u5F0F\u932F\u8AA4");
   }
+  return x;
+}
+function decodeDgpa(raw) {
+  const x = JSON.parse(raw);
+  if (!object(x) || !validDay(x.pageDate) || !["none", "regional", "flat"].includes(x.layout) || typeof x.noEvent !== "boolean" || !object(x.counties) || Object.entries(x.counties).some(([c, lines]) => !counties.includes(c) || !strings(lines) || !lines.length || lines.length > 20 || lines.some((l) => l.length > 300 || clean(l) !== l)) || (x.noEvent ? x.layout !== "none" || Object.keys(x.counties).length !== 0 : x.layout === "none" || !Object.keys(x.counties).length)) throw Error("\u505C\u73ED\u505C\u8AB2\u5FEB\u7167\u683C\u5F0F\u932F\u8AA4");
   return x;
 }
 function decodeAlerts(raw) {
@@ -136,6 +141,9 @@ function decodeAlerts(raw) {
     ids.add(v.id);
   }
   return x;
+}
+function decodeShard2(raw, source) {
+  return source === "dgpa" ? decodeDgpa(raw) : decodeAlerts(raw);
 }
 
 // src/core/disaster/parse.ts
@@ -351,6 +359,13 @@ function quietDelayMs(date) {
 }
 var responseTimes = /* @__PURE__ */ new WeakMap();
 var changed = (a, b) => ["ok", "closed", "sha", "reason", "empty", "skipped"].some((k) => a?.[k] !== b?.[k]);
+var version = (a, b) => {
+  for (const key of ["sourceUpdatedAt", "fetchedAt"]) {
+    const x = a?.[key] ? Date.parse(a[key]) : -Infinity, y = b?.[key] ? Date.parse(b[key]) : -Infinity;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+};
 async function collectDisaster(o) {
   const now = o.now ?? (() => /* @__PURE__ */ new Date()), started = now().getTime(), scheduled = o.scheduledAt ?? started;
   const guardEnd = Math.floor(scheduled / 6e5) * 6e5 + 7 * 6e4;
@@ -472,9 +487,15 @@ async function collectDisaster(o) {
     if (o.only && !o.only.includes(source)) continue;
     const old = previous.sources[source], peerState = peer?.sources[source];
     const current = now().getTime();
-    if (o.writer === "gha" && peer?.writer === "worker" && peerState?.ok === true && !peerState.skipped && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 6e4 && (source === "ncdr" ? current - Date.parse(peerState.sourceUpdatedAt) <= 24 * 36e5 : current - Date.parse(peerState.sourceUpdatedAt) < 90 * 6e4) && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 6e4 && await o.store.get(shardKey2(source, peerState.sha)) !== null) {
-      index.sources[source] = { ...old ?? { ok: false }, skipped: true };
-      continue;
+    if (o.writer === "gha" && peer?.writer === "worker" && peerState?.ok === true && !peerState.skipped && !peerState.closed && peerState.sha && peerState.lastSuccessAt && peerState.sourceUpdatedAt && current - Date.parse(peerState.lastSuccessAt) >= 0 && current - Date.parse(peerState.lastSuccessAt) < 25 * 6e4 && (source === "ncdr" ? current - Date.parse(peerState.sourceUpdatedAt) <= 24 * 36e5 : current - Date.parse(peerState.sourceUpdatedAt) < 90 * 6e4) && Date.parse(peerState.sourceUpdatedAt) - current <= 5 * 6e4) {
+      try {
+        const raw2 = await o.store.get(shardKey2(source, peerState.sha)), data = raw2 === null ? null : decodeShard2(raw2, source);
+        if (data && (Array.isArray(data) ? data.length : Object.keys(data.counties).length) === peerState.count) {
+          index.sources[source] = { ...old ?? { ok: false }, skipped: true };
+          continue;
+        }
+      } catch {
+      }
     }
     try {
       let data, updated, count;
@@ -507,27 +528,43 @@ async function collectDisaster(o) {
     }
   }
   const needsIndex = () => sources.some((s) => changed(previous.sources[s], index.sources[s])) || heartbeatDue && sources.some((s) => index.sources[s] && !index.sources[s]?.skipped && (!o.only || o.only.includes(s)));
+  const mustRecord = (base) => sources.some((s) => {
+    const state = index.sources[s], old = base.sources[s];
+    return (!o.only || o.only.includes(s)) && state?.ok === false && !state.skipped && (old?.ok !== false || !!old.closed !== !!state.closed);
+  });
   if (needsIndex()) {
     for (const [source, shard] of shards) {
       const old = previous.sources[source];
       if (old?.sha === shard.sha && old.writtenAt && now().getTime() - Date.parse(old.writtenAt) <= 3 * 864e5) shards.delete(source);
     }
     const publicationAt = now().toISOString();
+    const refill = (saved) => o.budget ? Math.min(o.budget.burst, (saved?.tokens ?? o.budget.burst) + o.budget.perHour * Math.max(0, Date.parse(publicationAt) - Date.parse(saved?.at ?? publicationAt)) / 36e5) : Infinity;
     let tokens = Infinity;
     if (o.budget) {
-      const saved = previous.budget;
-      tokens = Math.min(o.budget.burst, (saved?.tokens ?? o.budget.burst) + o.budget.perHour * Math.max(0, Date.parse(publicationAt) - Date.parse(saved?.at ?? publicationAt)) / 36e5);
+      tokens = refill(previous.budget);
       if (tokens < shards.size + 1) {
         (o.warn ?? console.warn)("disaster KV \u9810\u7B97\u4E0D\u8DB3\uFF0C\u5EF6\u5F8C\u767C\u5E03");
-        if (changed(previous.sources.dgpa, index.sources.dgpa) && tokens >= (shards.has("dgpa") ? 2 : 1)) {
-          if (previous.sources.ncdr) index.sources.ncdr = previous.sources.ncdr;
-          else delete index.sources.ncdr;
-          shards.delete("ncdr");
-        } else return { index: previous, previous, writes, exitCode };
+        let available = tokens - 1;
+        for (const [source] of shards) {
+          if (available >= 1) {
+            available--;
+            continue;
+          }
+          shards.delete(source);
+          if (previous.sources[source]) index.sources[source] = previous.sources[source];
+          else delete index.sources[source];
+        }
+        if (tokens < 1 && !(mustRecord(previous) && tokens >= 0)) {
+          if (mustRecord(previous)) {
+            (o.warn ?? console.warn)("disaster failure state cannot be recorded: KV overdraft exhausted");
+            exitCode = 1;
+          }
+          return { index: previous, previous, writes, exitCode };
+        }
+        if (!needsIndex()) return { index: previous, previous, writes, exitCode };
       }
     }
     index.heartbeatAt = new Date(started).toISOString();
-    if (o.budget) index.budget = { tokens: tokens - shards.size - 1, at: publicationAt };
     for (const [source, shard] of shards) {
       try {
         await o.store.put(shardKey2(source, shard.sha), shard.encoded, 8 * 86400);
@@ -538,14 +575,43 @@ async function collectDisaster(o) {
         exitCode = 1;
       }
     }
+    let latest = null;
+    try {
+      const raw2 = await o.store.get(indexKey2(o.writer));
+      if (raw2 !== null) {
+        const decoded = decodeIndex2(raw2);
+        if (decoded.writer === o.writer) latest = decoded;
+      }
+    } catch {
+    }
+    if (latest) {
+      const oursNewer = sources.some((s) => version(index.sources[s], latest.sources[s]) > 0);
+      for (const source of sources) if (version(latest.sources[source], index.sources[source]) > 0) index.sources[source] = latest.sources[source];
+      if (!oursNewer && JSON.stringify(latest) !== JSON.stringify(previous)) return { index: latest, previous, writes, exitCode };
+      if (latest.budget && Date.parse(latest.budget.at) > Date.parse(previous.budget?.at ?? "1970-01-01")) tokens = Math.min(tokens, refill(latest.budget));
+      if (Date.parse(latest.heartbeatAt) > Date.parse(index.heartbeatAt)) index.heartbeatAt = latest.heartbeatAt;
+    }
+    if (o.budget) {
+      const charged = tokens - shards.size - 1;
+      if (charged < 0 && !(mustRecord(latest ?? previous) && !shards.size && charged >= -1)) {
+        (o.warn ?? console.warn)("disaster KV \u9810\u7B97\u4E0D\u8DB3\uFF0C\u5EF6\u5F8C\u767C\u5E03");
+        if (mustRecord(latest ?? previous)) {
+          (o.warn ?? console.warn)("disaster failure state cannot be recorded: KV overdraft exhausted");
+          exitCode = 1;
+        }
+        return { index: latest ?? previous, previous, writes, exitCode };
+      }
+      index.budget = { tokens: charged, at: latest?.budget && Date.parse(latest.budget.at) > Date.parse(publicationAt) ? latest.budget.at : publicationAt };
+    }
     try {
       await o.store.put(indexKey2(o.writer), JSON.stringify(index));
       writes++;
     } catch {
-      exitCode = 1;
+      return { index: latest ?? previous, previous, writes, exitCode: 1 };
     }
+    return { index, previous, writes, exitCode };
   }
-  return { index, previous, writes, exitCode };
+  return { index: previous, previous, writes, exitCode };
 }
 
 // src/core/disaster/http.ts

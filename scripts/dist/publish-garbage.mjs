@@ -100,6 +100,11 @@ function normalize(city, input, capturedAt) {
 // src/core/garbage/text.ts
 var norm = (s) => s.trim().replaceAll("\u53F0", "\u81FA").replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 65296));
 
+// src/core/outage/time.ts
+function validDay(s) {
+  return /^\d{4}-\d\d-\d\d$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+}
+
 // src/core/garbage/snapshot.ts
 var indexKey = "garbage:index:v2";
 var shardKey = (city, gen, district) => `garbage:v2:${city}:${gen}:${district}`;
@@ -109,6 +114,7 @@ var count = (x) => Number.isSafeInteger(x) && x >= 0;
 function decodeIndex(text) {
   const x = JSON.parse(text);
   if (!object(x) || x.v !== 2 || !timestamp(x.generatedAt) || !object(x.cities)) throw new Error("Invalid garbage index");
+  if (x.indexWrites !== void 0 && (!object(x.indexWrites) || typeof x.indexWrites.day !== "string" || !validDay(x.indexWrites.day) || !count(x.indexWrites.count))) throw new Error("Invalid garbage index write count");
   for (const [city, entry] of Object.entries(x.cities)) {
     if (city === "tainan" || city === "kaohsiung") {
       delete x.cities[city];
@@ -266,6 +272,11 @@ async function collectGarbage(store, options = {}) {
     console.error(`garbage index read failed: ${reason(error)}`);
     return 1;
   }
+  const day = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString().slice(0, 10), count2 = index.indexWrites?.day === day ? index.indexWrites.count : 0;
+  if (count2 >= (options.maxIndexWritesPerDay ?? 3)) {
+    console.log("garbage daily index write cap reached");
+    return 0;
+  }
   let failed = false, dirty = false;
   for (let i = 0; i < cities.length; i++) {
     if (i) await (options.delay ?? (() => new Promise((r) => setTimeout(r, 2e3))))();
@@ -303,6 +314,8 @@ async function collectGarbage(store, options = {}) {
   try {
     if (dirty) {
       index.generatedAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
+      const day2 = index.generatedAt.slice(0, 10);
+      index.indexWrites = { day: day2, count: (index.indexWrites?.day === day2 ? index.indexWrites.count : 0) + 1 };
       await store.put(indexKey, encodeIndex(index), index.generatedAt);
     }
   } catch (error) {

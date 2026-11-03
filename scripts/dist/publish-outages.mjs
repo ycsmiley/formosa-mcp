@@ -12,6 +12,51 @@ import { join } from "node:path";
 var norm = (s) => s.trim().replaceAll("\u53F0", "\u81FA").replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 65296));
 var stripZeroWidth = (s) => s.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 
+// src/core/outage/time.ts
+var local = (date) => new Date(date.getTime() + 8 * 36e5).toISOString().slice(0, 16);
+var addDays = (day, days) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 864e5).toISOString().slice(0, 10);
+function validDay(s) {
+  return /^\d{4}-\d\d-\d\d$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+}
+function parseDate(text) {
+  const s = norm(text);
+  if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i.test(s)) {
+    const d = new Date(s);
+    return validDay(s.slice(0, 10)) && Number.isFinite(d.getTime()) ? local(d) : null;
+  }
+  const m = /^(\d{2,4})[-/年](\d{1,2})[-/月](\d{1,2})日?(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
+  if (!m) return null;
+  const year = +m[1] + (m[1].length < 4 ? 1911 : 0), day = `${year}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  if (!validDay(day) || +(m[4] ?? 0) > 23 || +(m[5] ?? 0) > 59 || +(m[6] ?? 0) > 59) return null;
+  return `${day}T${(m[4] ?? "00").padStart(2, "0")}:${m[5] ?? "00"}`;
+}
+function waterTimes(start, end) {
+  const a = parseDate(start), b = parseDate(end);
+  return a && b && a <= b ? [[a, b]] : `${start || "\u672A\u6A19\u793A\u958B\u59CB\u6642\u9593"}\uFF5E${end || "\u672A\u6A19\u793A\u6062\u5FA9\u6642\u9593"}`;
+}
+function powerWindow(raw) {
+  const [start, end, extra] = norm(raw).split(/[~～]/);
+  if (!end || extra !== void 0) return null;
+  const a = parseDate(start.trim());
+  if (!a) return null;
+  let b = parseDate(/^\d{1,2}:\d\d$/.test(end.trim()) ? `${a.slice(0, 10)} ${end.trim()}` : end.trim());
+  if (!b) return null;
+  if (b < a && /^\d{1,2}:\d\d$/.test(end.trim())) b = `${addDays(b.slice(0, 10), 1)}${b.slice(10)}`;
+  return b >= a ? [a, b] : null;
+}
+function dailyTimes(date, time) {
+  const days = norm(date).split(/[~～]/), a = parseDate(days[0]), b = parseDate(days[1] ?? days[0]);
+  const raw = `${date} ${time}`.trim() || "\u672A\u6A19\u793A\u6642\u9593";
+  if (days.length > 2 || !a || !b || b < a || (Date.parse(b) - Date.parse(a)) / 864e5 > 366 || !/^\d{1,2}:\d\d\s*[~～]\s*\d{1,2}:\d\d$/.test(norm(time))) return raw;
+  const ranges = [];
+  for (let day = a.slice(0, 10); day <= b.slice(0, 10); day = addDays(day, 1)) {
+    const t = powerWindow(`${day} ${time}`);
+    if (!t) return raw;
+    ranges.push(t);
+  }
+  return ranges;
+}
+
 // src/garbage/store.ts
 var filename = (key) => `${key.replaceAll(":", "_")}.json`;
 
@@ -118,51 +163,6 @@ function resolveDistrict(county, value) {
   }
   const matches = available.filter((d) => ["\u5340", "\u9109", "\u93AE", "\u5E02"].some((suffix) => value + suffix === d));
   return matches.length === 1 ? matches[0] : void 0;
-}
-
-// src/core/outage/time.ts
-var local = (date) => new Date(date.getTime() + 8 * 36e5).toISOString().slice(0, 16);
-var addDays = (day, days) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 864e5).toISOString().slice(0, 10);
-function validDay(s) {
-  return /^\d{4}-\d\d-\d\d$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
-}
-function parseDate(text) {
-  const s = norm(text);
-  if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i.test(s)) {
-    const d = new Date(s);
-    return validDay(s.slice(0, 10)) && Number.isFinite(d.getTime()) ? local(d) : null;
-  }
-  const m = /^(\d{2,4})[-/年](\d{1,2})[-/月](\d{1,2})日?(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
-  if (!m) return null;
-  const year = +m[1] + (m[1].length < 4 ? 1911 : 0), day = `${year}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  if (!validDay(day) || +(m[4] ?? 0) > 23 || +(m[5] ?? 0) > 59 || +(m[6] ?? 0) > 59) return null;
-  return `${day}T${(m[4] ?? "00").padStart(2, "0")}:${m[5] ?? "00"}`;
-}
-function waterTimes(start, end) {
-  const a = parseDate(start), b = parseDate(end);
-  return a && b && a <= b ? [[a, b]] : `${start || "\u672A\u6A19\u793A\u958B\u59CB\u6642\u9593"}\uFF5E${end || "\u672A\u6A19\u793A\u6062\u5FA9\u6642\u9593"}`;
-}
-function powerWindow(raw) {
-  const [start, end, extra] = norm(raw).split(/[~～]/);
-  if (!end || extra !== void 0) return null;
-  const a = parseDate(start.trim());
-  if (!a) return null;
-  let b = parseDate(/^\d{1,2}:\d\d$/.test(end.trim()) ? `${a.slice(0, 10)} ${end.trim()}` : end.trim());
-  if (!b) return null;
-  if (b < a && /^\d{1,2}:\d\d$/.test(end.trim())) b = `${addDays(b.slice(0, 10), 1)}${b.slice(10)}`;
-  return b >= a ? [a, b] : null;
-}
-function dailyTimes(date, time) {
-  const days = norm(date).split(/[~～]/), a = parseDate(days[0]), b = parseDate(days[1] ?? days[0]);
-  const raw = `${date} ${time}`.trim() || "\u672A\u6A19\u793A\u6642\u9593";
-  if (days.length > 2 || !a || !b || b < a || (Date.parse(b) - Date.parse(a)) / 864e5 > 366 || !/^\d{1,2}:\d\d\s*[~～]\s*\d{1,2}:\d\d$/.test(norm(time))) return raw;
-  const ranges = [];
-  for (let day = a.slice(0, 10); day <= b.slice(0, 10); day = addDays(day, 1)) {
-    const t = powerWindow(`${day} ${time}`);
-    if (!t) return raw;
-    ranges.push(t);
-  }
-  return ranges;
 }
 
 // src/core/outage/normalize.ts
