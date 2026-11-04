@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { buildStockSnapshot } from '../src/core/snapshot.js';
 import { parseRocDate, stockRows } from '../src/core/stock/parse.js';
 import { buildMarketSummary, type MarketSummary } from '../src/core/stock/market.js';
+import { decodeMarketSummary } from '../src/core/stock/market-schema.js';
 import { marketUrls, stockUrls } from '../src/core/stock/source.js';
 import { encodeStoredSnapshot, keys, minimumRows } from '../src/worker/snapshot-keys.js';
 import { fetchStockFeed } from '../src/worker/stock-source.js';
@@ -107,7 +108,7 @@ export async function collectTpex({ outDir, previous, previousDir, now = new Dat
         if (old.file !== 'stock_market_v1.json') throw new Error('unexpected file');
         oldValue = await readFile(join(previousDir ?? outDir, old.file), 'utf8');
         if (createHash('sha256').update(oldValue).digest('hex') !== old.sha256) throw new Error('changed previous summary');
-        oldSummary = JSON.parse(oldValue);
+        oldSummary = decodeMarketSummary(JSON.parse(oldValue));
       } catch { console.warn('market summary previous snapshot unavailable'); }
     }
     const results = await Promise.allSettled(Object.entries(marketUrls).map(async ([feed, url]) => {
@@ -122,7 +123,8 @@ export async function collectTpex({ outDir, previous, previousDir, now = new Dat
     for (const market of ['twse', 'tpex'] as const) {
       if (!summary[market] || summary[market] === oldSummary?.[market]) console.warn(`market summary ${market} failed; retaining previous data if available`);
     }
-    const unchanged = oldSummary && JSON.stringify({ ...summary, fetchedAt: '' }) === JSON.stringify({ ...oldSummary, fetchedAt: '' });
+    // Compare against stored content so dropping an invalid block triggers a write.
+    const unchanged = oldSummary && JSON.stringify({ ...summary, fetchedAt: '' }) === JSON.stringify({ ...JSON.parse(oldValue!), fetchedAt: '' });
     const encoded = unchanged ? oldValue! : JSON.stringify(summary);
     const file = 'stock_market_v1.json', sha256 = createHash('sha256').update(encoded).digest('hex');
     await atomicWrite(join(outDir, file), encoded);

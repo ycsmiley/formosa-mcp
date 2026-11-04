@@ -2,18 +2,8 @@ import { taipeiParts, type Clock } from '../clock.js';
 import { dateKey, stockFooter } from './format.js';
 import { parseNumber, parseRocDate, rocDateLabel, stockRows, type StockDate } from './parse.js';
 import { marketUrls } from './source.js';
-
-export interface MarketMargin {
-  date: StockDate; dateConfirmed: boolean; reason?: string;
-  financePrev: number; finance: number; shortPrev: number; short: number;
-}
-export interface MarketBlock {
-  dataDate: StockDate; taiex: number; change: number; value: number;
-  margin?: MarketMargin;
-  // Describes the current feed even when margin retains an older confirmed day.
-  marginReason?: string;
-}
-export interface MarketSummary { twse?: MarketBlock; tpex?: MarketBlock; fetchedAt: string }
+import { decodeMarketSummary, type MarketBlock, type MarketMargin, type MarketSummary } from './market-schema.js';
+export type { MarketBlock, MarketMargin, MarketSummary } from './market-schema.js';
 export interface MarketInputs {
   fmtqik: unknown; margn: unknown; fmtqikLastModified?: string; margnLastModified?: string;
   tpexIndex: unknown; tpexMargin: unknown;
@@ -64,10 +54,11 @@ function twseMarginReason(dataDate: StockDate, fmtqik?: string, margn?: string):
   if (Math.abs(b - a) > 6 * 3600000) return b < a ? 'MI_MARGN 的 Last-Modified 比 FMTQIK 舊超過 6 小時。' : 'MI_MARGN 的 Last-Modified 比 FMTQIK 新超過 6 小時。';
 }
 /** Body validation is independent per market; a failed market retains its previous block. */
-export function buildMarketSummary(input: MarketInputs, previous?: MarketSummary): MarketSummary {
+export function buildMarketSummary(input: MarketInputs, previous?: unknown): MarketSummary {
+  const prior = decodeMarketSummary(previous);
   const errors: string[] = [];
   const build = (twse: boolean): MarketBlock | undefined => {
-    const old = twse ? previous?.twse : previous?.tpex;
+    const old = twse ? prior.twse : prior.tpex;
     try {
       const block = index(twse ? input.fmtqik : input.tpexIndex, twse);
       if (old && dateKey(block.dataDate) < dateKey(old.dataDate)) return old;
@@ -87,7 +78,7 @@ export function buildMarketSummary(input: MarketInputs, previous?: MarketSummary
   };
   const twse = build(true), tpex = build(false);
   if (!twse && !tpex) throw new Error(errors.join('；'));
-  return { ...(twse ? { twse } : {}), ...(tpex ? { tpex } : {}), fetchedAt: input.fetchedAt ?? previous?.fetchedAt ?? '' };
+  return { ...(twse ? { twse } : {}), ...(tpex ? { tpex } : {}), fetchedAt: input.fetchedAt ?? prior.fetchedAt };
 }
 const number = (n: number, digits = 2) => n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const signed = (n: number, digits = 2) => `${n >= 0 ? '+' : ''}${number(n, digits)}`;
@@ -103,14 +94,15 @@ function staleness(block: MarketBlock, market: string, now: Date) {
   }
   return '';
 }
-export function formatMarketSummary(summary: MarketSummary, clock: Clock): string {
+export function formatMarketSummary(value: unknown, clock: Clock): string {
+  const summary = decodeMarketSummary(value);
   const now = clock(), today = taipeiParts(now), minutes = today.hour * 60 + now.getUTCMinutes();
   const trading = ![0, 6].includes(new Date(Date.UTC(today.year, today.month - 1, today.day)).getUTCDay()) && minutes >= 540 && minutes <= 810;
   const lines: string[] = [];
   for (const key of ['twse', 'tpex'] as const) {
     const block = summary[key], twse = key === 'twse', market = twse ? '上市' : '上櫃';
     lines.push(market);
-    if (!block) lines.push('資料暫時無法取得。');
+    if (!block) lines.push('暫不提供。');
     else {
       lines.push(`資料日期：${rocDateLabel(block.dataDate)}（盤後資料，非即時）`,
         `${twse ? '加權指數' : '上櫃指數'} 收盤 ${number(block.taiex)}｜漲跌 ${signed(block.change)} 點（${signed(block.change / (block.taiex - block.change) * 100)}%）`,

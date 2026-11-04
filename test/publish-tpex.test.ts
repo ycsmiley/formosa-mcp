@@ -8,7 +8,8 @@ import { buildStockSnapshot, decodeQuotesSnapshot } from '../src/core/snapshot.j
 import { collectKeys, encodeStoredSnapshot, keys, minimumRows } from '../src/worker/snapshot-keys.js';
 import { buildCollector } from '../scripts/build-collectors.mjs';
 import { marketUrls, stockUrls } from '../src/core/stock/source.js';
-import { marketFixtureFeed, fixture } from './stock-fixtures.js';
+import { buildMarketSummary } from '../src/core/stock/market.js';
+import { marketFixtureFeed, marketInput, fixture } from './stock-fixtures.js';
 
 const token = 'test-token-SECRET';
 const env = { CLOUDFLARE_ACCOUNT_ID: 'test-account', KV_NAMESPACE_ID: 'test-namespace', CLOUDFLARE_KV_WRITE_TOKEN: token };
@@ -169,6 +170,30 @@ it('invalid previous snapshots are absent for collection and are replaced withou
   expect(puts.size).toBe(3);
   for (const key of tpexKeys.filter(key => key !== keys.marketSummary)) expect(console.warn).toHaveBeenCalledWith(`kv read ${key} invalid snapshot; treating as absent`);
   expect(decodeQuotesSnapshot(String(puts.get(keys.tpexQuotes)!.get('value'))).rows).toHaveLength(minimumRows.tpex);
+});
+
+it('replaces a malformed old TWSE block with fresh data and then skips unchanged content', async () => {
+  current.set(keys.marketSummary, '{"twse":{}}');
+  expect(await publish()).toBe(0);
+  const value = String(puts.get(keys.marketSummary)!.get('value'));
+  expect(JSON.parse(value)).toEqual(buildMarketSummary({ ...marketInput(), fetchedAt: now.toISOString() }));
+  current.set(keys.marketSummary, value);
+  puts.clear();
+  expect(await publishTpex({ outDir, env, now: new Date(now.getTime() + 3600000) })).toBe(0);
+  expect(puts.has(keys.marketSummary)).toBe(false);
+});
+
+it('preserves valid newer summary blocks and skips the KV write for older fetched data', async () => {
+  const summary = buildMarketSummary(marketInput());
+  for (const market of ['twse', 'tpex'] as const) {
+    summary[market]!.dataDate.day = 4;
+    summary[market]!.taiex += 1;
+  }
+  const previous = JSON.stringify(summary);
+  current.set(keys.marketSummary, previous);
+  expect(await publish()).toBe(0);
+  expect(puts.has(keys.marketSummary)).toBe(false);
+  expect(await readFile(join(outDir, 'stock_market_v1.json'), 'utf8')).toBe(previous);
 });
 
 it.each(['tpex-ratios', 'tpex-div'] as const)('never publishes failed %s or a heartbeat, while publishing the other key', async feed => {

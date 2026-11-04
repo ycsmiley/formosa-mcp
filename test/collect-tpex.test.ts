@@ -229,6 +229,23 @@ it('writes one summary key with Last-Modified confirmation and keeps its bytes w
   expect(await readFile(file, 'utf8')).toBe(bytes);
   expect(next.keys[keys.marketSummary]).toEqual(first.keys[keys.marketSummary]);
 });
+it.each(['replace', 'drop'] as const)('%s an invalid previous market independently of the valid other market', async mode => {
+  const previous = await collect();
+  const entry = previous.keys[keys.marketSummary], file = join(outDir, entry.file);
+  const summary = JSON.parse(await readFile(file, 'utf8'));
+  const validTpex = summary.tpex;
+  // Even a newer date cannot protect a block with missing required values.
+  summary.twse = { dataDate: { year: 2026, month: 11, day: 4 } };
+  const malformed = JSON.stringify(summary);
+  await writeFile(file, malformed);
+  entry.sha256 = createHash('sha256').update(malformed).digest('hex');
+  if (mode === 'drop') overrides[marketUrls.fmtqik] = () => Response.json([]);
+  await collect(previous);
+  const next = JSON.parse(await readFile(file, 'utf8'));
+  expect(next.tpex).toEqual(validTpex);
+  if (mode === 'replace') expect(next.twse).toMatchObject({ dataDate: { day: 3 }, taiex: 43307.54 });
+  else expect(next.twse).toBeUndefined();
+});
 it('summary failure only warns and leaves quotes/dividends results and CLI status unchanged', async () => {
   for (const url of Object.values(marketUrls)) overrides[url] = () => Response.json([]);
   expect(await main(['--out', outDir])).toBe(0);

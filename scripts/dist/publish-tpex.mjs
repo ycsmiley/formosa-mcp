@@ -170,6 +170,34 @@ function decodeSnapshot(encoded) {
   return unpack(data.d);
 }
 
+// src/core/stock/market-schema.ts
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isDate(value) {
+  if (!isRecord(value)) return false;
+  const { year, month, day } = value;
+  if (typeof year !== "number" || typeof month !== "number" || typeof day !== "number" || ![year, month, day].every(Number.isInteger) || year <= 1911) return false;
+  const date2 = new Date(Date.UTC(year, month - 1, day));
+  return date2.getUTCFullYear() === year && date2.getUTCMonth() + 1 === month && date2.getUTCDate() === day;
+}
+var isNumber = (value) => typeof value === "number" && Number.isFinite(value);
+var optionalString = (value) => value === void 0 || typeof value === "string";
+function isMargin(value) {
+  return isRecord(value) && isDate(value.date) && typeof value.dateConfirmed === "boolean" && optionalString(value.reason) && [value.financePrev, value.finance, value.shortPrev, value.short].every((n) => isNumber(n) && Number.isSafeInteger(n) && n >= 0);
+}
+function isMarketBlock(value) {
+  return isRecord(value) && isDate(value.dataDate) && isNumber(value.taiex) && value.taiex > 0 && isNumber(value.change) && value.taiex - value.change > 0 && isNumber(value.value) && value.value >= 0 && (value.margin === void 0 || isMargin(value.margin)) && optionalString(value.marginReason);
+}
+function decodeMarketSummary(value) {
+  const data = isRecord(value) ? value : {};
+  return {
+    ...isMarketBlock(data.twse) ? { twse: data.twse } : {},
+    ...isMarketBlock(data.tpex) ? { tpex: data.tpex } : {},
+    fetchedAt: typeof data.fetchedAt === "string" ? data.fetchedAt : ""
+  };
+}
+
 // src/worker/snapshot-keys.ts
 var keys = { invoice: "invoice:v1", marketSummary: "stock:market:v1", twseQuotes: "stock:quotes:twse:v1", tpexQuotes: "stock:quotes:tpex:v1", twseDividends: "stock:dividends:twse:v1", tpexDividends: "stock:dividends:tpex:v1" };
 var collectKeys = { tpex: "stock:collect:tpex:v1" };
@@ -234,9 +262,10 @@ function twseMarginReason(dataDate, fmtqik, margn) {
   if (Math.abs(b - a) > 6 * 36e5) return b < a ? "MI_MARGN \u7684 Last-Modified \u6BD4 FMTQIK \u820A\u8D85\u904E 6 \u5C0F\u6642\u3002" : "MI_MARGN \u7684 Last-Modified \u6BD4 FMTQIK \u65B0\u8D85\u904E 6 \u5C0F\u6642\u3002";
 }
 function buildMarketSummary(input, previous) {
+  const prior = decodeMarketSummary(previous);
   const errors = [];
   const build = (twse2) => {
-    const old = twse2 ? previous?.twse : previous?.tpex;
+    const old = twse2 ? prior.twse : prior.tpex;
     try {
       const block = index(twse2 ? input.fmtqik : input.tpexIndex, twse2);
       if (old && dateKey(block.dataDate) < dateKey(old.dataDate)) return old;
@@ -255,7 +284,7 @@ function buildMarketSummary(input, previous) {
   };
   const twse = build(true), tpex = build(false);
   if (!twse && !tpex) throw new Error(errors.join("\uFF1B"));
-  return { ...twse ? { twse } : {}, ...tpex ? { tpex } : {}, fetchedAt: input.fetchedAt ?? previous?.fetchedAt ?? "" };
+  return { ...twse ? { twse } : {}, ...tpex ? { tpex } : {}, fetchedAt: input.fetchedAt ?? prior.fetchedAt };
 }
 
 // src/worker/stock-source.ts
@@ -439,7 +468,7 @@ async function collectTpex({ outDir, previous, previousDir, now = /* @__PURE__ *
         if (old.file !== "stock_market_v1.json") throw new Error("unexpected file");
         oldValue = await readFile(join(previousDir ?? outDir, old.file), "utf8");
         if (createHash("sha256").update(oldValue).digest("hex") !== old.sha256) throw new Error("changed previous summary");
-        oldSummary = JSON.parse(oldValue);
+        oldSummary = decodeMarketSummary(JSON.parse(oldValue));
       } catch {
         console.warn("market summary previous snapshot unavailable");
       }
@@ -462,7 +491,7 @@ async function collectTpex({ outDir, previous, previousDir, now = /* @__PURE__ *
     for (const market of ["twse", "tpex"]) {
       if (!summary[market] || summary[market] === oldSummary?.[market]) console.warn(`market summary ${market} failed; retaining previous data if available`);
     }
-    const unchanged = oldSummary && JSON.stringify({ ...summary, fetchedAt: "" }) === JSON.stringify({ ...oldSummary, fetchedAt: "" });
+    const unchanged = oldSummary && JSON.stringify({ ...summary, fetchedAt: "" }) === JSON.stringify({ ...JSON.parse(oldValue), fetchedAt: "" });
     const encoded = unchanged ? oldValue : JSON.stringify(summary);
     const file = "stock_market_v1.json", sha256 = createHash("sha256").update(encoded).digest("hex");
     await atomicWrite(join(outDir, file), encoded);
@@ -580,8 +609,7 @@ async function publishTpex({ outDir, env = process.env, now = /* @__PURE__ */ ne
             }).sort().at(-1) ?? null;
             if (!dataDate) throw new Error("missing date");
           } else if (key === keys.marketSummary) {
-            const summary = JSON.parse(value);
-            if (!summary || !summary.twse && !summary.tpex) throw new Error("missing markets");
+            const summary = decodeMarketSummary(JSON.parse(value));
             rows2 = Number(!!summary.twse) + Number(!!summary.tpex);
           } else {
             const snapshot = decodeSnapshot(value);

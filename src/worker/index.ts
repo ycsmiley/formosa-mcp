@@ -8,7 +8,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
 import { registerToolsets, toolsets } from '../mcp/toolsets.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, mergeStockSnapshots, decodeQuotesSnapshot, decodeSnapshot, type InvoiceSnapshot, type MarketSnapshot } from '../core/snapshot.js';
-import type { MarketSummary } from '../core/stock/market.js';
+import { decodeMarketSummary } from '../core/stock/market-schema.js';
 import type { StockQuote, DividendEvent } from '../core/stock/parse.js';
 import { readTpexCheck, tpexFallback } from './tpex-fallback.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
@@ -73,7 +73,7 @@ export default {
           garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword, filter) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword, filter) : null; } },
           railService,
           loadDraws: async () => (await read<InvoiceSnapshot>(env, keys.invoice))?.draws ?? null,
-          snapshot: { marketSummary: async () => { const value = await env.SNAPSHOTS.get(keys.marketSummary); return value === null ? null : JSON.parse(value) as MarketSummary; }, quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },
+          snapshot: { marketSummary: async () => { const value = await env.SNAPSHOTS.get(keys.marketSummary); return value === null ? null : decodeMarketSummary(JSON.parse(value)); }, quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },
         });
         return server;
       }, { route: '/mcp' });

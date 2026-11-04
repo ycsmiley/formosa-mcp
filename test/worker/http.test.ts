@@ -73,6 +73,22 @@ it('reads market summary only from KV, or returns updating for a missing key, wi
   expect(result.content[0].text).toContain('融資餘額');
   expect(spy).not.toHaveBeenCalled();
 });
+it.each([{}, { dataDate: { year: 2026, month: 11, day: 3 }, taiex: '345.52' }, { margin: {} }])(
+  'renders valid TWSE data and withholds a malformed TPEx block %j without fetch', async malformed => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
+    const summary = buildMarketSummary({ fmtqik: mf, margn: mm, tpexIndex: pi, tpexMargin: pm,
+      fmtqikLastModified: mh.fmtqik['last-modified'], margnLastModified: mh.margn['last-modified'] });
+    await bindings.SNAPSHOTS.put(keys.marketSummary, JSON.stringify({ ...summary, tpex: malformed }));
+    const result = await rpc('tools/call', { name: 'stock_market_summary', arguments: {} });
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0].text).toContain('上市\n資料日期：115年11月03日');
+    expect(result.content[0].text).toContain('加權指數 收盤 43,307.54');
+    expect(result.content[0].text).toContain('融資餘額 2,067,024 張');
+    expect(result.content[0].text).toContain('上櫃\n暫不提供。');
+    expect(result.content[0].text).not.toMatch(/NaN|undefined/);
+    expect(spy).not.toHaveBeenCalled();
+  },
+);
 it('routes, bounds actual bytes and declared lengths, and strictly limits each IP', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-29T08:00:15Z'));

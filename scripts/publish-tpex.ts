@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decodeQuotesSnapshot, decodeSnapshot } from '../src/core/snapshot.js';
+import { decodeMarketSummary } from '../src/core/stock/market-schema.js';
 import { collectKeys, keys } from '../src/worker/snapshot-keys.js';
 import { collectTpex, type TpexManifest } from './collect-tpex.js';
 
@@ -52,8 +53,7 @@ export async function publishTpex({ outDir, env = process.env, now = new Date() 
             }).sort().at(-1) ?? null;
             if (!dataDate) throw new Error('missing date');
           } else if (key === keys.marketSummary) {
-            const summary = JSON.parse(value);
-            if (!summary || !summary.twse && !summary.tpex) throw new Error('missing markets');
+            const summary = decodeMarketSummary(JSON.parse(value));
             rows = Number(!!summary.twse) + Number(!!summary.tpex);
           } else {
             const snapshot = decodeSnapshot<{ rows: unknown[] }>(value);
