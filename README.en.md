@@ -10,26 +10,25 @@ Taiwan e-invoice lottery, TWSE/TPEx end-of-day stocks, garbage schedules for New
 
 The remote service needs no key and provides invoices, stocks, garbage schedules, planned water and power outages, HSR and TRA timetables for today and tomorrow, and TRA live data within quota.
 
-Remote URL: `https://<public-host>/mcp` (the official URL will replace this placeholder on launch day).
+Remote URL: `https://formosa-mcp.ycsmiley.workers.dev/mcp`
 
 Claude (Desktop / web): Go to Settings → Connectors → Add custom connector and paste the URL.
 
 Claude Code:
 
 ```sh
-claude mcp add --transport http formosa "https://<public-host>/mcp"
+claude mcp add --transport http formosa "https://formosa-mcp.ycsmiley.workers.dev/mcp"
 ```
 
 Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`) and other clients supporting streamable HTTP:
 
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=formosa&config=eyJ1cmwiOiJodHRwczovLzxwdWJsaWMtaG9zdD4vbWNwIn0%3D)
-<!-- Regenerate the base64 config with the real URL on launch day -->
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=formosa&config=eyJ1cmwiOiJodHRwczovL2Zvcm1vc2EtbWNwLnljc21pbGV5LndvcmtlcnMuZGV2L21jcCJ9)
 
 ```json
 {
   "mcpServers": {
     "formosa": {
-      "url": "https://<public-host>/mcp"
+      "url": "https://formosa-mcp.ycsmiley.workers.dev/mcp"
     }
   }
 }

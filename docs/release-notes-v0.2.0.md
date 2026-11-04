@@ -1,4 +1,3 @@
-<!-- 給維護者：tag v0.2.0 尚未建立；貼到 GitHub Release 時不含此註解。 -->
 # formosa-mcp v0.2.0
 
 ## 繁體中文
@@ -7,16 +6,14 @@ formosa-mcp 讓 AI 助手查詢台灣發票、台股、交通及公共服務資�
 
 使用遠端服務：在 Claude 的自訂連接器貼上以下網址；Claude Code 可執行以下指令：
 
-<!-- 公開當天換成正式網址 -->
 ```sh
-claude mcp add --transport http formosa "https://<公開網址>/mcp"
+claude mcp add --transport http formosa "https://formosa-mcp.ycsmiley.workers.dev/mcp"
 ```
 
 Cursor 的 MCP 設定：
 
-<!-- 公開當天換成正式網址 -->
 ```json
-{"mcpServers":{"formosa":{"url":"https://<公開網址>/mcp"}}}
+{"mcpServers":{"formosa":{"url":"https://formosa-mcp.ycsmiley.workers.dev/mcp"}}}
 ```
 
 遠端工具：
@@ -44,16 +41,14 @@ formosa-mcp lets AI assistants look up Taiwan invoice, stock, transport and publ
 
 For the remote service, paste the URL into a Claude custom connector, or use Claude Code:
 
-<!-- 公開當天換成正式網址 -->
 ```sh
-claude mcp add --transport http formosa "https://<公開網址>/mcp"
+claude mcp add --transport http formosa "https://formosa-mcp.ycsmiley.workers.dev/mcp"
 ```
 
 Cursor MCP configuration:
 
-<!-- 公開當天換成正式網址 -->
 ```json
-{"mcpServers":{"formosa":{"url":"https://<公開網址>/mcp"}}}
+{"mcpServers":{"formosa":{"url":"https://formosa-mcp.ycsmiley.workers.dev/mcp"}}}
 ```
 
 Remote tools include `invoice_get_winning_numbers`, `invoice_check`, `stock_quote`, `stock_dividends`, `thsr_timetable`, `tra_timetable`, `tra_live`, `garbage_schedule` (New Taipei, Taipei and Taichung), and `outage_schedule` (planned Taiwan Water, Taipei Water and Taipower notices). Project-key timetables cover today and tomorrow; `tra_live` provides live data within quota and falls back to scheduled services when limits are reached or the upstream fails. The limit is 30 requests per IP per minute. Optional `X-TDX-Client-Id` and `X-TDX-Client-Secret` headers supply credentials for that request only; they are neither stored nor logged.

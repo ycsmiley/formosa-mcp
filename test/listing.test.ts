@@ -92,13 +92,13 @@ it('pins both Docker stages and runs stdio as node', () => {
 });
 
 
-it('never prints the unpublished remote host', () => {
+it('does not hardcode the remote host in code or manifests', () => {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const filesUnder = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const path = join(dir, entry.name);
     return entry.isDirectory() ? filesUnder(path) : entry.isFile() ? [path] : [];
   });
-  const paths = ['README.md', 'README.en.md', 'plugin/server/formosa-mcp.mjs', 'server.json'].map(path => join(root, path));
+  const paths = ['plugin/server/formosa-mcp.mjs', 'server.json'].map(path => join(root, path));
   paths.push(...filesUnder(join(root, 'src')));
   if (existsSync(join(root, 'dist'))) paths.push(...filesUnder(join(root, 'dist')));
   for (const path of paths) expect(readFileSync(path, 'utf8').includes(['workers', 'dev'].join('.')), path).toBe(false);
