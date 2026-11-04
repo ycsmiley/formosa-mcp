@@ -38,7 +38,7 @@ Cursor（`.cursor/mcp.json` 或 `~/.cursor/mcp.json`）與其他支援 streamabl
 
 ### 本機執行（開發者）
 
-需要 Node.js 20 以上。npm 版 0.1.0 包含發票、台股與鐵路預覽；垃圾車、停水停電請用遠端網址或從原始碼執行。
+需要 Node.js 20 以上。本機版預設啟用發票、台股、垃圾車、停水停電，直接向官方來源抓資料；鐵路需自備 TDX 金鑰，見[鐵路金鑰](#鐵路金鑰)。
 
 在 Claude Desktop 的 `claude_desktop_config.json` 或 Cursor 的 `.cursor/mcp.json`（或 `~/.cursor/mcp.json`）加入以下設定，然後重新啟動應用程式：
 
@@ -87,15 +87,17 @@ claude plugin install formosa@formosa-mcp
 
 工具：
 
-- `invoice_get_winning_numbers {period?}`：查最新或指定期別號碼、領獎期間；未公布期別顯示「尚未開獎」。
-- `invoice_check {number, period?}`：接受 3–8 碼及兩碼英文字母前綴，3–7 碼只能判斷六獎；省略期別時檢查最新一期與仍可領獎的前一期。
-- `stock_quote {query}`：以代號或名稱查上市／上櫃收盤、漲跌、成交量、本益比、殖利率與股價淨值比；名稱有多筆符合時列出代號供選擇。
-- `stock_dividends {query?}`：列出近期除權息，預設前 20 筆；可指定股票代號或名稱。
-- `thsr_timetable {origin, destination, date?, time?}`：高鐵起迄站時刻。
-- `tra_timetable {origin, destination, date?, time?}`：台鐵時刻、車種、停駛與加班車。
-- `garbage_schedule {city, district?, keyword?, weekday?, time?}`：定點收運時刻。
-- `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`：計畫性停水停電，`type` 為 `water`、`power` 或 `all`（預設）；省略日期時查臺北時間今天起七天，最多顯示 30 筆。
-- `tra_live {train_no?, station?}`：恰填一項，查車次目前位置／誤點或車站即時看板。
+| 工具 | 說明 | 本機 npm 版 | 遠端版 |
+| --- | --- | --- | --- |
+| `invoice_get_winning_numbers {period?}` | 查最新或指定期別號碼、領獎期間；未公布期別顯示「尚未開獎」。 | ✅ | ✅ |
+| `invoice_check {number, period?}` | 接受 3–8 碼及兩碼英文字母前綴，3–7 碼只能判斷六獎；省略期別時檢查最新一期與仍可領獎的前一期。 | ✅ | ✅ |
+| `stock_quote {query}` | 以代號或名稱查上市／上櫃收盤、漲跌、成交量、本益比、殖利率與股價淨值比；名稱有多筆符合時列出代號供選擇。 | ✅ | ✅ |
+| `stock_dividends {query?}` | 列出近期除權息，預設前 20 筆；可指定股票代號或名稱。 | ✅ | ✅ |
+| `thsr_timetable {origin, destination, date?, time?}` | 高鐵起迄站時刻。 | 需自備 TDX 金鑰＋`--toolsets rail` | ✅ 今天與明天 |
+| `tra_timetable {origin, destination, date?, time?}` | 台鐵時刻、車種、停駛與加班車。 | 需自備 TDX 金鑰＋`--toolsets rail` | ✅ 今天與明天 |
+| `garbage_schedule {city, district?, keyword?, weekday?, time?}` | 定點收運時刻。 | ✅ | ✅ |
+| `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}` | 計畫性停水停電，`type` 為 `water`、`power` 或 `all`（預設）；省略日期時查臺北時間今天起七天，最多顯示 30 筆。 | ✅ | ✅ |
+| `tra_live {train_no?, station?}` | 恰填一項，查車次目前位置／誤點或車站即時看板。 | 需自備 TDX 金鑰＋`--toolsets rail` | ✅ 額度內 |
 
 行情資料日期遇假日可能落後；除權息以公司公告為準。
 
@@ -170,7 +172,7 @@ claude plugin install formosa@formosa-mcp
   "mcpServers": {
     "formosa": {
       "command": "npx",
-      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,rail"],
+      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,garbage,outage,rail"],
       "env": {
         "TDX_CLIENT_ID": "你的 Client Id",
         "TDX_CLIENT_SECRET": "你的 Client Secret"
@@ -182,7 +184,7 @@ claude plugin install formosa@formosa-mcp
 
 4. 儲存設定並重新啟動 Claude Desktop／Cursor。
 
-金鑰只放在本機設定，不要貼到對話裡，也不要提交到版本控制；`.env` 已列入 gitignore。以 `--toolsets=invoice,stock,rail` 或 `--toolsets=rail` 啟用；缺金鑰時，鐵路工具會顯示上述設定指引。
+金鑰只放在本機設定，不要貼到對話裡，也不要提交到版本控制；`.env` 已列入 gitignore。以 `--toolsets=invoice,stock,garbage,outage,rail` 或 `--toolsets=rail` 啟用；缺金鑰時，鐵路工具會顯示上述設定指引。
 
 使用自己的金鑰在本機執行，可查即時車次與誤點。已於 2026-10-29 以真實 TDX 回應驗證。成功回覆標示資料介接「交通部TDX平臺」；詳見 [TDX 鐵路測試資料](test/fixtures/tdx/README.md)。
 

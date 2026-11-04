@@ -65,7 +65,7 @@ export default {
       const railService = workerRail(env, key, credentials);
       const enabled = env.DISASTER_ENABLED === 'true';
       const handler = createMcpHandler(() => {
-        const server = new McpServer({ name: 'formosa-mcp', version: '0.1.0' });
+        const server = new McpServer({ name: 'formosa-mcp', version: '0.2.0' });
         registerToolsets(server, toolsets.filter(t => t.name !== 'disaster' || enabled), {}, {
           disasterStore: enabled ? { indexes: async () => { const load = async (writer: Writer) => { const raw = await env.SNAPSHOTS.get(disasterIndexKey(writer)); return raw === null ? null : decodeDisasterIndex(raw); }; const [worker, gha] = await Promise.allSettled([load('worker'), load('gha')]); return { worker: worker.status === 'fulfilled' ? worker.value : null, gha: gha.status === 'fulfilled' ? gha.value : null, errors: { worker: worker.status === 'rejected', gha: gha.status === 'rejected' } }; }, shard: async (source, sha) => { const raw = await env.SNAPSHOTS.get(disasterShardKey(source, sha)); return raw ? decodeDisasterShard(raw, source) : null; } } : undefined,
           outageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(outageIndexKey); return raw ? decodeOutageIndex(raw) : null; }, shard: async (source, county, sha) => { const raw = await env.SNAPSHOTS.get(outageShardKey(source, county, sha)); return raw ? decodeOutageShard(raw, source, county) : null; } },

@@ -27,7 +27,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
   for (const name of selected) {
     if (!available.includes(name)) throw new Error(`未知工具集「${name}」。有效工具集：${available.join(', ')}`);
   }
-  const server = new McpServer({ name: 'formosa-mcp', version: options.version ?? '0.1.0' });
+  const server = new McpServer({ name: 'formosa-mcp', version: options.version ?? '0.2.0' });
   registerToolsets(server, toolsets.filter(t => selected.includes(t.name)), options.env ?? {}, { ...options, disasterStore: options.disasterStore ?? localDisasterStore(options.env?.FORMOSA_DISASTER_DIR), outageStore: options.outageStore ?? localOutageStore(options.env?.FORMOSA_OUTAGE_DIR), garbageStore: options.garbageStore ?? localGarbageStore(options.env?.FORMOSA_GARBAGE_DIR) });
   return server;
 }

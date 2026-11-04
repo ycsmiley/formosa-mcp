@@ -37,7 +37,7 @@ Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`) and other clients supporting
 
 ### Local execution (developers)
 
-Node.js 20+ is required. npm version 0.1.0 includes invoices, stocks and a rail preview; use the remote URL or run from source for garbage schedules and outages.
+Node.js 20+ is required. The local version enables invoices, stocks, garbage schedules and outages by default and fetches official sources directly; rail needs your own TDX key, see [Rail keys](#railway-keys).
 
 Add this configuration to Claude Desktop's `claude_desktop_config.json` or Cursor's `.cursor/mcp.json` (or `~/.cursor/mcp.json`), then restart the app:
 
@@ -86,15 +86,17 @@ claude plugin install formosa@formosa-mcp
 
 Tools:
 
-- `invoice_get_winning_numbers {period?}`: winning numbers and claim periods; unpublished periods are marked as not yet drawn.
-- `invoice_check {number, period?}`: checks 3–8 digits and optional two-letter prefix; 3–7 digits can only identify sixth prizes. By default checks the latest draw and any previous draw still claimable.
-- `stock_quote {query}`: closing price, changes, volume, P/E, yield and price-to-book; lists matching codes for ambiguous names.
-- `stock_dividends {query?}`: recent ex-dividend dates, defaulting to 20 results; optionally filter by code or name.
-- `thsr_timetable {origin, destination, date?, time?}`: HSR timetables.
-- `tra_timetable {origin, destination, date?, time?}`: TRA timetables, train types, cancellations and extra trains.
-- `garbage_schedule {city, district?, keyword?, weekday?, time?}`: scheduled collection stops.
-- `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}`: planned outages; `type` is `water`, `power` or `all` (default). Dates default to today through today + 6 in Asia/Taipei; at most 30 notices are displayed.
-- `tra_live {train_no?, station?}`: provide exactly one to check train location and delay or a station board.
+| Tool | Description | Local npm | Remote |
+| --- | --- | --- | --- |
+| `invoice_get_winning_numbers {period?}` | winning numbers and claim periods; unpublished periods are marked as not yet drawn. | ✅ | ✅ |
+| `invoice_check {number, period?}` | checks 3–8 digits and optional two-letter prefix; 3–7 digits can only identify sixth prizes. By default checks the latest draw and any previous draw still claimable. | ✅ | ✅ |
+| `stock_quote {query}` | closing price, changes, volume, P/E, yield and price-to-book; lists matching codes for ambiguous names. | ✅ | ✅ |
+| `stock_dividends {query?}` | recent ex-dividend dates, defaulting to 20 results; optionally filter by code or name. | ✅ | ✅ |
+| `thsr_timetable {origin, destination, date?, time?}` | HSR timetables. | own TDX key + `--toolsets rail` | ✅ today and tomorrow |
+| `tra_timetable {origin, destination, date?, time?}` | TRA timetables, train types, cancellations and extra trains. | own TDX key + `--toolsets rail` | ✅ today and tomorrow |
+| `garbage_schedule {city, district?, keyword?, weekday?, time?}` | scheduled collection stops. | ✅ | ✅ |
+| `outage_schedule {city, district?, keyword?, type?, start_date?, end_date?}` | planned outages; `type` is `water`, `power` or `all` (default). Dates default to today through today + 6 in Asia/Taipei; at most 30 notices are displayed. | ✅ | ✅ |
+| `tra_live {train_no?, station?}` | provide exactly one to check train location and delay or a station board. | own TDX key + `--toolsets rail` | ✅ within quota |
 
 Stock dates can lag on holidays; company announcements govern dividends.
 
@@ -157,7 +159,7 @@ For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-ou
   "mcpServers": {
     "formosa": {
       "command": "npx",
-      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,rail"],
+      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,garbage,outage,rail"],
       "env": {
         "TDX_CLIENT_ID": "你的 Client Id",
         "TDX_CLIENT_SECRET": "你的 Client Secret"
@@ -169,7 +171,7 @@ For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-ou
 
 4. Save the configuration and restart Claude Desktop or Cursor.
 
-Keep keys in local configuration, never paste them into conversations or commit them; `.env` is gitignored. Enable rail with `--toolsets=invoice,stock,rail` or `--toolsets=rail`. Without a key, rail tools show this setup guide.
+Keep keys in local configuration, never paste them into conversations or commit them; `.env` is gitignored. Enable rail with `--toolsets=invoice,stock,garbage,outage,rail` or `--toolsets=rail`. Without a key, rail tools show this setup guide.
 
 Your own key enables local rail queries, including live train delays. Rail was verified against real TDX responses on 2026-10-29. Successful replies credit 資料介接「交通部TDX平臺」; see [TDX fixtures](test/fixtures/tdx/README.md).
 

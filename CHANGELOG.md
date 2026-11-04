@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-04
+
 ### Removed
 
 - Tainan and Kaohsiung were delisted from `garbage_schedule` because the Actions collector cannot reach their data sites; queries now return a 「目前尚未支援」 explanation. Legacy KV index entries for these cities are ignored.
@@ -31,6 +33,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- npm package now includes `garbage` and `outage` (default toolsets `invoice,stock,garbage,outage`); local stdio fetches official sources directly, no KV needed.
 - Move rail station/timetable fetching and TRA compaction from Worker cron to a bundled GitHub Actions collector, preserving Workers Free; add local directory/bulk export, paced lazy token calls, monthly usage reporting and a default 300-call snapshot reserve (3,750 live ceiling at quota 4,500).
 - TRA station live board sorted by scheduled time, including across midnight.
 - Remote rail developer guides document project-key and bring-your-own-key modes; local rail remains opt-in.
@@ -50,5 +53,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - npm package limited to dist; no install scripts.
 
 <!-- Tag v0.1.0 is not created yet. -->
-[Unreleased]: https://github.com/ycsmiley/formosa-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ycsmiley/formosa-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ycsmiley/formosa-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ycsmiley/formosa-mcp/releases/tag/v0.1.0

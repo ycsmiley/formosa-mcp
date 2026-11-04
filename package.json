@@ -1,6 +1,6 @@
 {
   "name": "formosa-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "台灣發票、台股、垃圾車、停水停電與高鐵／台鐵資訊；本機鐵路工具須自備 TDX 金鑰",
   "license": "MIT",
   "repository": {

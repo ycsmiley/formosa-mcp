@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ycsmiley/formosa-mcp",
   "title": "formosa-mcp",
-  "description": "Taiwan e-invoice lottery, TWSE/TPEx stock quotes and dividends, and garbage truck schedules",
-  "version": "0.1.0",
+  "description": "Taiwan invoice lottery, TWSE/TPEx stocks, garbage trucks, water/power outages, THSR/TRA rail (TDX)",
+  "version": "0.2.0",
   "repository": {
     "url": "https://github.com/ycsmiley/formosa-mcp",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "formosa-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -36,8 +36,8 @@
         {
           "type": "named",
           "name": "--toolsets",
-          "description": "Comma-separated toolsets; select rail to enable rail tools.",
-          "default": "invoice,stock",
+          "description": "Comma-separated toolsets (invoice, stock, garbage, outage, disaster, rail); rail needs TDX keys.",
+          "default": "invoice,stock,garbage,outage",
           "isRequired": false
         }
       ]

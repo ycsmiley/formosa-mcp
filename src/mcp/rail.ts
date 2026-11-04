@@ -10,7 +10,7 @@ Claude Desktop（claude_desktop_config.json）或 Cursor（.cursor/mcp.json 或 
   "mcpServers": {
     "formosa": {
       "command": "npx",
-      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,rail"],
+      "args": ["-y", "formosa-mcp", "--toolsets=invoice,stock,garbage,outage,rail"],
       "env": {
         "TDX_CLIENT_ID": "你的 Client Id",
         "TDX_CLIENT_SECRET": "你的 Client Secret"
@@ -19,7 +19,7 @@ Claude Desktop（claude_desktop_config.json）或 Cursor（.cursor/mcp.json 或 
   }
 }
 
-不想申請金鑰：發票與台股現在就能免金鑰使用（不需啟用 rail）；免金鑰的公開網址即將推出。
+不想申請金鑰：改用免金鑰的遠端版，可查高鐵／臺鐵今天與明天的時刻表，連線方式見 https://github.com/ycsmiley/formosa-mcp#開始使用 。發票、台股、垃圾車、停水停電在本機版不需金鑰。
 
 金鑰只放在本機設定，不要貼到對話裡。`;
 const result = ({ text, isError }: RailResult) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}) });

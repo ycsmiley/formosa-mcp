@@ -55,7 +55,7 @@ it.each([
     expect(r.text).toBe(railKeyGuide);
     expect(r.text).not.toContain(['workers', 'dev'].join('.'));
     expect(r.text).not.toContain('鐵路即將加入');
-    for (const part of ['https://tdx.transportdata.tw', '審核後', '會員中心「API 金鑰」', 'TDX_CLIENT_ID', 'TDX_CLIENT_SECRET', '重新啟動', '--toolsets=invoice,stock,rail', '免金鑰的公開網址即將推出', '發票與台股', '每月呼叫次數上限', '不要貼到對話裡']) expect(r.text).toContain(part);
+    for (const part of ['https://tdx.transportdata.tw', '審核後', '會員中心「API 金鑰」', 'TDX_CLIENT_ID', 'TDX_CLIENT_SECRET', '重新啟動', '--toolsets=invoice,stock,garbage,outage,rail', '免金鑰的遠端版', 'https://github.com/ycsmiley/formosa-mcp#開始使用', '發票、台股、垃圾車、停水停電在本機版不需金鑰', '每月呼叫次數上限', '不要貼到對話裡']) expect(r.text).toContain(part);
   }
   expect(http).not.toHaveBeenCalled(); expect(log).not.toHaveBeenCalled();
 });
