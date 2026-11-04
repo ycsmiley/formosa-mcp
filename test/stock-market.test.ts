@@ -44,6 +44,28 @@ it.each([
 it('accepts close and six-hour boundary inclusively', () => {
   expect(buildMarketSummary({ ...marketInput(), fmtqikLastModified: 'Tue, 03 Nov 2026 06:30:00 GMT', margnLastModified: 'Tue, 03 Nov 2026 12:30:00 GMT' }).twse?.margin?.dateConfirmed).toBe(true);
 });
+it('confirms Friday TWSE margin with Monday 05:20 Taipei headers before the next weekday close', () => {
+  const input = marketInput();
+  input.fmtqik = (input.fmtqik as Record<string, string>[]).map(r => ({ ...r, Date: '1151106' }));
+  input.fmtqikLastModified = input.margnLastModified = 'Sun, 08 Nov 2026 21:20:00 GMT';
+  const result = buildMarketSummary(input);
+  expect(result.twse?.margin?.dateConfirmed).toBe(true);
+  expect(result.twse?.margin?.date).toEqual({ year: 2026, month: 11, day: 6 });
+  expect(result.twse?.marginReason).toBeUndefined();
+});
+it.each([
+  ['Wed, 04 Nov 2026 06:30:00 GMT', 'Wed, 04 Nov 2026 06:29:59 GMT'],
+  ['Wed, 04 Nov 2026 06:29:59 GMT', 'Wed, 04 Nov 2026 06:30:00 GMT'],
+  ['Wed, 04 Nov 2026 08:00:00 GMT', 'Wed, 04 Nov 2026 08:00:00 GMT'],
+])('withholds TWSE margin at or after the next weekday close (%s / %s)', (fmtqikLastModified, margnLastModified) => {
+  const previous = buildMarketSummary(marketInput());
+  const input = { ...marketInput(), fmtqikLastModified, margnLastModified };
+  const result = buildMarketSummary(input, previous);
+  expect(result.twse?.margin).toBe(previous.twse?.margin);
+  expect(result.twse?.marginReason).toContain('下一個交易日收盤');
+  expect(buildMarketSummary(input).twse?.margin).toBeUndefined();
+  expect(formatMarketSummary(result, clock)).toContain('上次確認的融資券資料日期：115年11月03日');
+});
 it('rejects newly advanced FMTQIK paired with the prior pre-close margin header', () => {
   const input = marketInput();
   input.fmtqik = (input.fmtqik as Record<string, string>[]).map(r => ({ ...r, Date: '1151104' }));
@@ -58,7 +80,10 @@ it.each(['twse', 'tpex'] as const)('keeps the previous confirmed %s margin with 
   if (market === 'twse') {
     input.fmtqik = (input.fmtqik as Record<string, string>[]).map(r => ({ ...r, Date: '1151104' }));
     input.margnLastModified = '';
-  } else input.tpexIndex = (input.tpexIndex as Record<string, string>[]).map(r => ({ ...r, Date: '1151104' }));
+  } else {
+    input.tpexIndex = (input.tpexIndex as Record<string, string>[]).map(r => ({ ...r, Date: '1151104' }));
+    (input.tpexMargin as Record<string, string>[])[0].Date = '1151104';
+  }
   const result = buildMarketSummary(input, buildMarketSummary(input, previous));
   expect(result[market]?.dataDate.day).toBe(4);
   expect(result[market]?.margin).toEqual(previous[market]?.margin);
@@ -67,12 +92,44 @@ it.each(['twse', 'tpex'] as const)('keeps the previous confirmed %s margin with 
   expect(text).toContain('無法確認資料日期');
 });
 
-it.each(['mixed', 'other-day'] as const)('withholds TPEx margin for %s dates', kind => {
+it.each(['mixed', 'future'] as const)('withholds TPEx margin for %s dates', kind => {
   const input = marketInput();
-  input.tpexMargin = (input.tpexMargin as Record<string, string>[]).map((r, i) => ({ ...r, Date: kind === 'other-day' || i === 0 ? '1151102' : r.Date }));
+  input.tpexMargin = (input.tpexMargin as Record<string, string>[]).map((r, i) => ({ ...r, Date: kind === 'future' ? '1151104' : i === 0 ? '1151102' : r.Date }));
   const result = buildMarketSummary(input);
   expect(result.tpex?.margin).toBeUndefined();
-  expect(result.tpex?.marginReason).toContain('未全部等於');
+  expect(result.tpex?.marginReason).toContain('不一致或晚於');
+});
+it('confirms November 3 TPEx margin with its own date after the November 4 index publishes', () => {
+  const input = marketInput();
+  input.tpexIndex = (input.tpexIndex as Record<string, string>[]).map(r => ({ ...r, Date: '1151104' }));
+  const result = buildMarketSummary(input);
+  expect(result.tpex?.dataDate).toEqual({ year: 2026, month: 11, day: 4 });
+  expect(result.tpex?.margin).toEqual(buildMarketSummary(marketInput()).tpex?.margin);
+  expect(result.tpex?.marginReason).toBeUndefined();
+  const text = formatMarketSummary(result, clock).split('上櫃\n')[1];
+  expect(text).toContain('融資券資料日期：115年11月03日');
+  expect(text).not.toContain('上次確認');
+  expect(text).not.toContain('無法確認');
+});
+it('keeps the previous confirmed TPEx margin when the feed has an older margin date', () => {
+  const previous = buildMarketSummary(marketInput());
+  const input = marketInput();
+  input.tpexIndex = (input.tpexIndex as Record<string, string>[]).map(r => ({ ...r, Date: '1151104' }));
+  input.tpexMargin = (input.tpexMargin as Record<string, string>[]).map(r => ({ ...r, Date: '1151102', MarginPurchaseBalance: '0' }));
+  const result = buildMarketSummary(input, previous);
+  expect(result.tpex?.dataDate.day).toBe(4);
+  expect(result.tpex?.margin).toBe(previous.tpex?.margin);
+  expect(result.tpex?.marginReason).toBeUndefined();
+});
+it.each(['twse', 'tpex'] as const)('keeps the entire previous %s block unchanged when its index date regresses', market => {
+  const previous = buildMarketSummary(marketInput());
+  previous[market]!.marginReason = '先前的日期確認原因';
+  const input = marketInput();
+  input.fmtqik = (input.fmtqik as Record<string, string>[]).map(r => ({ ...r, Date: market === 'twse' ? '1151102' : '1151104' }));
+  input.tpexIndex = (input.tpexIndex as Record<string, string>[]).map(r => ({ ...r, Date: market === 'tpex' ? '1151102' : '1151104' }));
+  const result = buildMarketSummary(input, previous);
+  expect(result[market]).toBe(previous[market]);
+  expect(result[market === 'twse' ? 'tpex' : 'twse']?.dataDate.day).toBe(4);
 });
 
 it.each([

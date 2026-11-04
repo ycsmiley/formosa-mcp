@@ -221,13 +221,16 @@ function margin(body, twse, dataDate) {
   const fields = twse ? ["\u878D\u8CC7\u524D\u65E5\u9918\u984D", "\u878D\u8CC7\u4ECA\u65E5\u9918\u984D", "\u878D\u5238\u524D\u65E5\u9918\u984D", "\u878D\u5238\u4ECA\u65E5\u9918\u984D"] : ["MarginPurchaseBalancePreviousDay", "MarginPurchaseBalance", "ShortSaleBalancePreviousDay", "ShortSaleBalance"];
   const totals = fields.map((key) => data.reduce((sum, row) => sum + numeric(row, key, true), 0));
   if (!twse) for (const row of data) date(row);
-  return { date: dataDate, dateConfirmed: true, financePrev: totals[0], finance: totals[1], shortPrev: totals[2], short: totals[3] };
+  return { date: twse ? dataDate : date(data[0]), dateConfirmed: true, financePrev: totals[0], finance: totals[1], shortPrev: totals[2], short: totals[3] };
 }
 function twseMarginReason(dataDate, fmtqik, margn) {
   const a = fmtqik ? Date.parse(fmtqik) : NaN, b = margn ? Date.parse(margn) : NaN;
   if (!Number.isFinite(a) || !Number.isFinite(b)) return "FMTQIK \u6216 MI_MARGN \u7F3A\u5C11\u53EF\u89E3\u6790\u7684 Last-Modified \u6A19\u982D\u3002";
   const close = Date.UTC(dataDate.year, dataDate.month - 1, dataDate.day, 6, 30);
   if (a < close || b < close) return "FMTQIK \u6216 MI_MARGN \u7684 Last-Modified \u65E9\u65BC\u6307\u6578\u8CC7\u6599\u65E5\u53F0\u5317\u6642\u9593 14:30\u3002";
+  let nextClose = close + 864e5;
+  while ([0, 6].includes(new Date(nextClose).getUTCDay())) nextClose += 864e5;
+  if (a >= nextClose || b >= nextClose) return "Last-Modified \u665A\u65BC\u6216\u7B49\u65BC\u4E0B\u4E00\u500B\u4EA4\u6613\u65E5\u6536\u76E4\uFF0C\u7121\u6CD5\u78BA\u8A8D\u5C6C\u65BC\u6307\u6578\u8CC7\u6599\u65E5\u3002";
   if (Math.abs(b - a) > 6 * 36e5) return b < a ? "MI_MARGN \u7684 Last-Modified \u6BD4 FMTQIK \u820A\u8D85\u904E 6 \u5C0F\u6642\u3002" : "MI_MARGN \u7684 Last-Modified \u6BD4 FMTQIK \u65B0\u8D85\u904E 6 \u5C0F\u6642\u3002";
 }
 function buildMarketSummary(input, previous) {
@@ -236,13 +239,14 @@ function buildMarketSummary(input, previous) {
     const old = twse2 ? previous?.twse : previous?.tpex;
     try {
       const block = index(twse2 ? input.fmtqik : input.tpexIndex, twse2);
+      if (old && dateKey(block.dataDate) < dateKey(old.dataDate)) return old;
       const body = twse2 ? input.margn : input.tpexMargin;
       const totals = margin(body, twse2, block.dataDate);
-      const reason2 = twse2 ? twseMarginReason(block.dataDate, input.fmtqikLastModified, input.margnLastModified) : rows(body).some((row) => dateKey(date(row)) !== dateKey(block.dataDate)) ? "\u4E0A\u6AC3\u878D\u8CC7\u5238\u5404\u7B46\u65E5\u671F\u672A\u5168\u90E8\u7B49\u65BC\u4E0A\u6AC3\u6307\u6578\u8CC7\u6599\u65E5\u671F\u3002" : void 0;
+      const reason2 = twse2 ? twseMarginReason(block.dataDate, input.fmtqikLastModified, input.margnLastModified) : rows(body).some((row) => dateKey(date(row)) !== dateKey(totals.date)) || dateKey(totals.date) > dateKey(block.dataDate) ? "\u4E0A\u6AC3\u878D\u8CC7\u5238\u5404\u7B46\u65E5\u671F\u4E0D\u4E00\u81F4\u6216\u665A\u65BC\u4E0A\u6AC3\u6307\u6578\u8CC7\u6599\u65E5\u671F\u3002" : void 0;
       if (reason2) {
         block.marginReason = reason2;
         if (old?.margin?.dateConfirmed) block.margin = old.margin;
-      } else block.margin = totals;
+      } else block.margin = !twse2 && old?.margin?.dateConfirmed && dateKey(totals.date) < dateKey(old.margin.date) ? old.margin : totals;
       return block;
     } catch (error) {
       errors.push(`${twse2 ? "\u4E0A\u5E02" : "\u4E0A\u6AC3"}\uFF1A${error instanceof Error ? error.message : String(error)}`);

@@ -51,13 +51,16 @@ function margin(body: unknown, twse: boolean, dataDate: StockDate): MarketMargin
   const fields = twse ? ['融資前日餘額', '融資今日餘額', '融券前日餘額', '融券今日餘額'] : ['MarginPurchaseBalancePreviousDay', 'MarginPurchaseBalance', 'ShortSaleBalancePreviousDay', 'ShortSaleBalance'];
   const totals = fields.map(key => data.reduce((sum, row) => sum + numeric(row, key, true), 0));
   if (!twse) for (const row of data) date(row);
-  return { date: dataDate, dateConfirmed: true, financePrev: totals[0], finance: totals[1], shortPrev: totals[2], short: totals[3] };
+  return { date: twse ? dataDate : date(data[0]), dateConfirmed: true, financePrev: totals[0], finance: totals[1], shortPrev: totals[2], short: totals[3] };
 }
 function twseMarginReason(dataDate: StockDate, fmtqik?: string, margn?: string): string | undefined {
   const a = fmtqik ? Date.parse(fmtqik) : NaN, b = margn ? Date.parse(margn) : NaN;
   if (!Number.isFinite(a) || !Number.isFinite(b)) return 'FMTQIK 或 MI_MARGN 缺少可解析的 Last-Modified 標頭。';
   const close = Date.UTC(dataDate.year, dataDate.month - 1, dataDate.day, 6, 30);
   if (a < close || b < close) return 'FMTQIK 或 MI_MARGN 的 Last-Modified 早於指數資料日台北時間 14:30。';
+  let nextClose = close + 86400000;
+  while ([0, 6].includes(new Date(nextClose).getUTCDay())) nextClose += 86400000;
+  if (a >= nextClose || b >= nextClose) return 'Last-Modified 晚於或等於下一個交易日收盤，無法確認屬於指數資料日。';
   if (Math.abs(b - a) > 6 * 3600000) return b < a ? 'MI_MARGN 的 Last-Modified 比 FMTQIK 舊超過 6 小時。' : 'MI_MARGN 的 Last-Modified 比 FMTQIK 新超過 6 小時。';
 }
 /** Body validation is independent per market; a failed market retains its previous block. */
@@ -67,14 +70,15 @@ export function buildMarketSummary(input: MarketInputs, previous?: MarketSummary
     const old = twse ? previous?.twse : previous?.tpex;
     try {
       const block = index(twse ? input.fmtqik : input.tpexIndex, twse);
+      if (old && dateKey(block.dataDate) < dateKey(old.dataDate)) return old;
       const body = twse ? input.margn : input.tpexMargin;
       const totals = margin(body, twse, block.dataDate);
       const reason = twse ? twseMarginReason(block.dataDate, input.fmtqikLastModified, input.margnLastModified)
-        : rows(body).some(row => dateKey(date(row)) !== dateKey(block.dataDate)) ? '上櫃融資券各筆日期未全部等於上櫃指數資料日期。' : undefined;
+        : rows(body).some(row => dateKey(date(row)) !== dateKey(totals.date)) || dateKey(totals.date) > dateKey(block.dataDate) ? '上櫃融資券各筆日期不一致或晚於上櫃指數資料日期。' : undefined;
       if (reason) {
         block.marginReason = reason;
         if (old?.margin?.dateConfirmed) block.margin = old.margin;
-      } else block.margin = totals;
+      } else block.margin = !twse && old?.margin?.dateConfirmed && dateKey(totals.date) < dateKey(old.margin.date) ? old.margin : totals;
       return block;
     } catch (error) {
       errors.push(`${twse ? '上市' : '上櫃'}：${error instanceof Error ? error.message : String(error)}`);
