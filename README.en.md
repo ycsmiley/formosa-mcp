@@ -100,7 +100,7 @@ Tools:
 
 Stock dates can lag on holidays; company announcements govern dividends.
 
-Disaster (`disaster` toolset): experimental, off by default; data completeness is not guaranteed. For local npm, add `disaster` to the list, e.g. `--toolsets invoice,stock,garbage,outage,disaster` (`--toolsets disaster` alone enables only the disaster tools); the remote/self-hosted Worker needs `DISASTER_ENABLED=true`. See [docs/disaster.md](docs/disaster.md).
+Disaster (`disaster` toolset): experimental, off by default; data completeness is not guaranteed. For local npm, add `disaster` to the list, e.g. `--toolsets invoice,stock,garbage,outage,disaster` (`--toolsets disaster` alone enables only the disaster tools); the remote/self-hosted Worker needs `DISASTER_ENABLED=true`. See [docs/disaster.md](https://github.com/ycsmiley/formosa-mcp/blob/main/docs/disaster.md).
 
 ## Developers
 
