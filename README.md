@@ -101,6 +101,8 @@ claude plugin install formosa@formosa-mcp
 
 行情資料日期遇假日可能落後；除權息以公司公告為準。
 
+災害（`disaster` 工具集）：實驗中，預設關閉，不保證資料完整。本機 npm 版在清單中加入 `disaster` 啟用，例如 `--toolsets invoice,stock,garbage,outage,disaster`（只寫 `--toolsets disaster` 則只開災害工具）；遠端版／自架 Worker 需設定 `DISASTER_ENABLED=true`。詳見 [docs/disaster.md](docs/disaster.md)。
+
 ## 開發者
 
 [![每日即時檢查](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/daily-eval.yml)

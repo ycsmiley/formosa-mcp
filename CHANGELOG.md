@@ -33,6 +33,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- The `disaster` toolset is marked experimental and stays off by default; data completeness is not guaranteed.
 - npm package now includes `garbage` and `outage` (default toolsets `invoice,stock,garbage,outage`); local stdio fetches official sources directly, no KV needed.
 - Move rail station/timetable fetching and TRA compaction from Worker cron to a bundled GitHub Actions collector, preserving Workers Free; add local directory/bulk export, paced lazy token calls, monthly usage reporting and a default 300-call snapshot reserve (3,750 live ceiling at quota 4,500).
 - TRA station live board sorted by scheduled time, including across midnight.
