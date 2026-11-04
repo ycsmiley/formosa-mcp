@@ -34,10 +34,10 @@ async function call(client: Client, name: string, arguments_: Record<string, str
 function service(http: RailHttp = fixtureHttp) { return createRailService({ credentials, http, clock }); }
 const response = (value: unknown, status = 200) => ({ status, json: async () => value });
 
-it('registers exactly three rail tools and all seven with explicit opt-in', async () => {
+it('registers exactly three rail tools and all eight with explicit opt-in', async () => {
   expect((await (await setup()).listTools()).tools.map(t => t.name)).toEqual(['thsr_timetable', 'tra_timetable', 'tra_live']);
   const all = await setup({ toolsets: ['invoice', 'stock', 'rail'] });
-  expect((await all.listTools()).tools).toHaveLength(7);
+  expect((await all.listTools()).tools).toHaveLength(8);
   const defaults = await setup({ toolsets: undefined });
   expect((await defaults.listTools()).tools.map(t => t.name)).not.toContain('tra_live');
 });

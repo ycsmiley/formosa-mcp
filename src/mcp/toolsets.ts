@@ -5,6 +5,7 @@ import type { OutageStore } from '../core/outage/service.js';
 import { garbage } from './garbage.js';
 import type { GarbageStore } from '../core/garbage/service.js';
 import type { z } from 'zod';
+import type { MarketFeed } from '../core/stock/source.js';
 import type { StockSnapshotProvider } from '../core/stock/service.js';
 import type { InvoiceServiceOptions } from '../core/invoice/service.js';
 import { stock } from './stock.js';
@@ -24,6 +25,7 @@ export interface ToolsetContext extends InvoiceServiceOptions {
   railHttp?: RailHttp;
   railService?: ReturnType<typeof createRailService>;
   snapshot?: StockSnapshotProvider;
+  fetchMarketFeed?: (url: string) => Promise<MarketFeed>;
   fetchJson?: (url: string) => Promise<unknown>;
   log?: (msg: string) => void;
 }

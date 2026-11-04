@@ -4,6 +4,12 @@ import worker, { keys, metaKeys, cronJobs, disasterCron, type Env } from '../../
 import { collectKeys } from '../../src/worker/snapshot-keys.js';
 import * as stockSource from '../../src/worker/stock-source.js';
 import { buildInvoiceSnapshot, buildStockSnapshot, encodeQuotesSnapshot, decodeQuotesSnapshot, encodeSnapshot, decodeSnapshot } from '../../src/core/snapshot.js';
+import { buildMarketSummary } from '../../src/core/stock/market.js';
+import mf from '../fixtures/stock/market_fmtqik.json';
+import mm from '../fixtures/stock/market_margn.json';
+import pi from '../fixtures/stock/market_tpex_index.json';
+import pm from '../fixtures/stock/market_tpex_margin.json';
+import mh from '../fixtures/stock/market_headers.json';
 import { stockUrls } from '../../src/core/stock/source.js';
 import xml from '../fixtures/invoice.xml?raw';
 import config from '../../wrangler.jsonc?raw';
@@ -50,6 +56,23 @@ const rpc = async (method: string, params = {}, ip = nextIp()) => {
   expect(r.status, text).toBe(200);
   return JSON.parse(text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').find(l => l.startsWith('data:'))!.slice(5) : text).result;
 };
+it('reads market summary only from KV, or returns updating for a missing key, without fetch', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
+  await bindings.SNAPSHOTS.delete(keys.marketSummary);
+  const missing = await rpc('tools/call', { name: 'stock_market_summary', arguments: {} });
+  expect(missing.isError).toBe(true);
+  expect(missing.content[0].text).toBe('資料更新中，請稍後再試');
+  const summary = buildMarketSummary({ fmtqik: mf, margn: mm, tpexIndex: pi, tpexMargin: pm,
+    fmtqikLastModified: mh.fmtqik['last-modified'], margnLastModified: mh.margn['last-modified'], fetchedAt: '2026-11-04T04:20:00Z' });
+  summary.tpex!.dataDate.day = 4;
+  await bindings.SNAPSHOTS.put(keys.marketSummary, JSON.stringify(summary));
+  const result = await rpc('tools/call', { name: 'stock_market_summary', arguments: {} });
+  expect(result.isError).not.toBe(true);
+  expect(result.content[0].text).toContain('上市\n資料日期：115年11月03日');
+  expect(result.content[0].text).toContain('上櫃\n資料日期：115年11月04日');
+  expect(result.content[0].text).toContain('融資餘額');
+  expect(spy).not.toHaveBeenCalled();
+});
 it('routes, bounds actual bytes and declared lengths, and strictly limits each IP', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-29T08:00:15Z'));
@@ -114,11 +137,11 @@ it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failu
     expect(warn).toHaveBeenCalledExactlyOnceWith('mcp rate limit unavailable');
   },
 );
-it('lists exactly nine tools and serves seeded snapshots without upstream fetch', async () => {
+it('lists exactly ten tools and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
   try {
-    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
+    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_market_summary', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
     for (const [name, args, expected] of [ ['stock_quote', { query: '2330' }, '台積電'], ['stock_quote', { query: '6488' }, '環球晶'], ['stock_dividends', {}, '近期除權息'], ['invoice_get_winning_numbers', {}, '統一發票中獎號碼'], ['invoice_check', { number: '54348835' }, '頭獎'] ] as const) {
       const result = await rpc('tools/call', { name, arguments: args }); const text = result.content[0].text;
       expect(text).toContain(expected); expect(text).not.toMatch(/undefined|null|NaN|\[object/);

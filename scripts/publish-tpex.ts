@@ -8,7 +8,7 @@ import { collectKeys, keys } from '../src/worker/snapshot-keys.js';
 import { collectTpex, type TpexManifest } from './collect-tpex.js';
 
 const requiredEnv = ['CLOUDFLARE_ACCOUNT_ID', 'KV_NAMESPACE_ID', 'CLOUDFLARE_KV_WRITE_TOKEN'] as const;
-const tpexKeys = [keys.tpexQuotes, keys.tpexDividends];
+const tpexKeys = [keys.tpexQuotes, keys.tpexDividends, keys.marketSummary];
 const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 
 export async function publishTpex({ outDir, env = process.env, now = new Date() }: {
@@ -24,39 +24,58 @@ export async function publishTpex({ outDir, env = process.env, now = new Date() 
   let previousDir: string | undefined;
   try {
     previousDir = await mkdtemp(join(tmpdir(), 'tpex-previous-'));
+    let skipSummary = false;
     const previous: TpexManifest = { v: 1, market: 'tpex', generatedAt: now.toISOString(), written: [], failures: [], keys: {} };
     for (const key of tpexKeys) {
-      let response: Response;
-      try { response = await request(key); }
-      catch { console.error(`kv read ${key} failed`); return 1; }
-      if (response.status === 404) continue;
-      if (response.status !== 200) { console.error(`kv read ${key} HTTP ${response.status}`); return 1; }
-      const value = await response.text();
-      let rows: number, dataDate: string | null = null;
       try {
-        if (key === keys.tpexQuotes) {
-          const snapshot = decodeQuotesSnapshot(value);
-          rows = snapshot.rows.length;
-          dataDate = snapshot.rows.map(({ date }) => {
-            const { year, month, day } = date;
-            if (![year, month, day].every(Number.isInteger)) throw new Error('invalid date');
-            return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          }).sort().at(-1) ?? null;
-          if (!dataDate) throw new Error('missing date');
-        } else {
-          const snapshot = decodeSnapshot<{ rows: unknown[] }>(value);
-          if (!Array.isArray(snapshot.rows)) throw new Error('missing rows');
-          rows = snapshot.rows.length;
+        const response = await request(key);
+        if (response.status === 404) continue;
+        if (response.status !== 200) {
+          if (key === keys.marketSummary) {
+            console.warn(`market summary KV read HTTP ${response.status}; skipping summary publication`);
+            skipSummary = true;
+            continue;
+          }
+          console.error(`kv read ${key} HTTP ${response.status}`);
+          return 1;
         }
-      } catch { console.warn(`kv read ${key} invalid snapshot; treating as absent`); continue; }
-      const file = `${key.replaceAll(':', '_')}.json`;
-      await writeFile(join(previousDir, file), value, 'utf8');
-      previous.keys[key] = { file, dataDate, rows, bytes: new TextEncoder().encode(value).length, sha256: hash(value), updatedAt: '' };
+        const value = await response.text();
+        let rows: number, dataDate: string | null = null;
+        try {
+          if (key === keys.tpexQuotes) {
+            const snapshot = decodeQuotesSnapshot(value);
+            rows = snapshot.rows.length;
+            dataDate = snapshot.rows.map(({ date }) => {
+              const { year, month, day } = date;
+              if (![year, month, day].every(Number.isInteger)) throw new Error('invalid date');
+              return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }).sort().at(-1) ?? null;
+            if (!dataDate) throw new Error('missing date');
+          } else if (key === keys.marketSummary) {
+            const summary = JSON.parse(value);
+            if (!summary || !summary.twse && !summary.tpex) throw new Error('missing markets');
+            rows = Number(!!summary.twse) + Number(!!summary.tpex);
+          } else {
+            const snapshot = decodeSnapshot<{ rows: unknown[] }>(value);
+            if (!Array.isArray(snapshot.rows)) throw new Error('missing rows');
+            rows = snapshot.rows.length;
+          }
+        } catch { console.warn(`kv read ${key} invalid snapshot; treating as absent`); continue; }
+        const file = `${key.replaceAll(':', '_')}.json`;
+        await writeFile(join(previousDir, file), value, 'utf8');
+        previous.keys[key] = { file, dataDate, rows, bytes: new TextEncoder().encode(value).length, sha256: hash(value), updatedAt: '' };
+      } catch {
+        if (key === keys.marketSummary) {
+          console.warn('market summary KV read failed; skipping summary publication');
+          skipSummary = true;
+        } else { console.error(`kv read ${key} failed`); return 1; }
+      }
     }
     outDir ??= await mkdtemp(join(tmpdir(), 'tpex-'));
     const manifest = await collectTpex({ outDir, previous, previousDir, now });
     let failed = manifest.failures.length > 0;
     for (const key of manifest.written) {
+      if (key === keys.marketSummary && skipSummary) continue;
       const entry = manifest.keys[key];
       if (entry.sha256 === previous.keys[key]?.sha256) { console.log(`kv skip ${key} unchanged`); continue; }
       try {
@@ -69,11 +88,11 @@ export async function publishTpex({ outDir, env = process.env, now = new Date() 
         if (response.status === 200 && result?.success === true) {
           console.log(`kv put ${key} ${entry.bytes} bytes dataDate=${entry.dataDate} updatedAt=${entry.updatedAt}`);
         } else {
-          failed = true;
+          if (key !== keys.marketSummary) failed = true;
           const errors = Array.isArray(result?.errors) ? result.errors.map(error => `${error.code}:${error.message}`).join(' ') : '';
-          console.error(`kv put ${key} HTTP ${response.status}${errors ? ` ${errors.replaceAll(token, '[redacted]').replace(/\s+/g, ' ')}` : ''}`);
+          (key === keys.marketSummary ? console.warn : console.error)(`kv put ${key} HTTP ${response.status}${errors ? ` ${errors.replaceAll(token, '[redacted]').replace(/\s+/g, ' ')}` : ''}`);
         }
-      } catch { failed = true; console.error(`kv put ${key} failed`); }
+      } catch { if (key === keys.marketSummary) console.warn(`kv put ${key} failed`); else { failed = true; console.error(`kv put ${key} failed`); } }
     }
     if (!failed && manifest.written.includes(keys.tpexQuotes)) {
       const lastSuccessAt = now.toISOString(), dataDate = manifest.keys[keys.tpexQuotes].dataDate;

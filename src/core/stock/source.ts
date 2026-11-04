@@ -1,4 +1,4 @@
-// Plain GET, no key/headers. All six feeds are arrays of string-valued objects.
+// Plain GET, no key/headers. Feeds are arrays of string-valued objects.
 export const stockUrls = {
   'twse-quotes': 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
   'twse-ratios': 'https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL',
@@ -24,4 +24,19 @@ export async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url, { signal: AbortSignal.timeout(45_000) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
+}
+
+export const marketUrls = {
+  fmtqik: 'https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK',
+  margn: 'https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN',
+  tpexIndex: 'https://www.tpex.org.tw/openapi/v1/tpex_daily_trading_index',
+  tpexMargin: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance',
+} as const;
+export interface MarketFeed { body: unknown; lastModified?: string }
+export async function fetchMarketFeed(url: string): Promise<MarketFeed> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(45_000), redirect: 'error' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return { body: await response.json(), lastModified: response.headers.get('Last-Modified') ?? undefined };
+  } catch { throw new Error(`無法取得${url.includes('twse.com.tw') ? '證交所' : '櫃買中心'} OpenAPI：${url}`); }
 }

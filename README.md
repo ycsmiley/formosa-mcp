@@ -91,6 +91,7 @@ claude plugin install formosa@formosa-mcp
 | `invoice_get_winning_numbers {period?}` | 查最新或指定期別號碼、領獎期間；未公布期別顯示「尚未開獎」。 | ✅ | ✅ |
 | `invoice_check {number, period?}` | 接受 3–8 碼及兩碼英文字母前綴，3–7 碼只能判斷六獎；省略期別時檢查最新一期與仍可領獎的前一期。 | ✅ | ✅ |
 | `stock_quote {query}` | 以代號或名稱查上市／上櫃收盤、漲跌、成交量、本益比、殖利率與股價淨值比；名稱有多筆符合時列出代號供選擇。 | ✅ | ✅ |
+| `stock_market_summary {}` | 上市加權與上櫃指數收盤、漲跌、成交金額及融資券餘額（張）；兩市場各自標示資料日期，非即時。 | ✅ | ✅ |
 | `stock_dividends {query?}` | 列出近期除權息，預設前 20 筆；可指定股票代號或名稱。 | ✅ | ✅ |
 | `thsr_timetable {origin, destination, date?, time?}` | 高鐵起迄站時刻。 | 需自備 TDX 金鑰＋`--toolsets rail` | ✅ 今天與明天 |
 | `tra_timetable {origin, destination, date?, time?}` | 台鐵時刻、車種、停駛與加班車。 | 需自備 TDX 金鑰＋`--toolsets rail` | ✅ 今天與明天 |
@@ -191,7 +192,7 @@ claude plugin install formosa@formosa-mcp
 
 ### 遠端版（Cloudflare Workers）
 
-發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。證交所與發票由 Worker cron 更新；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
+發票、台股與專案模式的鐵路時刻表讀取 KV 快照；臺鐵即時查詢經單一 TDX 閘道按需取得，失敗時顯示表訂班次。個股證交所行情與發票由 Worker cron 更新；大盤摘要由既有 TPEx collector 抓取官方 FMTQIK、MI_MARGN、tpex_daily_trading_index、tpex_mainboard_margin_balance，寫入單一 `stock:market:v1`，遠端查詢只讀 KV。本機直接讀取相同 OpenAPI，快取一小時。上市可能較上櫃晚一天；各自顯示資料日期，不合併數值。融資券日期無法確認時，顯示上次確認日期的餘額，沒有舊資料則暫不提供。不新增排程；上櫃快照由 [TPEx collector](.github/workflows/tpex-collect.yml) 寫入，鐵路快照由 [GitHub Actions rail collector](.github/workflows/rail-snapshot.yml) 寫入。[垃圾車 collector](.github/workflows/garbage-collect.yml) 於臺北時間 11:37 更新三市。[停水停電 collector](.github/workflows/outage-collect.yml) 每天 06:23、12:23、18:23（臺北時間）抓取三個來源，以 `outage:v1:{source}:{county}:{sha12}`（SHA-256 前 12 碼）寫入依內容固定的縣市分片，KV TTL 為 8 天（目錄模式忽略 TTL）；索引縣市條目記錄 `writtenAt`，相同內容僅在距上次寫入超過 3 天時續寫，失敗來源保留原縣市條目，最後每次寫入 `outage:index:v1` 索引心跳。Worker 從索引雜湊組出分片 key，僅讀 KV，不解析 ZIP／CSV，也不增加 Worker cron。Workers Free 維持每次 10 ms CPU，鐵路壓縮在 collector 執行。每 IP 每分鐘限制 30 次請求。
 
 #### 遠端鐵路
 

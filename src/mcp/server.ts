@@ -17,6 +17,7 @@ export interface ServerOptions {
   version?: string;
   clock?: Clock;
   railHttp?: RailHttp;
+  fetchMarketFeed?: (url: string) => Promise<import('../core/stock/source.js').MarketFeed>;
   fetchJson?: (url: string) => Promise<unknown>;
   fetchFeed?: () => Promise<string>;
   log?: (msg: string) => void;

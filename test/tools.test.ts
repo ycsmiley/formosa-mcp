@@ -3,12 +3,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp/server.js';
-import { stockFetch } from './stock-fixtures.js';
+import { marketFixtureFeed, stockFetch } from './stock-fixtures.js';
 const xml = readFileSync(new URL('./fixtures/invoice.xml', import.meta.url), 'utf8');
 const clients: Client[] = [];
 afterEach(async () => { await Promise.all(clients.splice(0).map(c => c.close())); });
 async function setup(date: string | (() => Date) = '2026-10-26T00:00:00+08:00', fetchFeed = async () => xml) {
-  const server = createServer({ fetchJson: stockFetch, fetchFeed, clock: typeof date === 'function' ? date : () => new Date(date) });
+  const server = createServer({ fetchJson: stockFetch, fetchMarketFeed: marketFixtureFeed, fetchFeed, clock: typeof date === 'function' ? date : () => new Date(date) });
   const client = new Client({ name: 'test-client', version: '1' });
   clients.push(client);
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -23,7 +23,7 @@ function output(result: Awaited<ReturnType<Client['callTool']>>) {
 it('calls both tools end-to-end with SDK client and caches the feed', async () => {
   const fetchFeed = vi.fn(async () => xml);
   const client = await setup(undefined, fetchFeed);
-  expect((await client.listTools()).tools.map(t => t.name)).toEqual(['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_dividends', 'garbage_schedule', 'outage_schedule']);
+  expect((await client.listTools()).tools.map(t => t.name)).toEqual(['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_market_summary', 'stock_dividends', 'garbage_schedule', 'outage_schedule']);
   expect(output(await client.callTool({ name: 'invoice_get_winning_numbers', arguments: {} }))).toContain('統一發票中獎號碼｜115年07-08月');
   const result = output(await client.callTool({ name: 'invoice_check', arguments: { number: '54348835' } }));
   expect(result).toContain('【115年07-08月】恭喜！中了 頭獎');
@@ -115,7 +115,7 @@ it('calls all stock tools through MCP with clean text output', async () => {
   const client = await setup();
   for (const [name, args] of [
     ...['2330', '台積電', '6488', '不存在的股票zz', '國泰', '00719B', '020001'].map(query => ['stock_quote', { query }] as const),
-    ['stock_dividends', {}], ['stock_dividends', { query: '2330' }],
+    ['stock_market_summary', {}], ['stock_dividends', {}], ['stock_dividends', { query: '2330' }],
   ] as const) {
     const reply = await client.callTool({ name, arguments: args });
     const text = output(reply);
@@ -124,6 +124,7 @@ it('calls all stock tools through MCP with clean text output', async () => {
     if ('query' in args && args.query === '6488') expect(text).toContain('環球晶（6488）｜上櫃');
     if (name === 'stock_quote' && 'query' in args && ['2330', '台積電'].includes(args.query!)) expect(text).toContain('台積電（2330）｜上市');
     if ('query' in args && args.query === '不存在的股票zz') expect(text).toContain('找不到');
+    if (name === 'stock_market_summary') expect(text).toContain('盤後資料，非即時');
     if (name === 'stock_dividends') expect(text).toContain('近期除權息');
   }
 });

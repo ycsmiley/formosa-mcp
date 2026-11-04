@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `stock_market_summary` in the stock toolset: independently dated TWSE/TPEx closing indexes, turnover and margin balances in lots; uncertain margin dates retain clearly labelled last confirmed balances. Local feeds cache for one hour; remote reads one KV summary maintained by the existing TPEx collector, with warning-only failures and no new schedule.
+
 ## [0.2.0] - 2026-11-04
 
 ### Removed

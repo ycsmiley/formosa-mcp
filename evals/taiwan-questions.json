@@ -746,5 +746,66 @@
     "notes": "Summary-only typhoon/tsunami scenario names another county; unresolved coverage blocks absence for 馬祖 (連江縣).",
     "daily_ci": false,
     "requires_key": null
+  },
+  {
+    "id": "stock-014",
+    "question": "今天大盤怎樣？",
+    "toolset": "stock",
+    "expected_tool": "stock_market_summary",
+    "expected_args": {},
+    "expected_key_facts": [
+      "資料日期",
+      "盤後資料，非即時",
+      "上市",
+      "上櫃"
+    ],
+    "notes": "兩市場各自報告資料日期、收盤與漲跌，不把不同日期的資料合併。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-015",
+    "question": "融資有沒有增加？",
+    "toolset": "stock",
+    "expected_tool": "stock_market_summary",
+    "expected_args": {},
+    "expected_key_facts": [
+      "融資",
+      "較前日",
+      "張"
+    ],
+    "notes": "依各市場確認日期的融資餘額回答；日期無法確認要明說，僅可顯示清楚標示日期的上次確認數字。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-016",
+    "question": "上櫃指數收多少？",
+    "toolset": "stock",
+    "expected_tool": "stock_market_summary",
+    "expected_args": {},
+    "expected_key_facts": [
+      "上櫃指數",
+      "收盤",
+      "資料日期"
+    ],
+    "notes": "上櫃指數附自己的資料日期，不引用上市日期。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "stock-017",
+    "question": "傍晚問今天大盤",
+    "toolset": "stock",
+    "expected_tool": "stock_market_summary",
+    "expected_args": {},
+    "expected_key_facts": [
+      "上市",
+      "資料日期",
+      "盤後資料，非即時"
+    ],
+    "notes": "必須明確說上市資料是哪一天；上市可能為前一交易日、上櫃為當日。不能將前日上市資料當成今天或用兩市場共用日期。",
+    "daily_ci": false,
+    "requires_key": null
   }
 ]

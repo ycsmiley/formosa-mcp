@@ -1,3 +1,5 @@
+import { buildMarketSummary, formatMarketSummary, type MarketSummary } from './market.js';
+import { fetchMarketFeed as defaultFetchMarketFeed, marketUrls, type MarketFeed } from './source.js';
 import { TtlCache } from '../cache.js';
 import type { Clock } from '../clock.js';
 import { fetchJson as defaultFetchJson, stockUrls } from './source.js';
@@ -8,6 +10,7 @@ export interface StockResult { text: string; isError: boolean }
 export interface TpexCheck { lastSuccessAt: string; dataDate: string }
 export interface StockMarketSnapshot<T> { updatedAt: string; twse: T[] | null; tpex: T[] | null; tpexCheck?: TpexCheck }
 export interface StockSnapshotProvider {
+  marketSummary?(): Promise<MarketSummary | null>;
   quotes(): Promise<StockMarketSnapshot<StockQuote> | null>;
   dividends(): Promise<StockMarketSnapshot<DividendEvent> | null>;
 }
@@ -19,11 +22,12 @@ function fromSnapshot<T>(data: StockMarketSnapshot<T> | null) {
 }
 export interface StockServiceOptions {
   snapshot?: StockSnapshotProvider;
+  fetchMarketFeed?: (url: string) => Promise<MarketFeed>;
   fetchJson?: (url: string) => Promise<unknown>;
   clock?: Clock;
   cache?: { getOrLoad(key: string, loader: () => Promise<unknown>): Promise<unknown> };
 }
-export function createStockService({ snapshot, fetchJson = defaultFetchJson, clock = () => new Date(), cache = new TtlCache<unknown>(3600000, () => clock().getTime()) }: StockServiceOptions = {}) {
+export function createStockService({ snapshot, fetchMarketFeed = defaultFetchMarketFeed, fetchJson = defaultFetchJson, clock = () => new Date(), cache = new TtlCache<unknown>(3600000, () => clock().getTime()) }: StockServiceOptions = {}) {
   const load = (key: keyof typeof stockUrls) => cache.getOrLoad(key, () => fetchJson(stockUrls[key]));
   const quoteCache = new TtlCache<ReturnType<typeof parseQuotes>>(3600000, () => clock().getTime());
   const dividendCache = new TtlCache<ReturnType<typeof parseDividends>>(3600000, () => clock().getTime());
@@ -41,7 +45,24 @@ export function createStockService({ snapshot, fetchJson = defaultFetchJson, clo
     try { const r = await action(); return { text: [r.text, r.warning].filter(Boolean).join('\n'), isError: false }; }
     catch (error) { if (snapshot) return { text: error instanceof Updating ? '資料更新中，請稍後再試' : '暫時無法取得資料，請稍後再試。', isError: true }; return { text: `目前連不到證交所／櫃買中心資料來源，請稍後再試（錯誤：${error instanceof Error ? error.message : String(error)}）`, isError: true }; }
   };
+  const marketCache = new TtlCache<MarketSummary>(3600000, () => clock().getTime());
+  let previousMarket: MarketSummary | undefined;
   return {
+    marketSummary() { return safely(undefined, async () => {
+      const summary = snapshot ? await snapshot.marketSummary?.() : await marketCache.getOrLoad('market', async () => {
+        const feeds = await Promise.allSettled(Object.values(marketUrls).map(fetchMarketFeed));
+        const data = feeds.map(r => r.status === 'fulfilled' ? r.value : undefined);
+        try {
+          const result = buildMarketSummary({ fmtqik: data[0]?.body, margn: data[1]?.body,
+            fmtqikLastModified: data[0]?.lastModified, margnLastModified: data[1]?.lastModified,
+            tpexIndex: data[2]?.body, tpexMargin: data[3]?.body, fetchedAt: clock().toISOString() }, previousMarket);
+          previousMarket = result;
+          return result;
+        } catch { throw new Error(`證交所／櫃買中心 OpenAPI：${Object.values(marketUrls).join('、')}`); }
+      });
+      if (!summary) throw new Updating();
+      return { text: formatMarketSummary(summary, clock), warning: '' };
+    }); },
     quote(query: string) { return safely(query, async () => {
       const { rows, warning, tpexCheck } = await quotes(), found = findStocks(query, rows);
       return { text: found.kind === 'one' ? formatStockQuote(found.stock, clock, tpexCheck) : formatStockLookup(query, found), warning };

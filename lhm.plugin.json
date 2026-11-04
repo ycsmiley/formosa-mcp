@@ -72,6 +72,15 @@
       }
     },
     {
+      "name": "stock_market_summary",
+      "description": "查詢上市加權指數、上櫃指數收盤漲跌、成交金額與融資券餘額（張）。兩市場各有資料日期，盤後資料，非即時；無需參數。Taiwan market closing summary, separately dated TWSE and TPEx; not real-time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
       "name": "stock_dividends",
       "description": "查詢上市／上櫃近期除權息日程，可指定股票代號或名稱。Upcoming Taiwan TWSE/TPEx ex-dividend and ex-right dates; optional code or name.",
       "inputSchema": {

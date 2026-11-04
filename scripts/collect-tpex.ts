@@ -4,7 +4,8 @@ import { basename, dirname, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildStockSnapshot } from '../src/core/snapshot.js';
 import { parseRocDate, stockRows } from '../src/core/stock/parse.js';
-import { stockUrls } from '../src/core/stock/source.js';
+import { buildMarketSummary, type MarketSummary } from '../src/core/stock/market.js';
+import { marketUrls, stockUrls } from '../src/core/stock/source.js';
 import { encodeStoredSnapshot, keys, minimumRows } from '../src/worker/snapshot-keys.js';
 import { fetchStockFeed } from '../src/worker/stock-source.js';
 
@@ -97,6 +98,38 @@ export async function collectTpex({ outDir, previous, previousDir, now = new Dat
       console.log(`tpex collect ok ${key} ${entry.bytes} bytes dataDate=${entry.dataDate}`);
     } catch (error) { fail(key, feed, error); }
   }
+  // Summary collection is independent: warnings never enter quote/dividend failures.
+  try {
+    let oldSummary: MarketSummary | undefined, oldValue: string | undefined;
+    const old = previous?.keys[keys.marketSummary];
+    if (old) {
+      try {
+        if (old.file !== 'stock_market_v1.json') throw new Error('unexpected file');
+        oldValue = await readFile(join(previousDir ?? outDir, old.file), 'utf8');
+        if (createHash('sha256').update(oldValue).digest('hex') !== old.sha256) throw new Error('changed previous summary');
+        oldSummary = JSON.parse(oldValue);
+      } catch { console.warn('market summary previous snapshot unavailable'); }
+    }
+    const results = await Promise.allSettled(Object.entries(marketUrls).map(async ([feed, url]) => {
+      const result = await fetchStockFeed(feed, url, undefined, { retryDelayMs });
+      if (result.status !== 200) throw new Error(`HTTP ${result.status}`);
+      return result;
+    }));
+    const data = results.map(r => r.status === 'fulfilled' ? r.value : undefined);
+    const summary = buildMarketSummary({ fmtqik: data[0]?.body, margn: data[1]?.body,
+      fmtqikLastModified: data[0]?.validators.lastModified, margnLastModified: data[1]?.validators.lastModified,
+      tpexIndex: data[2]?.body, tpexMargin: data[3]?.body, fetchedAt: generatedAt }, oldSummary);
+    for (const market of ['twse', 'tpex'] as const) {
+      if (!summary[market] || summary[market] === oldSummary?.[market]) console.warn(`market summary ${market} failed; retaining previous data if available`);
+    }
+    const unchanged = oldSummary && JSON.stringify({ ...summary, fetchedAt: '' }) === JSON.stringify({ ...oldSummary, fetchedAt: '' });
+    const encoded = unchanged ? oldValue! : JSON.stringify(summary);
+    const file = 'stock_market_v1.json', sha256 = createHash('sha256').update(encoded).digest('hex');
+    await atomicWrite(join(outDir, file), encoded);
+    manifest.keys[keys.marketSummary] = { file, dataDate: null, rows: Number(!!summary.twse) + Number(!!summary.tpex),
+      bytes: new TextEncoder().encode(encoded).length, sha256, updatedAt: unchanged ? old!.updatedAt : generatedAt };
+    manifest.written.push(keys.marketSummary);
+  } catch { console.warn('market summary collection failed; retaining previous data if available'); }
   for (const [key, entry] of Object.entries(manifest.keys)) {
     if (manifest.written.includes(key)) continue;
     try {
@@ -139,7 +172,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   }
   try {
     const manifest = await collectTpex({ outDir, previous, previousDir: previousPath ? dirname(previousPath) : undefined });
-    return manifest.written.length === 2 ? 0 : 1;
+    return [keys.tpexQuotes, keys.tpexDividends].every(key => manifest.written.includes(key)) ? 0 : 1;
   } catch (error) {
     console.error(`tpex collect fail: ${reason(error)}`);
     return 1;

@@ -7,14 +7,14 @@ import { main, publishTpex } from '../scripts/publish-tpex.js';
 import { buildStockSnapshot, decodeQuotesSnapshot } from '../src/core/snapshot.js';
 import { collectKeys, encodeStoredSnapshot, keys, minimumRows } from '../src/worker/snapshot-keys.js';
 import { buildCollector } from '../scripts/build-collectors.mjs';
-import { stockUrls } from '../src/core/stock/source.js';
-import { fixture } from './stock-fixtures.js';
+import { marketUrls, stockUrls } from '../src/core/stock/source.js';
+import { marketFixtureFeed, fixture } from './stock-fixtures.js';
 
 const token = 'test-token-SECRET';
 const env = { CLOUDFLARE_ACCOUNT_ID: 'test-account', KV_NAMESPACE_ID: 'test-namespace', CLOUDFLARE_KV_WRITE_TOKEN: token };
 const base = 'https://api.cloudflare.com/client/v4/accounts/test-account/storage/kv/namespaces/test-namespace/values/';
 const now = new Date('2026-10-29T08:00:00.000Z');
-const tpexKeys = [keys.tpexQuotes, keys.tpexDividends];
+const tpexKeys = [keys.tpexQuotes, keys.tpexDividends, keys.marketSummary];
 const feedRows = (feed: string) => {
   const rows = fixture(feed) as Record<string, string>[];
   return feed === 'tpex-quotes' || feed === 'tpex-ratios' ? Array.from({ length: minimumRows.tpex }, (_, i) =>
@@ -38,8 +38,12 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (!url.startsWith(base)) {
-      expect(Object.values(stockUrls).filter(url => url.includes('tpex.org.tw'))).toContain(url);
+      expect([...Object.values(stockUrls), ...Object.values(marketUrls)]).toContain(url);
       if (url === feedFailure) return Response.json([]);
+      if (Object.values(marketUrls).includes(url as any)) {
+        const feed = await marketFixtureFeed(url);
+        return Response.json(feed.body, { headers: { 'Last-Modified': feed.lastModified! } });
+      }
       return Response.json(await fixtureFetch(url));
     }
     expect(new Headers(init?.headers).get('Authorization')).toBe(`Bearer ${token}`);
@@ -100,11 +104,12 @@ it('first publish puts both exact snapshot strings with encoded URLs and Worker 
     expect(console.log).toHaveBeenCalledWith(`kv put ${key} ${new TextEncoder().encode(encoded).length} bytes dataDate=${key === keys.tpexQuotes ? '2026-10-22' : null} updatedAt=${now.toISOString()}`);
     current.set(key, encoded);
   }
-  expect(timeout.mock.calls.filter(([ms]) => ms === 30_000)).toHaveLength(5);
+  current.set(keys.marketSummary, String(puts.get(keys.marketSummary)!.get('value')));
+  expect(timeout.mock.calls.filter(([ms]) => ms === 30_000)).toHaveLength(7);
   puts.clear(); heartbeats = []; vi.mocked(fetch).mockClear();
   expect(await publish()).toBe(0);
   expect(puts.size).toBe(0);
-  expect(fetch).toHaveBeenCalledTimes(6);
+  expect(fetch).toHaveBeenCalledTimes(11);
   expect(heartbeats).toEqual([heartbeat]);
   expect(putKeys()).toEqual([collectKeys.tpex]);
   for (const key of tpexKeys) expect(console.log).toHaveBeenCalledWith(`kv skip ${key} unchanged`);
@@ -115,7 +120,7 @@ it('rejects quotes older than KV but still publishes dividends and exits 1', asy
   snapshot.rows = snapshot.rows.map(row => ({ ...row, date: { year: 2026, month: 10, day: 23 } }));
   current.set(keys.tpexQuotes, encodeStoredSnapshot(keys.tpexQuotes, snapshot));
   expect(await publish()).toBe(1);
-  expect([...puts.keys()]).toEqual([keys.tpexDividends]);
+  expect([...puts.keys()]).toEqual([keys.tpexDividends, keys.marketSummary]);
   expect(heartbeats).toEqual([]);
   expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('stale date 2026-10-22 < 2026-10-23'));
 });
@@ -142,34 +147,34 @@ it('a failed second KV read also prevents every put', async () => {
 it('PUT 403 logs only Cloudflare code:message, redacts the token, tries the other key and exits 1', async () => {
   putResponse = () => Response.json({ success: false, errors: [{ code: 10000, message: `Authentication error ${token}` }], private: 'never-log-body' }, { status: 403 });
   expect(await publish()).toBe(1);
-  expect(puts.size).toBe(2);
+  expect(puts.size).toBe(3);
   expect(heartbeats).toEqual([]);
-  for (const key of tpexKeys) expect(console.error).toHaveBeenCalledWith(`kv put ${key} HTTP 403 10000:Authentication error [redacted]`);
+  for (const key of tpexKeys.filter(key => key !== keys.marketSummary)) expect(console.error).toHaveBeenCalledWith(`kv put ${key} HTTP 403 10000:Authentication error [redacted]`);
   expect(vi.mocked(console.error).mock.calls.flat().join('\n')).not.toContain('never-log-body');
-  expect(fetch).toHaveBeenCalledTimes(7);
+  expect(fetch).toHaveBeenCalledTimes(13);
 });
 
 it.each(['false-success', 'invalid-json'] as const)('PUT HTTP 200 with %s fails the run', async mode => {
   putResponse = () => mode === 'invalid-json' ? new Response('private-body') : Response.json({ success: false });
   expect(await publish()).toBe(1);
-  expect(puts.size).toBe(2);
+  expect(puts.size).toBe(3);
   expect(heartbeats).toEqual([]);
-  for (const key of tpexKeys) expect(console.error).toHaveBeenCalledWith(`kv put ${key} HTTP 200`);
+  for (const key of tpexKeys.filter(key => key !== keys.marketSummary)) expect(console.error).toHaveBeenCalledWith(`kv put ${key} HTTP 200`);
 });
 
 it('invalid previous snapshots are absent for collection and are replaced without logging their values', async () => {
   current.set(keys.tpexQuotes, 'invalid-quotes-private');
   current.set(keys.tpexDividends, 'invalid-dividends-private');
   expect(await publish()).toBe(0);
-  expect(puts.size).toBe(2);
-  for (const key of tpexKeys) expect(console.warn).toHaveBeenCalledWith(`kv read ${key} invalid snapshot; treating as absent`);
+  expect(puts.size).toBe(3);
+  for (const key of tpexKeys.filter(key => key !== keys.marketSummary)) expect(console.warn).toHaveBeenCalledWith(`kv read ${key} invalid snapshot; treating as absent`);
   expect(decodeQuotesSnapshot(String(puts.get(keys.tpexQuotes)!.get('value'))).rows).toHaveLength(minimumRows.tpex);
 });
 
 it.each(['tpex-ratios', 'tpex-div'] as const)('never publishes failed %s or a heartbeat, while publishing the other key', async feed => {
   feedFailure = stockUrls[feed];
   expect(await publish()).toBe(1);
-  expect([...puts.keys()]).toEqual([feed === 'tpex-div' ? keys.tpexQuotes : keys.tpexDividends]);
+  expect([...puts.keys()]).toEqual([feed === 'tpex-div' ? keys.tpexQuotes : keys.tpexDividends, keys.marketSummary]);
   expect(heartbeats).toEqual([]);
 });
 
@@ -226,4 +231,39 @@ it('workflow keeps the token in step env, pins every action and limits permissio
   expect(text).toMatch(/^permissions:\n  contents: read\n/m);
   expect(text).toMatch(/^    timeout-minutes: 5$/m);
   expect(text).toContain("cron: '17,47 6-10 * * 1-5'");
+});
+
+it.each(['read', 'read-body', 'read-throw', 'put', 'put-throw', 'feeds'] as const)('market summary %s failure is warning-only and does not suppress quote heartbeat', async mode => {
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (mode === 'feeds' && Object.values(marketUrls).includes(url as any)) return Response.json([]);
+    if (url === base + encodeURIComponent(keys.marketSummary)) {
+      if (init?.method !== 'PUT') {
+        if (mode === 'read') return new Response(null, { status: 500 });
+        if (mode === 'read-throw') throw new Error(`private ${token}`);
+        if (mode === 'read-body') return { status: 200, text: async () => { throw new Error(`private ${token}`); } } as unknown as Response;
+      }
+      if (mode === 'put-throw' && init?.method === 'PUT') throw new Error(`private ${token}`);
+      if (mode === 'put' && init?.method === 'PUT') return Response.json({ success: false }, { status: 403 });
+    }
+    return original(input, init);
+  });
+  expect(await publish()).toBe(0);
+  expect(puts.has(keys.tpexQuotes)).toBe(true);
+  expect(puts.has(keys.tpexDividends)).toBe(true);
+  expect(heartbeats).toHaveLength(1);
+  expect(console.warn).toHaveBeenCalled();
+});
+it('reuses confirmed KV margin when newly fetched TWSE headers cannot confirm the date', async () => {
+  await publish();
+  const previous = String(puts.get(keys.marketSummary)!.get('value'));
+  current.set(keys.marketSummary, previous);
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => String(input) === marketUrls.margn
+    ? Response.json((await marketFixtureFeed(marketUrls.margn)).body) : original(input, init));
+  expect(await publish()).toBe(0);
+  const next = JSON.parse(String(puts.get(keys.marketSummary)!.get('value')));
+  expect(next.twse.margin).toEqual(JSON.parse(previous).twse.margin);
+  expect(next.twse.marginReason).toContain('Last-Modified');
 });

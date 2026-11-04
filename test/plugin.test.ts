@@ -44,7 +44,7 @@ it('launches configured server from another cwd and lists both toolsets', async 
   const { client, transport } = pluginClient();
   try {
     await client.connect(transport);
-    expect((await client.listTools()).tools.map(t => t.name)).toEqual(['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_dividends']);
+    expect((await client.listTools()).tools.map(t => t.name)).toEqual(['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_market_summary', 'stock_dividends']);
   } finally { await client.close(); await transport.close(); }
 });
 it('committed plugin bundle matches a fresh build', () => {

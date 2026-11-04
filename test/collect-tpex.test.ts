@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { collectTpex, main, type TpexManifest } from '../scripts/collect-tpex.js';
 import { buildStockSnapshot, decodeQuotesSnapshot } from '../src/core/snapshot.js';
-import { stockUrls } from '../src/core/stock/source.js';
+import { marketUrls, stockUrls } from '../src/core/stock/source.js';
 import { encodeStoredSnapshot, keys, minimumRows } from '../src/worker/snapshot-keys.js';
-import { fixture } from './stock-fixtures.js';
+import { marketFixtureFeed, fixture } from './stock-fixtures.js';
 
 const now = new Date('2026-10-29T08:00:00.000Z');
 const quoteFile = 'stock_quotes_tpex_v1.json', divFile = 'stock_dividends_tpex_v1.json';
@@ -28,7 +28,12 @@ beforeEach(async () => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    return overrides[url]?.() ?? Response.json(await fixtureFetch(url));
+    if (overrides[url]) return overrides[url]();
+    if (Object.values(marketUrls).includes(url as any)) {
+      const feed = await marketFixtureFeed(url);
+      return Response.json(feed.body, { headers: { 'Last-Modified': feed.lastModified! } });
+    }
+    return Response.json(await fixtureFetch(url));
   }));
 });
 afterEach(async () => {
@@ -43,8 +48,8 @@ it('writes exact Worker snapshot bytes and a complete manifest from recorded fix
   const result = await collect();
   const expected = await buildStockSnapshot('tpex', fixtureFetch, () => now);
   expect(result).toEqual(await readManifest());
-  expect(result).toMatchObject({ v: 1, market: 'tpex', generatedAt: now.toISOString(), written: [keys.tpexQuotes, keys.tpexDividends], failures: [] });
-  expect((await readdir(outDir)).sort()).toEqual(['manifest.json', quoteFile, divFile].sort());
+  expect(result).toMatchObject({ v: 1, market: 'tpex', generatedAt: now.toISOString(), written: [keys.tpexQuotes, keys.tpexDividends, keys.marketSummary], failures: [] });
+  expect((await readdir(outDir)).sort()).toEqual(['manifest.json', quoteFile, divFile, 'stock_market_v1.json'].sort());
   for (const [key, file, snapshot, dataDate] of [
     [keys.tpexQuotes, quoteFile, expected.quotes!, '2026-10-22'],
     [keys.tpexDividends, divFile, expected.dividends!, null],
@@ -58,8 +63,8 @@ it('writes exact Worker snapshot bytes and a complete manifest from recorded fix
   const quotes = decodeQuotesSnapshot(await readFile(join(outDir, quoteFile), 'utf8'));
   expect(quotes.updatedAt).toBe('');
   expect(quotes.rows.find(row => row.code === '6488')).toMatchObject({ close: 826 });
-  expect(fetch).toHaveBeenCalledTimes(3);
-  expect(vi.mocked(fetch).mock.calls.map(([url]) => url).sort()).toEqual(Object.entries(stockUrls).filter(([feed]) => feed.startsWith('tpex')).map(([, url]) => url).sort());
+  expect(fetch).toHaveBeenCalledTimes(7);
+  expect(vi.mocked(fetch).mock.calls.map(([url]) => url).sort()).toEqual([...Object.entries(stockUrls).filter(([feed]) => feed.startsWith('tpex')).map(([, url]) => url), ...Object.values(marketUrls)].sort());
   for (const [, options] of vi.mocked(fetch).mock.calls) {
     expect(options).toMatchObject({ redirect: 'manual' });
     expect(Object.fromEntries(new Headers(options?.headers))).toEqual({
@@ -85,12 +90,12 @@ it.each([
   await writeFile(join(outDir, quoteFile), 'last-known-good');
   overrides[stockUrls['tpex-quotes']] = response;
   const result = await collect();
-  expect(result.written).toEqual([keys.tpexDividends]);
+  expect(result.written).toEqual([keys.tpexDividends, keys.marketSummary]);
   expect(result.failures).toEqual([{ key: keys.tpexQuotes, feed: 'tpex-quotes', reason: expect.stringContaining(message) }]);
   expect(await readFile(join(outDir, quoteFile), 'utf8')).toBe('last-known-good');
   expect(await readManifest()).toEqual(result);
   expect(result.keys[keys.tpexQuotes]).toBeUndefined();
-  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(fetch).toHaveBeenCalledTimes(7);
   expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(`tpex collect fail ${keys.tpexQuotes} tpex-quotes: `));
 });
 
@@ -102,7 +107,7 @@ it.each(['tpex-quotes', 'tpex-ratios'] as const)('rejects a stale %s date using 
   overrides[stockUrls[other]] = () => Response.json(feedRows(other).map(row => ({ ...row, Date: '1151023' })));
   const bytes = await readFile(join(outDir, quoteFile));
   const result = await collect(previous);
-  expect(result.written).toEqual([keys.tpexDividends]);
+  expect(result.written).toEqual([keys.tpexDividends, keys.marketSummary]);
   expect(result.failures).toEqual([{ key: keys.tpexQuotes, feed, reason: 'stale date 2026-10-22 < 2026-10-23' }]);
   expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
   expect(result.keys[keys.tpexQuotes]).toEqual(previous.keys[keys.tpexQuotes]);
@@ -113,7 +118,7 @@ it('carries the previous quotes entry across a ratios failure and checks it on t
   const bytes = await readFile(join(outDir, quoteFile));
   overrides[stockUrls['tpex-ratios']] = () => Response.json([]);
   const partial = await collect(previous);
-  expect(partial.written).toEqual([keys.tpexDividends]);
+  expect(partial.written).toEqual([keys.tpexDividends, keys.marketSummary]);
   expect(partial.failures).toEqual([{ key: keys.tpexQuotes, feed: 'tpex-ratios', reason: 'too few ratios rows: 0 < 50' }]);
   expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
   expect(partial.keys[keys.tpexQuotes]).toEqual(previous.keys[keys.tpexQuotes]);
@@ -129,7 +134,7 @@ it('copies a carried file from the CLI previous manifest directory', async () =>
   overrides[stockUrls['tpex-ratios']] = () => Response.json([]);
   expect(await main(['--out', outDir, '--previous', join(previousDir, 'manifest.json')])).toBe(1);
   const result = await readManifest();
-  expect(result.written).toEqual([keys.tpexDividends]);
+  expect(result.written).toEqual([keys.tpexDividends, keys.marketSummary]);
   expect(result.keys[keys.tpexQuotes]).toEqual(previous.keys[keys.tpexQuotes]);
   expect(await readFile(join(outDir, quoteFile))).toEqual(bytes);
 });
@@ -157,7 +162,7 @@ it.each(['missing', 'changed', 'unexpected-name'] as const)('drops a carried ent
 it.each([0, minimumRows.tpex - 1])('rejects %i ratios rows while writing dividends', async count => {
   overrides[stockUrls['tpex-ratios']] = () => Response.json(feedRows('tpex-ratios').slice(0, count));
   const result = await collect();
-  expect(result.written).toEqual([keys.tpexDividends]);
+  expect(result.written).toEqual([keys.tpexDividends, keys.marketSummary]);
   expect(result.failures).toEqual([{ key: keys.tpexQuotes, feed: 'tpex-ratios', reason: `too few ratios rows: ${count} < 50` }]);
   await expect(readFile(join(outDir, quoteFile))).rejects.toMatchObject({ code: 'ENOENT' });
 });
@@ -167,7 +172,7 @@ it('rejects a dividends row without CompanyName while writing quotes', async () 
   delete rows[rows.length - 1].CompanyName;
   overrides[stockUrls['tpex-div']] = () => Response.json(rows);
   const result = await collect();
-  expect(result.written).toEqual([keys.tpexQuotes]);
+  expect(result.written).toEqual([keys.tpexQuotes, keys.marketSummary]);
   expect(result.failures).toEqual([{ key: keys.tpexDividends, feed: 'tpex-div', reason: 'missing required field CompanyName' }]);
   await expect(readFile(join(outDir, divFile))).rejects.toMatchObject({ code: 'ENOENT' });
 });
@@ -175,7 +180,7 @@ it('rejects a dividends row without CompanyName while writing quotes', async () 
 it('preserves updatedAt for unchanged hashes and advances it for changed data', async () => {
   const previous = await collect(), later = new Date('2026-10-30T08:00:00.000Z');
   const unchanged = await collect(previous, later);
-  expect(unchanged.written).toHaveLength(2);
+  expect(unchanged.written).toHaveLength(3);
   expect(unchanged.keys).toEqual(previous.keys);
   expect(unchanged.generatedAt).toBe(later.toISOString());
   overrides[stockUrls['tpex-quotes']] = () => Response.json(feedRows('tpex-quotes').map(row => ({ ...row, Close: '999' })));
@@ -191,7 +196,7 @@ it.each(['empty', 'unparseable'] as const)('leaves dividends untouched for an %s
     ExRrightsExDividendDate: 'invalid', SecuritiesCompanyCode: '6488', CompanyName: '環球晶', ExRrightsExDividend: '除息',
   }]);
   const result = await collect();
-  expect(result.written).toEqual([keys.tpexQuotes]);
+  expect(result.written).toEqual([keys.tpexQuotes, keys.marketSummary]);
   expect(result.failures[0]).toMatchObject({ key: keys.tpexDividends, feed: 'tpex-div' });
   expect(await readFile(join(outDir, divFile), 'utf8')).toBe('last-known-good');
 });
@@ -213,4 +218,39 @@ it.each(['missing', 'unreadable'] as const)('logs one line and ignores a %s prev
   const path = mode === 'missing' ? join(outDir, 'missing.json') : outDir;
   expect(await main(['--out', outDir, '--previous', path])).toBe(0);
   expect(console.warn).toHaveBeenCalledExactlyOnceWith('tpex collect previous manifest unavailable; treating as no previous');
+});
+
+it('writes one summary key with Last-Modified confirmation and keeps its bytes when only collection time changes', async () => {
+  const first = await collect();
+  const file = join(outDir, first.keys[keys.marketSummary].file);
+  const bytes = await readFile(file, 'utf8');
+  expect(JSON.parse(bytes)).toMatchObject({ twse: { margin: { dateConfirmed: true } }, tpex: { margin: { dateConfirmed: true } } });
+  const next = await collect(first, new Date(now.getTime() + 3600000));
+  expect(await readFile(file, 'utf8')).toBe(bytes);
+  expect(next.keys[keys.marketSummary]).toEqual(first.keys[keys.marketSummary]);
+});
+it('summary failure only warns and leaves quotes/dividends results and CLI status unchanged', async () => {
+  for (const url of Object.values(marketUrls)) overrides[url] = () => Response.json([]);
+  expect(await main(['--out', outDir])).toBe(0);
+  const result = await readManifest();
+  expect(result.written).toEqual([keys.tpexQuotes, keys.tpexDividends]);
+  expect(result.failures).toEqual([]);
+  expect(result.keys[keys.marketSummary]).toBeUndefined();
+  expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('market summary collection failed'));
+});
+it('uses previous summary from the previous directory for a failed market and an unconfirmed margin', async () => {
+  const previousDir = await mkdtemp(join(outDir, 'old-'));
+  const previous = await collectTpex({ outDir: previousDir, now, retryDelayMs: 0 });
+  const old = JSON.parse(await readFile(join(previousDir, 'stock_market_v1.json'), 'utf8'));
+  overrides[marketUrls.fmtqik] = () => Response.json([]);
+  const oneFailed = await collectTpex({ outDir, previous, previousDir, now, retryDelayMs: 0 });
+  const summary = JSON.parse(await readFile(join(outDir, 'stock_market_v1.json'), 'utf8'));
+  expect(oneFailed.failures).toEqual([]);
+  expect(summary.twse).toEqual(old.twse);
+  delete overrides[marketUrls.fmtqik];
+  overrides[marketUrls.margn] = () => Response.json(fixture('market-margn'));
+  await collectTpex({ outDir, previous, previousDir, now, retryDelayMs: 0 });
+  const unconfirmed = JSON.parse(await readFile(join(outDir, 'stock_market_v1.json'), 'utf8'));
+  expect(unconfirmed.twse.margin).toEqual(old.twse.margin);
+  expect(unconfirmed.twse.marginReason).toContain('Last-Modified');
 });

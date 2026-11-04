@@ -1,0 +1,18 @@
+[
+  {
+    "Date": "1151102",
+    "TradeVolume": "687421888",
+    "TradeAmount": "154820240973",
+    "NumberOfTransactions": "685524",
+    "TPExIndex": "369.24",
+    "Change": "-1.02"
+  },
+  {
+    "Date": "1151103",
+    "TradeVolume": "1044295764",
+    "TradeAmount": "197177872476",
+    "NumberOfTransactions": "1119456",
+    "TPExIndex": "345.52",
+    "Change": "-23.72"
+  }
+]

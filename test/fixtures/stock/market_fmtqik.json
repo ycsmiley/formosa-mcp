@@ -1,0 +1,18 @@
+[
+  {
+    "Date": "1151102",
+    "TradeVolume": "10422514115",
+    "TradeValue": "799687507911",
+    "Transaction": "4104242",
+    "TAIEX": "44920.14",
+    "Change": "-291.69"
+  },
+  {
+    "Date": "1151103",
+    "TradeVolume": "15218510001",
+    "TradeValue": "1002035660990",
+    "Transaction": "7682883",
+    "TAIEX": "43307.54",
+    "Change": "-1612.60"
+  }
+]
