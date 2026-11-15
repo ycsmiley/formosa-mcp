@@ -63,5 +63,5 @@ export function formatStockDividends(events: DividendEvent[], clock: Clock, stoc
     const weekday = '日一二三四五六'[new Date(Date.UTC(e.date.year, e.date.month - 1, e.date.day)).getUTCDay()];
     return `- ${rocDateLabel(e.date)}（${weekday}）${e.name}（${e.code}）${e.market}｜${e.type}${details.length ? `｜${details.join('、')}` : ''}`;
   });
-  return [title, ...(dataDate ? [`資料日期：${rocDateLabel(dataDate)}`] : []), ...lines, stockFooter].join('\n');
+  return [title, ...(dataDate ? [`資料更新：${rocDateLabel(dataDate)}`] : []), ...lines, stockFooter].join('\n');
 }

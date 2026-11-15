@@ -76,8 +76,8 @@ export function createStockService({ snapshot, fetchMarketFeed = defaultFetchMar
     }); },
     dividends(query?: string) { return safely(query, async () => {
       const div = await (snapshot ? snapshot.dividends().then(fromSnapshot) : markets((p, market) => dividendCache.getOrLoad(p, async () => parseDividends(await load(`${p}-div`), market))));
-      // Use the oldest available market's acquisition date, as merged snapshots
-      // do. Never substitute today's query date for a cached dataset's date.
+      // Snapshots retain the oldest market's content-change time; live feeds use
+      // acquisition time. Never substitute today's query date for either.
       const updatedAt = div.updatedAt ?? ['twse', 'tpex'].flatMap((p, i) => div.markets.includes(i ? '上櫃' : '上市') && dividendFetchedAt.has(`${p}-div`) ? [dividendFetchedAt.get(`${p}-div`)!] : []).sort()[0];
       const dataDate = updatedAt ? taipeiParts(new Date(updatedAt)) : undefined;
       if (query === undefined) return { text: formatStockDividends(div.rows, clock, undefined, 20, div.markets, dataDate), warning: div.warning };

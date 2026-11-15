@@ -1,5 +1,8 @@
 import { expect, it, vi } from 'vitest';
-import { isStale, matchesFact, parseRocDate, runChecks } from '../scripts/eval-live.js';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { finishRun, isStale, matchesFact, parseRocDate, runChecks } from '../scripts/eval-live.js';
 
 it('matches facts after removing spaces and colons', () => {
   expect(matchesFact('特別獎：89996565（1,000 萬元）', '特別獎 89996565')).toBe(true);
@@ -18,6 +21,19 @@ it('reports a failed mocked call in the summary', async () => {
   expect(result).toMatchObject({ total: 1, passed: 0, accuracy: 0, date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   expect(result.summary).toContain('失敗 1 題（invoice-005）');
   expect(lines.some(line => line.includes('回覆：沒有資料'))).toBe(true);
+});
+it.each([false, true])('uses standalone failure exits and delegates result-file exits (failed: %s)', async failed => {
+  const result = await runChecks([{ id: 'invoice-005', question: '測試', expected_tool: 'invoice_check', expected_args: {}, expected_key_facts: ['沒中'], daily_ci: true }], async () => ({ text: failed ? '沒有資料' : '沒中' }), () => {});
+  expect(finishRun(result)).toBe(failed ? 1 : 0);
+  expect(finishRun(result, '')).toBe(failed ? 1 : 0);
+  const dir = mkdtempSync(join(tmpdir(), 'eval-live-'));
+  try {
+    const path = join(dir, 'result.json');
+    expect(finishRun(result, path)).toBe(0);
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(result);
+    // A result-write crash must reach the CLI's non-zero error handler.
+    expect(() => finishRun(result, join(dir, 'missing', 'result.json'))).toThrow();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 it.each([0, 30, 31])('warns only within 30 days of expiry (%i days remaining), and still calls the tool', async days => {
   const today = new Date('2026-10-29T00:00:00Z'), expires = new Date(today.getTime() + days * 86400000).toISOString().slice(0, 10);

@@ -38,9 +38,9 @@ async function rpc(method: string, params?: object, old = false, name?: string) 
 // existing worker.fetch RPC harness (not a duplicate registration).
 async function listTools(): Promise<string[]> { return (await rpc('tools/list')).tools.map((t: { name: string }) => t.name); }
 contractSuite('worker', { listTools, call: (name, args, old) => rpc('tools/call', { name, arguments: args }, old, name) });
-it.each([{}, { query: '2330' }])('empty Worker dividends show the snapshot date rather than the query date (%j)', async args => {
+it.each([{}, { query: '2330' }])('empty Worker dividends label the content-change date rather than the query date (%j)', async args => {
   const text = textOf(await rpc('tools/call', { name: 'stock_dividends', arguments: args }, true, 'stock_dividends'));
-  expect(text).toContain('\n資料日期：115年10月23日\n');
-  expect(text).not.toContain('資料日期：115年11月20日');
+  expect(text).toContain('\n資料更新：115年10月23日\n');
+  expect(text).not.toContain('資料更新：115年11月20日');
   expect(text).not.toMatch(/^- /m);
 });

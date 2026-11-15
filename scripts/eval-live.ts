@@ -71,6 +71,14 @@ export async function runChecks(questions: Question[], callTool: (q: Question, s
   const passed = daily.length - failures.length;
   return { total: daily.length, passed, accuracy: daily.length ? passed / daily.length : 0, failures, date: today.toISOString().slice(0, 10), summary };
 }
+export function finishRun(result: Awaited<ReturnType<typeof runChecks>>, resultPath?: string): number {
+  // Daily CI delegates question failures to eval-threshold; standalone runs fail.
+  if (resultPath) {
+    writeFileSync(resultPath, JSON.stringify(result, null, 2) + '\n');
+    return 0;
+  }
+  return result.failures.length ? 1 : 0;
+}
 async function main() {
   const questions: Question[] = JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8'));
   const server = createServer({ toolsets: ['invoice', 'stock'] });
@@ -83,8 +91,7 @@ async function main() {
       const content = Array.isArray(response.content) ? response.content : [];
       return { text: content.map(item => typeof item === 'object' && item !== null && 'text' in item && typeof item.text === 'string' ? item.text : '').join('\n'), isError: response.isError === true };
     });
-    // Question failures are decided by eval-threshold; crashes still exit non-zero.
-    if (process.env.EVAL_RESULT_PATH) writeFileSync(process.env.EVAL_RESULT_PATH, JSON.stringify(result, null, 2) + '\n');
+    process.exitCode = finishRun(result, process.env.EVAL_RESULT_PATH);
   } finally { await client.close(); await server.close(); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }).finally(() => process.exit(process.exitCode ?? 0));
