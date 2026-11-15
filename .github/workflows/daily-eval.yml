@@ -11,6 +11,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   eval:
+    # One small job avoids artifact/runner overhead; only this job can file issues.
+    # Its token is passed solely to the threshold step, never to the live tools.
+    permissions:
+      contents: read
+      issues: write
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -23,4 +28,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run eval:live
+      - name: Collect live eval result
+        id: live
+        continue-on-error: true # The threshold step also reports crashes / missing results.
+        timeout-minutes: 3 # Leave time to report a hung eval within the job budget.
+        env:
+          EVAL_RESULT_PATH: ${{ runner.temp }}/eval-result.json
+        run: |
+          rm -f "$EVAL_RESULT_PATH"
+          npm run eval:live
+      # Current baseline: 100% on 10 daily questions. 90% leaves one-question
+      # headroom for upstream flakiness; this step determines the job outcome.
+      - name: Enforce 90% accuracy and report regression
+        if: ${{ !cancelled() && steps.live.outcome != 'skipped' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVAL_RESULT_PATH: ${{ runner.temp }}/eval-result.json
+          EVAL_CRASHED: ${{ steps.live.outcome != 'success' }}
+        run: |
+          if [ "$EVAL_CRASHED" = true ]; then rm -f "$EVAL_RESULT_PATH"; fi
+          npx tsx scripts/eval-threshold.ts

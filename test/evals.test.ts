@@ -83,6 +83,13 @@ it('keeps the daily workflow restricted and pinned', () => {
   const timeout = workflow.match(/timeout-minutes:\s*(\d+)/);
   expect(timeout).not.toBeNull();
   expect(Number(timeout![1])).toBeLessThanOrEqual(5);
-  expect(workflow).not.toContain('secrets.');
+  // Regression reporting uses only the ephemeral repository token, scoped to
+  // the threshold step; live evaluation receives no GitHub credential.
+  expect([...workflow.matchAll(/secrets\.([A-Z_]+)/g)].map(m => m[1])).toEqual(['GITHUB_TOKEN']);
+  expect(workflow).toMatch(/^permissions:\n  contents: read\n/m);
+  expect(workflow).toMatch(/    permissions:\n      contents: read\n      issues: write/);
+  const liveStep = workflow.slice(workflow.indexOf('- name: Collect live eval result'), workflow.indexOf('- name: Enforce 90%'));
+  expect(liveStep).not.toContain('GITHUB_TOKEN');
+  expect(workflow).toContain('npx tsx scripts/eval-threshold.ts');
   expect(workflow).toContain('npm run eval:live');
 });

@@ -15,6 +15,7 @@ it('reports a failed mocked call in the summary', async () => {
   const lines: string[] = [];
   const result = await runChecks([{ id: 'invoice-005', question: '測試', expected_tool: 'invoice_check', expected_args: {}, expected_key_facts: ['沒中'], daily_ci: true }], async () => ({ text: '沒有資料' }), line => lines.push(line));
   expect(result.failures).toEqual(['invoice-005']);
+  expect(result).toMatchObject({ total: 1, passed: 0, accuracy: 0, date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   expect(result.summary).toContain('失敗 1 題（invoice-005）');
   expect(lines.some(line => line.includes('回覆：沒有資料'))).toBe(true);
 });

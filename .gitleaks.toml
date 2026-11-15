@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+# Deliberately fake credentials used to prove secrets never reach replies/logs.
+# AND keeps the exception limited to SENTINEL literals in this one test file.
+[[allowlists]]
+description = "Secret-handling test fake sentinel credentials only"
+condition = "AND"
+paths = ['''^test/secret-handling\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^(?:id|secret|token)-SENTINEL-[0-9a-f]{4}$''']

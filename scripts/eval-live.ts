@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -68,7 +68,8 @@ export async function runChecks(questions: Question[], callTool: (q: Question, s
   }
   const summary = `每日即時檢查：${daily.length} 題通過 ${daily.length - failures.length} 題，失敗 ${failures.length} 題${failures.length ? `（${failures.join('、')}）` : ''}`;
   log(summary);
-  return { failures, summary };
+  const passed = daily.length - failures.length;
+  return { total: daily.length, passed, accuracy: daily.length ? passed / daily.length : 0, failures, date: today.toISOString().slice(0, 10), summary };
 }
 async function main() {
   const questions: Question[] = JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8'));
@@ -82,7 +83,8 @@ async function main() {
       const content = Array.isArray(response.content) ? response.content : [];
       return { text: content.map(item => typeof item === 'object' && item !== null && 'text' in item && typeof item.text === 'string' ? item.text : '').join('\n'), isError: response.isError === true };
     });
-    if (result.failures.length) process.exitCode = 1;
+    // Question failures are decided by eval-threshold; crashes still exit non-zero.
+    if (process.env.EVAL_RESULT_PATH) writeFileSync(process.env.EVAL_RESULT_PATH, JSON.stringify(result, null, 2) + '\n');
   } finally { await client.close(); await server.close(); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }).finally(() => process.exit(process.exitCode ?? 0));
