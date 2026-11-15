@@ -24,9 +24,11 @@ import { compactStations, compactTimetable, stationKey, timetableKey } from '../
 import type { ServerOptions } from '../src/mcp/server.js';
 export const now = '2026-11-02T01:15:00.000Z';
 export const clock = () => new Date(now);
-// 2000 is an archival sample, NOT a newly invented production threshold. Readers
-// with no age check (invoice/dividends/rail) must still fail the stale contract.
+// 2000 is an archival sample, NOT a newly invented production threshold.
 export const archive = '2000-01-01T00:00:00.000Z';
+// A dated dividend snapshot distinct from the Nov 20 query; also crosses a
+// Taipei midnight boundary so the contract checks the displayed data day.
+export const dividendUpdatedAt = '2026-10-22T16:30:00.000Z';
 export const cases: Record<string, Record<string, unknown>> = {
   invoice_get_winning_numbers: {}, invoice_check: { number: '54348835', period: '11508' },
   stock_quote: { query: '6488' }, stock_market_summary: {}, stock_dividends: {},
@@ -44,6 +46,13 @@ export const snapshotReaders = {
   local: ['garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts'],
   worker: ['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_market_summary', 'stock_dividends', 'garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts', 'thsr_timetable', 'tra_timetable', 'tra_live'],
 };
+// No staleness threshold exists yet for these snapshot readers; tracked in
+// https://github.com/ycsmiley/formosa-mcp/issues/7.
+// They still must provide attribution, meaningful data time, and formatted text.
+export const STALE_WARNING_EXEMPT = [
+  'invoice_get_winning_numbers', 'invoice_check', 'stock_dividends',
+  'thsr_timetable', 'tra_timetable', 'tra_live',
+];
 // Independent case maps: removing a case fails coverage; removing a reader fails
 // the reverse audit against this map. These are existing warning phrases only.
 export const staleCases: Record<string, { warning: RegExp; args?: Record<string, unknown> }> = {
@@ -56,14 +65,6 @@ export const staleCases: Record<string, { warning: RegExp; args?: Record<string,
   work_school_closure: { warning: /資料可能過期/ }, disaster_alerts: { warning: /資料可能過期/ },
   // stock/format.ts:24-27: >=3 intervening weekdays; market.ts:85-94: >1.
   stock_quote: { warning: /資料停在|櫃買資料可能延遲/ }, stock_market_summary: { warning: /資料停在/ },
-  // No age warning/threshold exists in invoice/service.ts:40-76,
-  // stock/service.ts:70-79 or worker/rail.ts:59-102. Keep strict expectations
-  // using existing project warning vocabulary, and record failures as blockers.
-  invoice_get_winning_numbers: { warning: /資料可能過期|資料已過期/ }, invoice_check: { warning: /資料可能過期|資料已過期/ },
-  stock_dividends: { warning: /資料可能過期|資料停在|資料可能延遲/ },
-  thsr_timetable: { warning: /資料可能過期|資料已過期/ }, tra_timetable: { warning: /資料可能過期|資料已過期/ },
-  // Use the snapshot fallback, not a gateway failure as a substitute for staleness.
-  tra_live: { warning: /資料可能過期|資料已過期/, args: { train_no: '149' } },
 };
 const stock = import.meta.glob('./fixtures/stock/*.json', { eager: true, import: 'default' }) as Record<string, unknown>;
 export const stockFixture = (name: string): any => stock[`./fixtures/stock/${name.replaceAll('-', '_')}.json`];
@@ -119,7 +120,7 @@ export async function fixtureData(stale = false) {
   for (const market of ['twse', 'tpex'] as const) {
     const data = await buildStockSnapshot(market, stockFetch, () => new Date(time));
     values.set(`stock:quotes:${market}:v1`, encodeQuotesSnapshot(data.quotes!));
-    values.set(`stock:dividends:${market}:v1`, encodeSnapshot(data.dividends!));
+    values.set(`stock:dividends:${market}:v1`, encodeSnapshot({ ...data.dividends!, updatedAt: stale ? dividendUpdatedAt : time }));
   }
   // Dates are the fixture feed dates; moving the clock to Nov 20 is well beyond
   // the existing weekday-based stock thresholds, including TPEx heartbeat age.

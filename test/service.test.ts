@@ -24,8 +24,9 @@ it('validates plain service inputs before fetching', async () => {
 });
 
 const partialNote = '只能判斷六獎，大獎要對完整 8 碼。';
-const partialWin = '【115年07-08月】至少中六獎 200 元，請對完整 8 碼看有沒有更大獎（對中 835）';
-const previousMiss = '【115年05-06月】沒中';
+const source = '資料來源：財政部稅務入口網 https://invoice.etax.nat.gov.tw/';
+const partialWin = `【115年07-08月】至少中六獎 200 元，請對完整 8 碼看有沒有更大獎（對中 835）\n${source}`;
+const previousMiss = `【115年05-06月】沒中\n${source}`;
 
 it.each(['835', '8835', '48835', '348835', '4348835', ' AB-８３５ '])('appends one final partial note across two periods for %s', async number => {
   const service = createInvoiceService({ fetchFeed: async () => xml, clock });
@@ -49,7 +50,7 @@ it.each(['11507', '11505'])('appends one final partial note with explicit period
 it.each([undefined, '11507'])('formats an eight-digit win and tax reminder without a partial note (period %s)', async period => {
   const service = createInvoiceService({ fetchFeed: async () => xml, clock });
   const reply = await service.check('54348835', period);
-  const win = '【115年07-08月】恭喜！中了 頭獎，獎金 20 萬元（對中 54348835）\n提醒：三獎以上扣 20% 所得稅；五獎以上領獎扣 0.4% 印花稅，匯入帳戶免。';
+  const win = `【115年07-08月】恭喜！中了 頭獎，獎金 20 萬元（對中 54348835）\n提醒：三獎以上扣 20% 所得稅；五獎以上領獎扣 0.4% 印花稅，匯入帳戶免。\n${source}`;
   expect(reply.text).toBe(period ? win : `${win}\n\n${previousMiss}`);
   expect(reply.text).not.toContain(partialNote);
   expect(reply.text).toBe(reply.text.trim());

@@ -3,6 +3,7 @@ import { claimPeriod, expectedDrawDate, isClaimable, periodLabel, type Draw } fr
 import type { CheckResult } from './match.js';
 export const formatAmount = (amount: number) => amount >= 10000 ? `${(amount / 10000).toLocaleString('en-US')} 萬元` : `${amount.toLocaleString('en-US')} 元`;
 const rocDate = (d: { year: number; month: number; day: number }) => `${d.year}年${String(d.month).padStart(2, '0')}月${String(d.day).padStart(2, '0')}日`;
+const invoiceSource = '資料來源：財政部稅務入口網 https://invoice.etax.nat.gov.tw/';
 export function formatWinningNumbers(draw: Draw, clock: Clock): string {
   const claim = claimPeriod(draw.period), date = expectedDrawDate(draw.period);
   return [
@@ -15,7 +16,7 @@ export function formatWinningNumbers(draw: Draw, clock: Clock): string {
     ...(draw.extraSixth.length ? [`增開六獎：${draw.extraSixth.join('、')}（200 元）`] : []),
     `領獎期間：${rocDate(claim.start)} ～ ${rocDate(claim.end)}${isClaimable(draw.period, clock) ? '（目前可領獎）' : ''}`,
     `開獎日：${rocDate({ ...date, year: date.year - 1911 })}`,
-    '資料來源：財政部稅務入口網 https://invoice.etax.nat.gov.tw/',
+    invoiceSource,
   ].join('\n');
 }
 export function formatCheckResult(draw: Draw, result: CheckResult, clock: Clock = () => new Date()): string {
@@ -30,5 +31,6 @@ export function formatCheckResult(draw: Draw, result: CheckResult, clock: Clock 
   return [`【${periodLabel(draw.period)}】${message}`,
     ...(prize && prize.amount >= 1000 ? [`提醒：${prize.amount >= 10000 ? '三獎以上扣 20% 所得稅；' : ''}五獎以上領獎扣 0.4% 印花稅，匯入帳戶免。`] : []),
     ...(beforeClaim ? [`領獎期間 ${rocDate(start)} 起，還不能領`] : []),
+    invoiceSource,
   ].join('\n');
 }
