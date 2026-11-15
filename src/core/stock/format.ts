@@ -50,7 +50,7 @@ export function formatStockQuote(s: StockQuote, clock?: Clock, tpexCheck?: TpexC
     ...(note ? [note] : []),
   ].join('\n');
 }
-export function formatStockDividends(events: DividendEvent[], clock: Clock, stock?: StockIdentity, limit = 20, markets = '上市＋上櫃', dataDate?: StockDate): string {
+export function formatStockDividends(events: DividendEvent[], clock: Clock, stock?: StockIdentity, limit = 20, markets = '上市＋上櫃', dataDate?: StockDate, dateLabel: '資料更新' | '資料取得' = '資料更新'): string {
   const today = taipeiParts(clock());
   const upcoming = events.filter(e => dateKey(e.date) >= dateKey(today) && (!stock || e.code === stock.code && e.market === stock.market)).sort((a, b) => dateKey(a.date) - dateKey(b.date) || a.code.localeCompare(b.code));
   const title = stock ? `${stock.name}（${stock.code}）${upcoming.length ? '近期除權息' : '目前沒有已公告的近期除權息。'}` : `近期除權息（${rocDateLabel(today)}起，${markets}，依日期排序，列出前 ${Math.min(limit, upcoming.length)} 筆／共 ${upcoming.length} 筆）`;
@@ -63,5 +63,5 @@ export function formatStockDividends(events: DividendEvent[], clock: Clock, stoc
     const weekday = '日一二三四五六'[new Date(Date.UTC(e.date.year, e.date.month - 1, e.date.day)).getUTCDay()];
     return `- ${rocDateLabel(e.date)}（${weekday}）${e.name}（${e.code}）${e.market}｜${e.type}${details.length ? `｜${details.join('、')}` : ''}`;
   });
-  return [title, ...(dataDate ? [`資料更新：${rocDateLabel(dataDate)}`] : []), ...lines, stockFooter].join('\n');
+  return [title, ...(dataDate ? [`${dateLabel}：${rocDateLabel(dataDate)}`] : []), ...lines, stockFooter].join('\n');
 }

@@ -4,6 +4,7 @@ import { parseNumber, parseRocDate, rocDateLabel, parseQuotes, parseDividends } 
 import { findStocks } from '../src/core/stock/lookup.js';
 import { formatStockQuote, formatStockDividends, formatStockLookup, stockFooter } from '../src/core/stock/format.js';
 import { createStockService } from '../src/core/stock/service.js';
+import { TtlCache } from '../src/core/cache.js';
 import { fetchJson, stockUrls } from '../src/core/stock/source.js';
 import { fixture, stockFetch } from './stock-fixtures.js';
 const clock = () => new Date('2026-10-26T12:00:00+08:00');
@@ -102,7 +103,7 @@ it('resolves schedule-only ETFs and stocks with no upcoming events', async () =>
   const service = createStockService({ fetchJson: stockFetch, clock });
   const e = div.find(e => e.date.month >= 11)!;
   expect((await service.dividends(e.code)).text).toContain(`${e.name}（${e.code}）近期除權息`);
-  expect((await service.dividends('2330')).text).toBe(`台積電（2330）目前沒有已公告的近期除權息。\n資料更新：115年10月26日\n${stockFooter}`);
+  expect((await service.dividends('2330')).text).toBe(`台積電（2330）目前沒有已公告的近期除權息。\n資料取得：115年10月26日\n${stockFooter}`);
 });
 it.each([undefined, '2330'])('empty snapshot dividends label the content-change date in Taipei (query %s)', async query => {
   const service = createStockService({ clock, snapshot: {
@@ -113,21 +114,45 @@ it.each([undefined, '2330'])('empty snapshot dividends label the content-change 
   expect(result.isError).toBe(false);
   expect(result.text).toContain('\n資料更新：115年10月23日\n');
   expect(result.text).not.toContain('資料更新：115年10月26日');
+  expect(result.text).not.toContain('資料取得');
   expect(result.text).not.toMatch(/^- /m);
 });
 it('keeps live dividend acquisition dates through midnight cache hits and refreshes them on expiry', async () => {
   let now = Date.parse('2026-10-26T15:45:00Z');
   const fetch = vi.fn(async () => []);
   const service = createStockService({ clock: () => new Date(now), fetchJson: fetch });
-  expect((await service.dividends()).text).toContain('\n資料更新：115年10月26日\n');
+  expect((await service.dividends()).text).toContain('\n資料取得：115年10月26日\n');
   now += 30 * 60000;
   const cached = await service.dividends();
   expect(cached.text).toContain('115年10月27日起');
-  expect(cached.text).toContain('\n資料更新：115年10月26日\n');
+  expect(cached.text).toContain('\n資料取得：115年10月26日\n');
+  expect(cached.text).not.toContain('資料更新');
   expect(fetch).toHaveBeenCalledTimes(2);
   now += 30 * 60000;
-  expect((await service.dividends()).text).toContain('\n資料更新：115年10月27日\n');
+  expect((await service.dividends()).text).toContain('\n資料取得：115年10月27日\n');
   expect(fetch).toHaveBeenCalledTimes(4);
+});
+it.each([undefined, '2330'])('retains dividend acquisition dates across instances sharing a feed cache (query %s)', async query => {
+  let now = Date.parse('2026-10-26T15:45:00Z');
+  const clock = () => new Date(now);
+  const cache = new TtlCache<unknown>(3600000, () => now);
+  const fetch = vi.fn(async (url: string) => url === stockUrls['twse-div'] || url === stockUrls['tpex-div'] ? [] : stockFetch(url));
+  const first = createStockService({ cache, clock, fetchJson: fetch });
+  expect((await first.dividends()).text).toContain('\n資料取得：115年10月26日\n');
+  expect(fetch).toHaveBeenCalledTimes(2);
+  now += 30 * 60000;
+  const second = createStockService({ cache, clock, fetchJson: fetch });
+  for (let i = 0; i < 2; i++) {
+    const result = await second.dividends(query);
+    expect(result.isError).toBe(false);
+    expect(result.text).toContain('\n資料取得：115年10月26日\n');
+    expect(result.text).not.toContain('資料更新');
+    expect(result.text).not.toMatch(/^- /m);
+  }
+  expect(fetch).toHaveBeenCalledTimes(query === undefined ? 2 : 6);
+  for (const key of ['twse-div', 'tpex-div'] as const) {
+    expect(fetch.mock.calls.filter(([url]) => url === stockUrls[key])).toHaveLength(1);
+  }
 });
 it('uses the older available live market acquisition date after a partial recovery', async () => {
   let now = Date.parse('2026-10-26T15:45:00Z'), offline = true;
@@ -140,7 +165,7 @@ it('uses the older available live market acquisition date after a partial recove
   now += 30 * 60000; offline = false;
   const recovered = await service.dividends();
   expect(recovered.text).toContain('上市＋上櫃');
-  expect(recovered.text).toContain('\n資料更新：115年10月26日\n');
+  expect(recovered.text).toContain('\n資料取得：115年10月26日\n');
   expect(fetch).toHaveBeenCalledTimes(3);
 });
 it.each(['twse', 'tpex'])('answers with a partial %s outage', async prefix => {

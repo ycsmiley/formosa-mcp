@@ -7,6 +7,7 @@ export const sourcePattern = /(?:資料來源|(?:^|\n)來源)[ \t]*[：:][ \t]*\
 // Meaningful data dates: full Gregorian/ROC dates on a data-labelled line, the
 // lottery's explicitly labelled draw period, operating dates, or dated dividend
 // rows. A query's date range / "today onwards" heading is not a data timestamp.
+// 資料更新 labels snapshot content changes; 資料取得 labels live acquisition.
 // Do not accept stock codes, HH:mm alone, 未提供, or any digit.
 const isoDay = /(?<!\d)(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?!\d)/u;
 const rocDay = /(?<!\d)\d{3}年(?:0?[1-9]|1[0-2])月(?:0?[1-9]|[12]\d|3[01])日/u;

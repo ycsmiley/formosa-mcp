@@ -27,26 +27,25 @@ export interface StockServiceOptions {
   clock?: Clock;
   cache?: { getOrLoad(key: string, loader: () => Promise<unknown>): Promise<unknown> };
 }
+interface DividendFeed { data: unknown; fetchedAt: string }
 export function createStockService({ snapshot, fetchMarketFeed = defaultFetchMarketFeed, fetchJson = defaultFetchJson, clock = () => new Date(), cache = new TtlCache<unknown>(3600000, () => clock().getTime()) }: StockServiceOptions = {}) {
-  // Live dividend feeds expose event dates, not a dataset update date. Retain
-  // their acquisition dates across both existing caches for display only.
-  const dividendFetchedAt = new Map<string, string>();
-  const load = (key: keyof typeof stockUrls) => cache.getOrLoad(key, async () => {
-    const data = await fetchJson(stockUrls[key]);
-    if (key.endsWith('-div')) dividendFetchedAt.set(key, clock().toISOString());
-    return data;
-  });
+  const load = (key: keyof typeof stockUrls) => cache.getOrLoad(key, () => fetchJson(stockUrls[key]));
+  // Keep display metadata with the feed, including when the cache is shared
+  // across service instances. Live feeds provide no content-change timestamp.
+  const loadDividendFeed = (key: 'twse-div' | 'tpex-div') => cache.getOrLoad(key, async () => ({
+    data: await fetchJson(stockUrls[key]), fetchedAt: clock().toISOString(),
+  })) as Promise<DividendFeed>;
   const quoteCache = new TtlCache<ReturnType<typeof parseQuotes>>(3600000, () => clock().getTime());
-  const dividendCache = new TtlCache<ReturnType<typeof parseDividends>>(3600000, () => clock().getTime());
-  async function markets<T>(loader: (prefix: 'twse' | 'tpex', market: Market) => Promise<T[]>) {
+  const dividendCache = new TtlCache<{ rows: DividendEvent[]; fetchedAt: string }>(3600000, () => clock().getTime());
+  async function markets<T>(loader: (prefix: 'twse' | 'tpex', market: Market) => Promise<{ rows: T[]; fetchedAt?: string }>) {
     const results = await Promise.allSettled([loader('twse', '上市'), loader('tpex', '上櫃')]);
     if (results.every(r => r.status === 'rejected')) throw new Error(results.map(r => r.status === 'rejected' ? String(r.reason instanceof Error ? r.reason.message : r.reason) : '').join('；'));
-    return { updatedAt: undefined, markets: results.flatMap((r, i) => r.status === 'fulfilled' ? [i ? '上櫃' : '上市'] : []).join('＋'), rows: results.flatMap(r => r.status === 'fulfilled' ? r.value : []), tpexCheck: undefined, warning: results.map((r, i) => r.status === 'rejected' ? `（${i ? '櫃買中心' : '證交所'}資料暫時取不到）` : '').filter(Boolean).join('\n') };
+    return { fetchedAt: results.flatMap(r => r.status === 'fulfilled' && r.value.fetchedAt ? [r.value.fetchedAt] : []).sort()[0], markets: results.flatMap((r, i) => r.status === 'fulfilled' ? [i ? '上櫃' : '上市'] : []).join('＋'), rows: results.flatMap(r => r.status === 'fulfilled' ? r.value.rows : []), tpexCheck: undefined, warning: results.map((r, i) => r.status === 'rejected' ? `（${i ? '櫃買中心' : '證交所'}資料暫時取不到）` : '').filter(Boolean).join('\n') };
   }
-  const quotes = () => snapshot ? snapshot.quotes().then(fromSnapshot) : markets((p, market) => quoteCache.getOrLoad(p, async () => {
+  const quotes = () => snapshot ? snapshot.quotes().then(fromSnapshot) : markets(async (p, market) => ({ rows: await quoteCache.getOrLoad(p, async () => {
     const [q, r] = await Promise.all([load(`${p}-quotes`), load(`${p}-ratios`)]);
     return parseQuotes(q, r, market);
-  }));
+  }) }));
   const safely = async (query: string | undefined, action: () => Promise<{ text: string; warning: string }>): Promise<StockResult> => {
     if (query !== undefined && !normalizeStockQuery(query)) return { text: '請輸入股票代號（例如 2330）或名稱（例如 台積電）。', isError: true };
     try { const r = await action(); return { text: [r.text, r.warning].filter(Boolean).join('\n'), isError: false }; }
@@ -75,18 +74,22 @@ export function createStockService({ snapshot, fetchMarketFeed = defaultFetchMar
       return { text: found.kind === 'one' ? formatStockQuote(found.stock, clock, tpexCheck) : formatStockLookup(query, found), warning };
     }); },
     dividends(query?: string) { return safely(query, async () => {
-      const div = await (snapshot ? snapshot.dividends().then(fromSnapshot) : markets((p, market) => dividendCache.getOrLoad(p, async () => parseDividends(await load(`${p}-div`), market))));
+      const div = await (snapshot ? snapshot.dividends().then(fromSnapshot) : markets((p, market) => dividendCache.getOrLoad(p, async () => {
+        const { data, fetchedAt } = await loadDividendFeed(`${p}-div`);
+        return { rows: parseDividends(data, market), fetchedAt };
+      })));
       // Snapshots retain the oldest market's content-change time; live feeds use
       // acquisition time. Never substitute today's query date for either.
-      const updatedAt = div.updatedAt ?? ['twse', 'tpex'].flatMap((p, i) => div.markets.includes(i ? '上櫃' : '上市') && dividendFetchedAt.has(`${p}-div`) ? [dividendFetchedAt.get(`${p}-div`)!] : []).sort()[0];
-      const dataDate = updatedAt ? taipeiParts(new Date(updatedAt)) : undefined;
-      if (query === undefined) return { text: formatStockDividends(div.rows, clock, undefined, 20, div.markets, dataDate), warning: div.warning };
+      const dataTime = 'fetchedAt' in div ? div.fetchedAt : div.updatedAt;
+      const dataDate = dataTime ? taipeiParts(new Date(dataTime)) : undefined;
+      const dateLabel = snapshot ? '資料更新' : '資料取得';
+      if (query === undefined) return { text: formatStockDividends(div.rows, clock, undefined, 20, div.markets, dataDate, dateLabel), warning: div.warning };
       // A schedule can still resolve ETFs absent from the quote feed, even during a quote outage.
       const q = await quotes().catch(() => ({ rows: [], warning: '（行情資料暫時取不到）' }));
       const identities: StockIdentity[] = [...q.rows];
       for (const e of div.rows) if (!identities.some(s => s.code === e.code && s.market === e.market)) identities.push(e);
       const found = findStocks(query, identities);
-      return { text: found.kind === 'one' ? formatStockDividends(div.rows, clock, found.stock, 20, div.markets, dataDate) : formatStockLookup(query, found), warning: [...new Set([div.warning, q.warning].filter(Boolean))].join('\n') };
+      return { text: found.kind === 'one' ? formatStockDividends(div.rows, clock, found.stock, 20, div.markets, dataDate, dateLabel) : formatStockLookup(query, found), warning: [...new Set([div.warning, q.warning].filter(Boolean))].join('\n') };
     }); },
   };
 }

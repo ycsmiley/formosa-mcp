@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { assertStaleCoverage, deniedKeys, hasDataTime, rawJsonViolations, sourcePattern } from './output-contract-helper.js';
-it.each(['2330', '更新時間未提供', '資料日期：1', '18:05', '資料更新中', '查詢 2026-11-02～2026-11-08', '近期除權息（115年11月20日起，列出前 0 筆）'])('rejects meaningless time %s', text => expect(hasDataTime(text)).toBe(false));
-it.each(['資料日期：115年10月29日', '資料更新：115年10月23日', '資料更新：2026-10-29 18:19', '【115年07-08月】沒中'])('accepts meaningful data date %s', text => expect(hasDataTime(text)).toBe(true));
+it.each(['2330', '更新時間未提供', '資料日期：1', '18:05', '資料更新中', '資料取得：未提供', '資料取得：18:05', '資料取得：115年10月', '資料取得：\n115年10月23日', '資料更新：\n2026-10-29', '115年10月23日', '查詢 2026-11-02～2026-11-08', '近期除權息（115年11月20日起，列出前 0 筆）'])('rejects meaningless time %s', text => expect(hasDataTime(text)).toBe(false));
+it.each(['資料日期：115年10月29日', '資料更新：115年10月23日', '資料更新：2026-10-29 18:19', '資料取得：115年10月23日', '資料取得：2026-10-29 18:19', '【115年07-08月】沒中'])('accepts meaningful data date %s', text => expect(hasDataTime(text)).toBe(true));
 it('requires valued attribution and recognizes existing label variants', () => {
   expect('資料來源').not.toMatch(sourcePattern);
   for (const text of ['資料來源：財政部', '來源：台電', '資料介接「交通部TDX平臺」']) expect(text).toMatch(sourcePattern);
