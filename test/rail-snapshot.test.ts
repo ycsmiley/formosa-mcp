@@ -139,7 +139,7 @@ it('formats live age and the snapshot timestamp in Taipei', () => {
   expect(snapshotTime(fetchedAt)).toBe('時刻表資料：2026-10-29 00:23（臺北時間）更新');
 });
 
-it('warns only for the overnight timetable actually used by a fallback train or station board', async () => {
+it('checks the selected train’s timetable and every timetable consulted by a station board', async () => {
   const snapshot = compactTimetable('TRA', daily('TRA'), date, fetchedAt);
   const stations = compactStations('TRA', fixture('tra-stations'), fetchedAt);
   const midnight = new Date(`${date}T00:05:00+08:00`), train = snapshot.trains[0];
@@ -151,5 +151,5 @@ it('warns only for the overnight timetable actually used by a fallback train or 
   expect(await render({ train_no: '903' })).toContain('可能不是最新');
   expect(await render({ train_no: '901' })).not.toContain('可能不是最新');
   expect(await render({ station: '高雄' })).toContain('可能不是最新');
-  expect(await render({ station: '臺北' })).not.toContain('可能不是最新');
+  expect(await render({ station: '臺北' })).toContain('可能不是最新');
 });

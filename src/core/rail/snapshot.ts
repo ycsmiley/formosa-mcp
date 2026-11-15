@@ -107,10 +107,12 @@ export async function renderFallback(args: LiveArgs, reason: string, snapshot: T
           if (!stop || train.suspended === 1 || stop[3] !== 0) return [];
           const time = stopTime(train, stop);
           if (index === 1 && time !== undefined && time < 1440) return [];
-          return time === undefined || time - index * 1440 < taipeiNow(now).minutes ? [] : [{ train, time: time - index * 1440, day }];
+          return time === undefined || time - index * 1440 < taipeiNow(now).minutes ? [] : [{ train, time: time - index * 1440 }];
         }) ?? []).sort((a, b) => a.time - b.time || a.train.no.localeCompare(b.train.no, 'en', { numeric: true }));
         lines.push(`臺鐵表訂看板｜${station.name}`, ...rows.slice(0, 10).map(({ train, time }) => `${train.no} 次｜${train.type || '車種未提供'}｜往 ${train.end || '未提供'}｜表訂時間 ${hhmm(time)}${time >= 1440 ? '（隔日）' : ''}`));
-        used = rows.length ? [...new Set(rows.slice(0, 10).map(row => row.day))] : [snapshot, yesterday].filter((s): s is TimetableSnapshot => s !== null);
+        // Every consulted day can omit or misorder departures, even when none
+        // of its rows survive filtering or make the first ten displayed rows.
+        used = [snapshot, yesterday].filter((s): s is TimetableSnapshot => s !== null);
         if (!rows.length) lines.push('時刻表中查無此站接下來的班次');
       }
       if (source?.truncated || (args.train_no === undefined && yesterday?.truncated)) lines.push(truncatedNote);

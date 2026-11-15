@@ -11,8 +11,10 @@ export const TWSE_WEEKEND_STALE_MS = 13 * hour;
 // Use wall time including closed windows, so normal nights/weekends never warn.
 export const TPEX_DIVIDENDS_STALE_MS = 136 * hour;
 // rail-snapshot runs at UTC 16:23/20:23 (4h/20h gaps, not evenly spaced 12h).
-// Max interval 20h × 2 + 8h buffer = 48h: tomorrow's immutable timetable can
-// be fetched just after Taipei midnight yesterday and served until tonight.
+// Max interval 20h × 2 + 8h buffer = 48h before the operating day's Taipei
+// midnight (or now, if earlier). The collector fetches tomorrow at 00:23/04:23
+// and skips existing dates: yesterday's timetable can be nearly 72h old late
+// tonight. Immutable timetables must not age further after their date starts.
 export const RAIL_TIMETABLE_STALE_MS = 48 * hour;
 // publish-rail refreshes stations only after 7d; the next cron can be 20h later.
 // Effective interval (7d + 20h) × 2 + 4h scheduling buffer = 380h.
@@ -33,8 +35,11 @@ export function twseDividendsThreshold(at: string | undefined, now: Date): numbe
 export function staleWarning(at: string | undefined, detail?: string): string {
   return `⚠️ 資料可能不是最新（最後更新：${updated(at)}${detail ? `；${detail}` : ''}）`;
 }
-export function railWarnings(timetables: { fetchedAt: string }[], stations: { fetchedAt: string } | null, now: Date): string[] {
-  return [...new Set(timetables.filter(s => isStale(s.fetchedAt, now, RAIL_TIMETABLE_STALE_MS)).map(s => staleWarning(s.fetchedAt, '表訂時刻表'))),
+export function railWarnings(timetables: { date: string; fetchedAt: string }[], stations: { fetchedAt: string } | null, now: Date): string[] {
+  return [...new Set(timetables.filter(s => {
+    const start = Date.parse(`${s.date}T00:00:00+08:00`);
+    return !Number.isFinite(start) || isStale(s.fetchedAt, new Date(Math.min(now.getTime(), start)), RAIL_TIMETABLE_STALE_MS);
+  }).map(s => staleWarning(s.fetchedAt, '表訂時刻表'))),
     ...(stations && isStale(stations.fetchedAt, now, RAIL_STATIONS_STALE_MS) ? [staleWarning(stations.fetchedAt, '車站資料')] : [])];
 }
 export function invoiceWarning(draws: Draw[], updatedAt: string, now: Date): string {

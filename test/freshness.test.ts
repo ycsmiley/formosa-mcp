@@ -19,9 +19,8 @@ describe('snapshot freshness boundaries', () => {
     // Taipei Saturday morning is still a UTC Friday weekday cron.
     expect(twseDividendsThreshold('2026-11-06T20:00:00Z', new Date('2026-11-06T20:30:00Z'))).toBe(TWSE_WEEKDAY_STALE_MS);
   });
-  it('tolerates the actual TPEx weekend gap and immutable tomorrow timetable reuse', () => {
+  it('tolerates the actual TPEx weekend gap and station refresh interval', () => {
     expect(isStale('2026-11-06T10:47:00Z', new Date('2026-11-09T06:17:00Z'), TPEX_DIVIDENDS_STALE_MS)).toBe(false);
-    expect(isStale('2026-11-01T00:23:00+08:00', new Date('2026-11-02T23:59:00+08:00'), RAIL_TIMETABLE_STALE_MS)).toBe(false);
     expect(isStale(at, new Date('2026-11-10T01:00:00Z'), RAIL_STATIONS_STALE_MS)).toBe(false);
   });
   it('formats a shared warning in Taipei time and handles unknown times', () => {
@@ -30,11 +29,26 @@ describe('snapshot freshness boundaries', () => {
     expect(isStale(undefined, new Date(at), 1000)).toBe(true);
     expect(staleWarning(undefined)).toContain('更新時間未提供');
   });
-  it('checks timetable and station fetch clocks independently', () => {
-    const now = new Date(at), old = { fetchedAt: '2000-01-01T00:00:00Z' }, fresh = { fetchedAt: at };
+  it('checks timetable operating-date and station fetch clocks independently', () => {
+    const now = new Date(at), old = { date: '2026-11-02', fetchedAt: '2000-01-01T00:00:00Z' }, fresh = { date: '2026-11-02', fetchedAt: at };
     expect(railWarnings([fresh], fresh, now)).toEqual([]);
     expect(railWarnings([old], fresh, now)).toEqual([staleWarning(old.fetchedAt, '表訂時刻表')]);
     expect(railWarnings([fresh], old, now)).toEqual([staleWarning(old.fetchedAt, '車站資料')]);
+  });
+  it.each(['2026-11-01T23:59:59+08:00', '2026-11-02T00:00:00+08:00', '2026-11-02T23:59:59+08:00', '2026-11-03T23:59:59+08:00'])(
+    'judges timetable acquisition against min(now, operating-day midnight) at %s', time => {
+      const now = new Date(time), start = Date.parse('2026-11-02T00:00:00+08:00');
+      const reference = Math.min(now.getTime(), start);
+      for (const offset of [-1, 0, 1]) {
+        const fetchedAt = new Date(reference - RAIL_TIMETABLE_STALE_MS - offset).toISOString();
+        expect(railWarnings([{ date: '2026-11-02', fetchedAt }], null, now).length).toBe(offset > 0 ? 1 : 0);
+      }
+    });
+  it.each(['00:23', '04:23'])('keeps yesterday’s immutable timetable healthy late tonight after the %s collection', time => {
+    const snapshot = { date: '2026-11-02', fetchedAt: `2026-11-01T${time}:00+08:00` };
+    const now = new Date('2026-11-03T23:59:59+08:00');
+    expect(isStale(snapshot.fetchedAt, now, RAIL_TIMETABLE_STALE_MS)).toBe(true);
+    expect(railWarnings([snapshot], null, now)).toEqual([]);
   });
 });
 
