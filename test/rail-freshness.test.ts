@@ -48,6 +48,17 @@ it.each(['00:23', '04:23'])('keeps a healthy evening station board fresh after t
   expect(result.text).not.toContain('可能不是最新');
 });
 
+it.each([true, false])('checks consulted yesterday freshness when today’s train is selected (stale=%s)', async stale => {
+  const yesterday = timetable(previousDate, stale ? '2026-10-25T23:59:59.999+08:00' : '2026-10-27T00:23:00+08:00');
+  const today = timetable(date, healthyFetch, [{ ...train, type: '今日車種' }]);
+  const result = await service(today, yesterday).live({ train_no: '901' });
+  expect(result.isError).not.toBe(true);
+  expect(result.text).toContain('901 次｜今日車種');
+  expect(result.text).toContain('時刻表資料：2026-10-28 00:23（臺北時間）更新');
+  expect(result.text.includes('可能不是最新')).toBe(stale);
+  if (stale) expect(result.text).toContain('最後更新：2026-10-25 23:59（臺北時間）；表訂時刻表');
+});
+
 it('uses yesterday’s operating-date boundary for a selected overnight train', async () => {
   vi.setSystemTime(new Date(`${date}T00:05:00+08:00`));
   for (const offset of [-1, 0, 1]) {

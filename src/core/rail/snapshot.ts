@@ -96,7 +96,7 @@ export async function renderFallback(args: LiveArgs, reason: string, snapshot: T
           train = previous;
           source = yesterday;
         }
-        if (source) used = [source];
+        used = [snapshot, yesterday].filter((s): s is TimetableSnapshot => s !== null);
         if (!train) lines.push(`時刻表中查無 ${no} 次列車`);
         else lines.push(`臺鐵表訂停靠站｜${no} 次｜${train.type || '車種未提供'}｜往 ${train.end || '未提供'}${train.suspended === 1 ? '（停駛）' : train.suspended === 2 ? '（部分停駛）' : ''}`,
           ...train.stops.map(([id, arr, dep, suspended]) => `${stationName(id)}｜表訂時間 到站 ${arr || '未提供'}／離站 ${dep || '未提供'}${suspended !== 0 ? '（停駛）' : ''}`));
