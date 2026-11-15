@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { cases, snapshotReaders, staleCases, STALE_WARNING_EXEMPT, upstreamColumns, upstreamObjects } from './output-contract-fixtures.js';
+import { cases, snapshotReaders, staleCases, upstreamColumns, upstreamObjects } from './output-contract-fixtures.js';
 // Attribution labels actually printed by these tools: invoice/stock/garbage/NCDR
 // use 資料來源, DGPA/outages use 來源, and rail uses the required TDX credit.
 // Require a value on the same line; the mere word 資料來源 is insufficient.
@@ -48,17 +48,12 @@ export function textOf(reply: Reply) {
   return text;
 }
 export interface Harness { listTools(): Promise<string[]>; call(name: string, args: Record<string, unknown>, stale?: boolean): Promise<Reply> }
-export function assertStaleCoverage(readers: string[], warningCases: string[], exemptions: string[], registered: string[]) {
+export function assertStaleCoverage(readers: string[], warningCases: string[], registered: string[]) {
   for (const name of readers) {
     expect(registered, `unregistered snapshot reader ${name}`).toContain(name);
-    expect(warningCases.includes(name) || exemptions.includes(name), `snapshot reader ${name} needs a stale fixture or named exemption`).toBe(true);
+    expect(warningCases, `snapshot reader ${name} needs a stale fixture`).toContain(name);
   }
-  for (const name of exemptions) {
-    expect(registered, `obsolete stale exemption ${name}`).toContain(name);
-    expect(warningCases, `${name} has both a stale fixture and an exemption`).not.toContain(name);
-  }
-  // Exact reverse audit rejects orphan exemptions/cases and omitted readers.
-  expect([...warningCases, ...exemptions].sort()).toEqual([...new Set(readers)].sort());
+  expect([...warningCases].sort()).toEqual([...new Set(readers)].sort());
 }
 export function contractSuite(side: keyof typeof snapshotReaders, harness: Harness) {
   describe(`${side} registered output contract`, () => {
@@ -81,16 +76,23 @@ export function contractSuite(side: keyof typeof snapshotReaders, harness: Harne
       it(`${name}: meaningful data time`, () => expect(hasDataTime(replies.get(name)!), `${name} missing data time\n${replies.get(name)}`).toBe(true));
       it(`${name}: no upstream JSON`, () => expect(rawJsonViolations(replies.get(name)!), `${name} raw upstream JSON`).toEqual([]));
     }
-    it('enumerates snapshot readers and requires a stale case or named exemption for each', () => {
+    it('enumerates snapshot readers and requires a stale case for each', () => {
       for (const name of snapshotReaders[side]) {
         expect(registered, `unregistered snapshot reader ${name}`).toContain(name);
       }
       // Every current Worker registration reads snapshots. An added tool must
-      // update this inventory and explicitly choose a warning case or exemption.
+      // update this inventory and add a warning case.
       if (side === 'worker') expect([...snapshotReaders.worker].sort()).toEqual([...registered].sort());
-      assertStaleCoverage(Object.values(snapshotReaders).flat(), Object.keys(staleCases), STALE_WARNING_EXEMPT, registered);
+      assertStaleCoverage(Object.values(snapshotReaders).flat(), Object.keys(staleCases), registered);
     });
-    for (const name of snapshotReaders[side]) it(`${name}: stale snapshot ${STALE_WARNING_EXEMPT.includes(name) ? 'source/time contract' : 'warning'}`, async () => {
+    if (side === 'worker') for (const name of ['invoice_get_winning_numbers', 'invoice_check', 'stock_dividends', 'thsr_timetable', 'tra_timetable', 'tra_live']) {
+      it(`${name}: fresh snapshot has no stale warning`, async () => {
+        const args = name === 'tra_live' ? { train_no: '149' } : cases[name];
+        const text = textOf(await harness.call(name, args));
+        expect(text).not.toMatch(/可能不是最新/);
+      });
+    }
+    for (const name of snapshotReaders[side]) it(`${name}: stale snapshot warning`, async () => {
       const fixture = staleCases[name];
       // tra_live must exercise the persisted timetable fallback, not the gateway.
       const args = name === 'tra_live' ? { train_no: '149' } : fixture?.args ?? cases[name];
@@ -98,11 +100,8 @@ export function contractSuite(side: keyof typeof snapshotReaders, harness: Harne
       expect.soft(text, `${name} stale output missing source`).toMatch(sourcePattern);
       expect.soft(hasDataTime(text), `${name} stale output missing time\n${text}`).toBe(true);
       expect.soft(rawJsonViolations(text), `${name} stale output raw JSON`).toEqual([]);
-      if (STALE_WARNING_EXEMPT.includes(name)) expect(fixture, `${name} cannot also have a warning case`).toBeUndefined();
-      else {
-        expect(fixture, `${name} missing stale case`).toBeDefined();
-        expect(text, `${name} missing staleness warning`).toMatch(fixture.warning);
-      }
+      expect(fixture, `${name} missing stale case`).toBeDefined();
+      expect(text, `${name} missing staleness warning`).toMatch(fixture.warning);
     });
   });
 }

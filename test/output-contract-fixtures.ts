@@ -46,16 +46,12 @@ export const snapshotReaders = {
   local: ['garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts'],
   worker: ['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_market_summary', 'stock_dividends', 'garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts', 'thsr_timetable', 'tra_timetable', 'tra_live'],
 };
-// No staleness threshold exists yet for these snapshot readers; tracked in
-// https://github.com/ycsmiley/formosa-mcp/issues/7.
-// They still must provide attribution, meaningful data time, and formatted text.
-export const STALE_WARNING_EXEMPT = [
-  'invoice_get_winning_numbers', 'invoice_check', 'stock_dividends',
-  'thsr_timetable', 'tra_timetable', 'tra_live',
-];
 // Independent case maps: removing a case fails coverage; removing a reader fails
 // the reverse audit against this map. These are existing warning phrases only.
 export const staleCases: Record<string, { warning: RegExp; args?: Record<string, unknown> }> = {
+  invoice_get_winning_numbers: { warning: /可能不是最新/ }, invoice_check: { warning: /可能不是最新/ },
+  stock_dividends: { warning: /可能不是最新/ }, thsr_timetable: { warning: /可能不是最新/ },
+  tra_timetable: { warning: /可能不是最新/ }, tra_live: { warning: /可能不是最新/ },
   // garbage/service.ts:76: >3 days. Archive is far past that (shard retained).
   garbage_schedule: { warning: /資料可能已過時/ },
   // outage/service.ts:69-71: >24h. All sources retain readable successful shards.

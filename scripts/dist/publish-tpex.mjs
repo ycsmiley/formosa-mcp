@@ -200,7 +200,7 @@ function decodeMarketSummary(value) {
 
 // src/worker/snapshot-keys.ts
 var keys = { invoice: "invoice:v1", marketSummary: "stock:market:v1", twseQuotes: "stock:quotes:twse:v1", tpexQuotes: "stock:quotes:tpex:v1", twseDividends: "stock:dividends:twse:v1", tpexDividends: "stock:dividends:tpex:v1" };
-var collectKeys = { tpex: "stock:collect:tpex:v1" };
+var collectKeys = { tpex: "stock:collect:tpex:v1", twseDividends: "stock:collect:dividends:twse:v1" };
 var minimumRows = { twse: 100, tpex: 50, invoice: 1 };
 var isQuotes = (key) => key === keys.twseQuotes || key === keys.tpexQuotes;
 function encodeStoredSnapshot(key, snapshot) {
@@ -636,6 +636,7 @@ async function publishTpex({ outDir, env = process.env, now = /* @__PURE__ */ ne
     outDir ??= await mkdtemp(join2(tmpdir(), "tpex-"));
     const manifest = await collectTpex({ outDir, previous, previousDir, now });
     let failed = manifest.failures.length > 0;
+    let dividendsSucceeded = manifest.written.includes(keys.tpexDividends);
     for (const key of manifest.written) {
       if (key === keys.marketSummary && skipSummary) continue;
       const entry = manifest.keys[key];
@@ -653,11 +654,13 @@ async function publishTpex({ outDir, env = process.env, now = /* @__PURE__ */ ne
         if (response.status === 200 && result?.success === true) {
           console.log(`kv put ${key} ${entry.bytes} bytes dataDate=${entry.dataDate} updatedAt=${entry.updatedAt}`);
         } else {
+          if (key === keys.tpexDividends) dividendsSucceeded = false;
           if (key !== keys.marketSummary) failed = true;
           const errors = Array.isArray(result?.errors) ? result.errors.map((error) => `${error.code}:${error.message}`).join(" ") : "";
           (key === keys.marketSummary ? console.warn : console.error)(`kv put ${key} HTTP ${response.status}${errors ? ` ${errors.replaceAll(token, "[redacted]").replace(/\s+/g, " ")}` : ""}`);
         }
       } catch {
+        if (key === keys.tpexDividends) dividendsSucceeded = false;
         if (key === keys.marketSummary) console.warn(`kv put ${key} failed`);
         else {
           failed = true;
@@ -665,13 +668,23 @@ async function publishTpex({ outDir, env = process.env, now = /* @__PURE__ */ ne
         }
       }
     }
-    if (!failed && manifest.written.includes(keys.tpexQuotes)) {
-      const lastSuccessAt = now.toISOString(), dataDate = manifest.keys[keys.tpexQuotes].dataDate;
+    if (!failed && manifest.written.includes(keys.tpexQuotes) || dividendsSucceeded) {
+      const lastSuccessAt = now.toISOString(), dataDate = manifest.keys[keys.tpexQuotes]?.dataDate ?? null;
       try {
-        const response = await request(collectKeys.tpex, { method: "PUT", body: JSON.stringify({ v: 1, lastSuccessAt, dataDate }) });
+        let heartbeat = { v: 1, lastSuccessAt, dataDate };
+        if (failed) {
+          const old = await request(collectKeys.tpex);
+          if (old.status !== 200 && old.status !== 404) throw new Error("heartbeat read failed");
+          const previous2 = old.status === 200 ? await old.json().catch(() => null) : null;
+          heartbeat = previous2?.v === 1 ? previous2 : { v: 1 };
+        }
+        if (dividendsSucceeded) heartbeat.dividendsLastSuccessAt = lastSuccessAt;
+        const response = await request(collectKeys.tpex, { method: "PUT", body: JSON.stringify(heartbeat) });
         const result = await response.json().catch(() => null);
-        if (response.status === 200 && result?.success === true) console.log(`kv heartbeat lastSuccessAt=${lastSuccessAt} dataDate=${dataDate}`);
-        else {
+        if (response.status === 200 && result?.success === true) {
+          if (failed) console.log("kv dividend heartbeat ok");
+          else console.log(`kv heartbeat lastSuccessAt=${lastSuccessAt} dataDate=${dataDate}`);
+        } else {
           failed = true;
           console.error(`kv put ${collectKeys.tpex} HTTP ${response.status}`);
         }

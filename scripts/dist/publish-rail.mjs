@@ -62,6 +62,25 @@ function snapshotReserve(value, monthlyQuota = 4500) {
   return Math.min(quota(monthlyQuota), Math.max(0, Number.isFinite(n) ? Math.floor(n) : 300));
 }
 
+// src/core/clock.ts
+var formatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Taipei",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  hourCycle: "h23"
+});
+
+// src/core/freshness.ts
+var hour = 36e5;
+var TWSE_WEEKDAY_STALE_MS = 75 * 6e4;
+var TWSE_WEEKEND_STALE_MS = 13 * hour;
+var TPEX_DIVIDENDS_STALE_MS = 136 * hour;
+var RAIL_TIMETABLE_STALE_MS = 48 * hour;
+var RAIL_STATIONS_STALE_MS = 380 * hour;
+var INVOICE_DRAW_BUFFER_MS = 3 * 24 * hour;
+
 // src/core/rail/snapshot.ts
 var stationKey = (railway) => `rail:stations:${railway}:v1`;
 var timetableKey = (railway, date) => `rail:timetable:${railway}:${date}:v1`;
@@ -88,16 +107,6 @@ function compactTimetable(railway, body, date, fetchedAt, truncated = false) {
   if (!trains.length) throw new RailError(unavailable);
   return { ...header(date, fetchedAt, truncated), trains };
 }
-
-// src/core/clock.ts
-var formatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Asia/Taipei",
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  hour: "numeric",
-  hourCycle: "h23"
-});
 
 // src/worker/snapshot-keys.ts
 var snapshotUsageKey = (month) => `tdx:snapshot-usage:${month}`;

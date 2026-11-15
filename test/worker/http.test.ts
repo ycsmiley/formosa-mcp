@@ -246,7 +246,7 @@ it.each(schedules)('cron $cron at $scheduledTime fetches only $job', async ({ cr
     for (const key of allKeys) expect(await bindings.SNAPSHOTS.get(key) !== null).toBe(written.includes(key));
   } finally { spy.mockRestore(); }
 });
-it('unknown local cron bootstraps invoice and TWSE, roundtrips payloads and skips all unchanged puts', async () => {
+it('unknown local cron bootstraps invoice and TWSE, preserves unchanged payloads and advances only the dividend heartbeat', async () => {
   for (const key of allKeys) await bindings.SNAPSHOTS.delete(key);
   const spy = mockUpstream();
   try {
@@ -262,7 +262,7 @@ it('unknown local cron bootstraps invoice and TWSE, roundtrips payloads and skip
     const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
     try {
       await worker.scheduled(createScheduledController({ cron: '' }), bindings, createExecutionContext());
-      expect(put).not.toHaveBeenCalled();
+      expect(put.mock.calls.map(([key]) => key)).toEqual([collectKeys.twseDividends]);
       expect(await Promise.all(bootstrapKeys.map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
     } finally { put.mockRestore(); }
   } finally { spy.mockRestore(); }
@@ -307,7 +307,7 @@ it.each(['fetch', 'parse'])('writes nothing on market %s failure and updates met
       return Response.json(String(input) === stockUrls['twse-quotes'] ? (fixtures[0] as typeof tq).map(row => ({ ...row, ClosingPrice: '2500' })) : data);
     });
     await worker.scheduled(createScheduledController({ cron }), bindings, createExecutionContext());
-    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledTimes(2);
     const next = await bindings.SNAPSHOTS.getWithMetadata<{ updatedAt: string }>(keys.twseQuotes);
     expect(next.metadata!.updatedAt > '2026-10-26T00:00:00.000Z').toBe(true);
     expect(next.value).not.toBe(before[allKeys.indexOf(keys.twseQuotes)].value);
@@ -325,11 +325,11 @@ const withValidators = () => vi.spyOn(globalThis, 'fetch').mockImplementation(as
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
-it.each(['twse'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and performs no parsing or writes', async market => {
+it.each(['twse'] as const)('%s first fetch writes snapshots/meta; all-304 sends validators and writes only the dividend heartbeat', async market => {
   await reset();
   const fetch = withValidators(), put = vi.spyOn(bindings.SNAPSHOTS, 'put'), del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
   await refresh(market);
-  expect(put.mock.calls.map(([key]) => key).sort()).toEqual([...marketKeys(market), metaKeys[market]].sort());
+  expect(put.mock.calls.map(([key]) => key).sort()).toEqual([...marketKeys(market), metaKeys[market], collectKeys.twseDividends].sort());
   const stored = Object.fromEntries(marketFeeds(market).map(([key]) => [key, validators(key)]));
   expect(JSON.parse((await bindings.SNAPSHOTS.get(metaKeys[market]))!)).toEqual(stored);
   put.mockClear(); fetch.mockClear();
@@ -347,7 +347,7 @@ it.each(['twse'] as const)('%s first fetch writes snapshots/meta; all-304 sends 
   });
   await refresh(market);
   expect(fetch).toHaveBeenCalledTimes(3);
-  expect(put).not.toHaveBeenCalled();
+  expect(put.mock.calls.map(([key]) => key)).toEqual([collectKeys.twseDividends]);
   expect(del).not.toHaveBeenCalled();
   expect(log).toHaveBeenCalledExactlyOnceWith(`stock:${market} 304 skip`);
 });
@@ -380,7 +380,7 @@ it('feeds without validators stay unconditional and never store meta', async () 
   expect(fetch).toHaveBeenCalledTimes(6);
   for (const [, init] of fetch.mock.calls) expect(Object.fromEntries(new Headers(init?.headers))).toEqual(feedHeaders);
   expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
-  expect(put).toHaveBeenCalledTimes(2);
+  expect(put).toHaveBeenCalledTimes(4);
 });
 
 it.each(['quotes', 'dividends'] as const)('ignores stored meta when the %s snapshot is missing', async kind => {
@@ -403,7 +403,7 @@ it.each(['twse'] as const)('guards tiny %s quotes, retains previous snapshots an
   const put = vi.spyOn(bindings.SNAPSHOTS, 'put'), warning = vi.spyOn(console, 'warn');
   fetch.mockImplementation(async input => Response.json(String(input) === stockUrls[`${market}-quotes`] ? tq : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
   await refresh(market);
-  expect(put).not.toHaveBeenCalled();
+  expect(put.mock.calls.map(([key]) => key)).toEqual([collectKeys.twseDividends]);
   expect(warning).toHaveBeenCalledWith(`${keys[`${market}Quotes`]} guard ${tq.length} rows`);
   expect(await Promise.all(marketKeys(market).map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
   expect(await bindings.SNAPSHOTS.get(metaKeys[market])).toBeNull();
@@ -437,8 +437,35 @@ it.each(['fetch', 'parse', 'write'] as const)('deletes stale validators after a 
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   if (failure === 'write') vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new Error('kv boom'));
   await refresh('twse');
-  if (failure === 'write') expect(warn).toHaveBeenCalledExactlyOnceWith(`${keys.twseQuotes} fail Error: kv boom`);
+  if (failure === 'write') {
+    // Only quotes changed; unchanged dividends skip their snapshot put.
+    expect(warn).toHaveBeenCalledWith(`${keys.twseQuotes} fail Error: kv boom`);
+    expect(warn).toHaveBeenCalledWith(`${collectKeys.twseDividends} fail Error`);
+    expect(warn).toHaveBeenCalledTimes(2);
+  }
   expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
+});
+
+it.each(['200', 'mixed'] as const)('reports a dividend snapshot write failure during %s, clears validators and never attempts the heartbeat', async mode => {
+  await reset();
+  const upstream = withValidators();
+  await refresh('twse');
+  const before = await Promise.all([keys.twseDividends, collectKeys.twseDividends].map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
+  upstream.mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (mode === 'mixed' && url === stockUrls['twse-div'] && new Headers(init?.headers).has('If-None-Match')) return new Response(null, { status: 304 });
+    return Response.json(url === stockUrls['twse-div'] ? [] : await fixtureFetch(url), { headers: { ETag: '"changed"' } });
+  });
+  // Every attempted put fails, including any incorrectly attempted heartbeat.
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new Error('kv boom'));
+  const del = vi.spyOn(bindings.SNAPSHOTS, 'delete');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await refresh('twse');
+  expect(put.mock.calls.map(([key]) => key)).toEqual([keys.twseDividends]);
+  expect(warn).toHaveBeenCalledExactlyOnceWith(`${keys.twseDividends} fail Error: kv boom`);
+  expect(del).toHaveBeenCalledExactlyOnceWith(metaKeys.twse);
+  expect(await bindings.SNAPSHOTS.get(metaKeys.twse)).toBeNull();
+  expect(await Promise.all([keys.twseDividends, collectKeys.twseDividends].map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before);
 });
 
 it('logs the error name and message when the stock job fails before fetching', async () => {
@@ -482,15 +509,16 @@ it('advances changed validators on unchanged snapshots, skips unchanged meta, an
   await refresh('twse');
   const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   await refresh('twse');
-  expect(put).not.toHaveBeenCalled();
+  expect(put.mock.calls.map(([key]) => key)).toEqual([collectKeys.twseDividends]);
+  put.mockClear();
   fetch.mockImplementation(async input => Response.json(String(input) === stockUrls['twse-div'] ? [] : await fixtureFetch(String(input)), { headers: { ETag: '"changed"' } }));
   await refresh('twse');
-  expect(put.mock.calls.map(([key]) => key).sort()).toEqual([keys.twseDividends, metaKeys.twse].sort());
+  expect(put.mock.calls.map(([key]) => key).sort()).toEqual([keys.twseDividends, metaKeys.twse, collectKeys.twseDividends].sort());
   expect(decodeSnapshot<{ rows: unknown[] }>((await bindings.SNAPSHOTS.get(keys.twseDividends))!).rows).toEqual([]);
   put.mockClear();
   fetch.mockImplementation(async input => Response.json(String(input) === stockUrls['twse-div'] ? [] : await fixtureFetch(String(input)), { headers: { ETag: '"new"' } }));
   await refresh('twse');
-  expect(put.mock.calls.map(([key]) => key)).toEqual([metaKeys.twse]);
+  expect(put.mock.calls.map(([key]) => key)).toEqual([collectKeys.twseDividends, metaKeys.twse]);
 });
 
 it.each([...Object.keys(cronJobs), '', '15,45 * * * MON-FRI', '0,30 */6 * * SAT,SUN'])('cron %j never fetches or changes TPEx and still serves seeded TPEx', async cron => {
@@ -543,4 +571,80 @@ it('reports missing or undecodable outage KV data without upstream fallback', as
     }
   }
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it('advances the successful dividend clock on unchanged 200/304 and keeps it after a failed dividend fetch', async () => {
+  await reset();
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T01:00:00Z'));
+  const upstream = withValidators();
+  await refresh('twse');
+  const snapshot = await bindings.SNAPSHOTS.getWithMetadata(keys.twseDividends);
+  const check = async () => JSON.parse((await bindings.SNAPSHOTS.get(collectKeys.twseDividends))!).lastSuccessAt;
+  expect(await check()).toBe('2026-11-02T01:00:00.000Z');
+  vi.setSystemTime(new Date('2026-11-02T01:30:00Z'));
+  await refresh('twse'); // unchanged 200
+  expect(await check()).toBe('2026-11-02T01:30:00.000Z');
+  expect(await bindings.SNAPSHOTS.getWithMetadata(keys.twseDividends)).toEqual(snapshot);
+  upstream.mockImplementation(async () => new Response(null, { status: 304 }));
+  vi.setSystemTime(new Date('2026-11-02T02:00:00Z'));
+  await refresh('twse');
+  expect(await check()).toBe('2026-11-02T02:00:00.000Z');
+  expect(await bindings.SNAPSHOTS.getWithMetadata(keys.twseDividends)).toEqual(snapshot);
+  upstream.mockImplementation(async input => String(input) === stockUrls['twse-div'] ? new Response(null, { status: 503 }) : Response.json(await fixtureFetch(String(input))));
+  vi.setSystemTime(new Date('2026-11-02T02:30:00Z'));
+  await refresh('twse');
+  expect(await check()).toBe('2026-11-02T02:00:00.000Z');
+});
+
+it('records a successful dividend 304 even if the mixed-response complete-view re-fetch fails', async () => {
+  await reset();
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T01:00:00Z'));
+  const upstream = withValidators(); await refresh('twse');
+  const snapshot = await bindings.SNAPSHOTS.getWithMetadata(keys.twseDividends);
+  vi.setSystemTime(new Date('2026-11-02T01:30:00Z'));
+  upstream.mockImplementation(async (input, init) => {
+    if (String(input) === stockUrls['twse-div']) return new Response(null, { status: new Headers(init?.headers).has('If-None-Match') ? 304 : 503 });
+    return Response.json(await fixtureFetch(String(input)));
+  });
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put');
+  await refresh('twse');
+  expect(put.mock.calls.filter(([key]) => key === collectKeys.twseDividends)).toHaveLength(1);
+  expect(JSON.parse((await bindings.SNAPSHOTS.get(collectKeys.twseDividends))!).lastSuccessAt).toBe('2026-11-02T01:30:00.000Z');
+  expect(await bindings.SNAPSHOTS.getWithMetadata(keys.twseDividends)).toEqual(snapshot);
+});
+
+it.each(['304', 'mixed', '200'] as const)('contains a dividend heartbeat write failure during %s without interrupting snapshots or validators', async mode => {
+  await reset();
+  const upstream = withValidators();
+  await refresh('twse');
+  const before = await Promise.all([keys.twseQuotes, keys.twseDividends, metaKeys.twse, collectKeys.twseDividends].map(key => bindings.SNAPSHOTS.getWithMetadata(key)));
+  const secret = 'heartbeat-private-error';
+  const originalPut = bindings.SNAPSHOTS.put.bind(bindings.SNAPSHOTS);
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put').mockImplementation((...args) => args[0] === collectKeys.twseDividends ? Promise.reject(mode === '200' ? secret : new TypeError(secret)) : originalPut(...args));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  upstream.mockClear();
+  upstream.mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (mode === '304' || mode === 'mixed' && url === stockUrls['twse-div'] && new Headers(init?.headers).has('If-None-Match')) return new Response(null, { status: 304 });
+    const data = url === stockUrls['twse-quotes'] ? (fixtures[0] as typeof tq).map(row => ({ ...row, ClosingPrice: '2500' })) : url === stockUrls['twse-div'] ? [] : await fixtureFetch(url);
+    return Response.json(data, { headers: { ETag: '"changed"', 'Last-Modified': modified } });
+  });
+  await expect(refresh('twse')).resolves.toBeUndefined();
+  expect(put.mock.calls.filter(([key]) => key === collectKeys.twseDividends)).toHaveLength(1);
+  expect(warn).toHaveBeenCalledExactlyOnceWith(`${collectKeys.twseDividends} fail ${mode === '200' ? 'error' : 'TypeError'}`);
+  expect(await bindings.SNAPSHOTS.getWithMetadata(collectKeys.twseDividends)).toEqual(before[3]);
+  if (mode === '304') {
+    expect(upstream).toHaveBeenCalledTimes(3);
+    expect(put.mock.calls.map(([key]) => key)).toEqual([collectKeys.twseDividends]);
+    expect(log).toHaveBeenCalledExactlyOnceWith('stock:twse 304 skip');
+    expect(await Promise.all([keys.twseQuotes, keys.twseDividends, metaKeys.twse].map(key => bindings.SNAPSHOTS.getWithMetadata(key)))).toEqual(before.slice(0, 3));
+  } else {
+    expect(upstream).toHaveBeenCalledTimes(mode === 'mixed' ? 4 : 3);
+    expect(put.mock.calls.map(([key]) => key).sort()).toEqual([keys.twseQuotes, keys.twseDividends, collectKeys.twseDividends, metaKeys.twse].sort());
+    expect(put.mock.calls.findIndex(([key]) => key === collectKeys.twseDividends)).toBeGreaterThan(put.mock.calls.findIndex(([key]) => key === keys.twseDividends));
+    expect(decodeQuotesSnapshot((await bindings.SNAPSHOTS.get(keys.twseQuotes))!).rows.every(row => row.close === 2500)).toBe(true);
+    expect(decodeSnapshot<{ rows: unknown[] }>((await bindings.SNAPSHOTS.get(keys.twseDividends))!).rows).toEqual([]);
+    expect(JSON.parse((await bindings.SNAPSHOTS.get(metaKeys.twse))!)).toEqual(Object.fromEntries(marketFeeds('twse').map(([key]) => [key, { etag: '"changed"', lastModified: modified }])));
+  }
 });

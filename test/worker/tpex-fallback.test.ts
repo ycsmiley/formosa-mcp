@@ -12,7 +12,7 @@ const capKey = 'tpex:fallback:2026-10-30';
 const heartbeat = { v: 1, lastSuccessAt: '2026-10-29T10:47:00Z', dataDate: '2026-10-29' };
 const run = (time = '2026-10-30T11:00:00Z', cron = '0,30 * * * MON-FRI', target = bindings) => worker.scheduled(createScheduledController({ cron, scheduledTime: Date.parse(time) }), target, createExecutionContext());
 const reset = async () => {
-  for (const key of [...Object.values(keys), ...Object.values(metaKeys), collectKeys.tpex, capKey, 'tpex:fallback:2026-10-29', 'tpex:fallback:2026-10-31']) await bindings.SNAPSHOTS.delete(key);
+  for (const key of [...Object.values(keys), ...Object.values(metaKeys), ...Object.values(collectKeys), capKey, 'tpex:fallback:2026-10-29', 'tpex:fallback:2026-10-31']) await bindings.SNAPSHOTS.delete(key);
 };
 const mockFetch = (dispatch = async () => new Response(null, { status: 204 })) => vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
   if (String(input) === url) return dispatch();
@@ -51,7 +51,7 @@ it('dispatches stale TPEx independently of TWSE with a persisted count, TTL and 
   expect(init).toEqual({ method: 'POST', redirect: 'manual', signal: expect.any(AbortSignal), body: '{"ref":"main"}', headers: {
     Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'formosa-mcp (+https://github.com/ycsmiley/formosa-mcp)', 'Content-Type': 'application/json',
   } });
-  expect(put).toHaveBeenCalledExactlyOnceWith(capKey, '1', { expirationTtl: 259200 });
+  expect(put.mock.calls.filter(([key]) => key.startsWith('tpex:fallback:'))).toEqual([[capKey, '1', { expirationTtl: 259200 }]]);
   expect(logs.log).toHaveBeenCalledWith('tpex fallback dispatch status=204');
   expect(logs.log).toHaveBeenCalledWith('stock:twse 304 skip');
 });
@@ -99,7 +99,7 @@ it.each([undefined, ''])('skips without a token (%j), without writing a cap', as
   const fetch = mockFetch(), put = vi.spyOn(bindings.SNAPSHOTS, 'put');
   await run(undefined, undefined, { ...bindings, GH_DISPATCH_TOKEN: secret });
   expect(dispatches(fetch)).toHaveLength(0);
-  expect(put).not.toHaveBeenCalled();
+  expect(put.mock.calls.filter(([key]) => key.startsWith('tpex:fallback:'))).toEqual([]);
   expect(await bindings.SNAPSHOTS.get(capKey)).toBeNull();
   expect(logs.log).toHaveBeenCalledWith('tpex fallback skip no token');
 });
@@ -123,10 +123,26 @@ it.each(['throw', '500', 'non-error'] as const)('contains dispatch failure %s an
 });
 it('contains a cap write failure without dispatching or affecting TWSE', async () => {
   const fetch = mockFetch();
-  vi.spyOn(bindings.SNAPSHOTS, 'put').mockRejectedValue(new TypeError(token));
+  const originalPut = bindings.SNAPSHOTS.put.bind(bindings.SNAPSHOTS);
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put').mockImplementation((...args) => args[0] === capKey ? Promise.reject(new TypeError(token)) : originalPut(...args));
   await expect(run()).resolves.toBeUndefined();
   expect(dispatches(fetch)).toHaveLength(0);
+  expect(put.mock.calls.filter(([key]) => key.startsWith('tpex:fallback:'))).toEqual([[capKey, '1', { expirationTtl: 259200 }]]);
+  expect(await bindings.SNAPSHOTS.get(capKey)).toBeNull();
+  expect(await bindings.SNAPSHOTS.get(collectKeys.twseDividends)).not.toBeNull();
   expect(logs.warn).toHaveBeenCalledExactlyOnceWith('tpex fallback fail TypeError');
+  expect(logs.log).toHaveBeenCalledWith('stock:twse 304 skip');
+});
+it('contains a dividend heartbeat write failure without affecting TWSE or the TPEx fallback', async () => {
+  const fetch = mockFetch();
+  const originalPut = bindings.SNAPSHOTS.put.bind(bindings.SNAPSHOTS);
+  const put = vi.spyOn(bindings.SNAPSHOTS, 'put').mockImplementation((...args) => args[0] === collectKeys.twseDividends ? Promise.reject(new TypeError(token)) : originalPut(...args));
+  await expect(run()).resolves.toBeUndefined();
+  expect(dispatches(fetch)).toHaveLength(1);
+  expect(put.mock.calls.filter(([key]) => key.startsWith('tpex:fallback:'))).toEqual([[capKey, '1', { expirationTtl: 259200 }]]);
+  expect(await bindings.SNAPSHOTS.get(capKey)).toBe('1');
+  expect(await bindings.SNAPSHOTS.get(collectKeys.twseDividends)).toBeNull();
+  expect(logs.warn).toHaveBeenCalledExactlyOnceWith(`${collectKeys.twseDividends} fail TypeError`);
   expect(logs.log).toHaveBeenCalledWith('stock:twse 304 skip');
 });
 it.each([

@@ -1,4 +1,5 @@
 import { RailError, readJsonLimited, truncatedNote } from '../core/rail/client.js';
+import { railWarnings } from '../core/freshness.js';
 import { attribution, createRailService, type LiveArgs, type RailResult, type TimetableArgs } from '../core/rail/service.js';
 import { deriveOD, expandStations, liveAge, renderFallback, snapshotTime, stationKey, timetableKey, type StationsSnapshot, type TimetableSnapshot } from '../core/rail/snapshot.js';
 import type { Railway } from '../core/rail/stations.js';
@@ -72,7 +73,7 @@ export function workerRail(env: RailEnv, ipKey: string, credentials: ReturnType<
           return deriveOD(railway, snapshot, decodeURIComponent(match[1]), decodeURIComponent(match[2]));
         } });
         const result = await service.timetable(railway, args);
-        return { ...result, ...reply(`${result.text.replace(`\n${attribution}`, '')}${snapshot.truncated || stations.truncated ? `\n${truncatedNote}` : ''}\n${snapshotTime(snapshot.fetchedAt)}`) };
+        return { ...result, ...reply([`${result.text.replace(`\n${attribution}`, '')}${snapshot.truncated || stations.truncated ? `\n${truncatedNote}` : ''}`, snapshotTime(snapshot.fetchedAt), ...railWarnings([snapshot], stations, now)].join('\n')) };
       } catch (error) { return reply(error instanceof RailError ? error.message : unavailableSnapshot); }
     },
     async live(args: LiveArgs): Promise<RailResult> {

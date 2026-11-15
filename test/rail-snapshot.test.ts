@@ -138,3 +138,18 @@ it('formats live age and the snapshot timestamp in Taipei', () => {
   expect(liveAge(new Date(now.getTime() - 119999).toISOString(), now)).toBe('即時資料約 1 分鐘前取得');
   expect(snapshotTime(fetchedAt)).toBe('時刻表資料：2026-10-29 00:23（臺北時間）更新');
 });
+
+it('warns only for the overnight timetable actually used by a fallback train or station board', async () => {
+  const snapshot = compactTimetable('TRA', daily('TRA'), date, fetchedAt);
+  const stations = compactStations('TRA', fixture('tra-stations'), fetchedAt);
+  const midnight = new Date(`${date}T00:05:00+08:00`), train = snapshot.trains[0];
+  snapshot.trains = [{ ...train, no: '901', stops: [['1000', '00:10', '00:11', 0], ['4400', '00:12', '00:13', 0]] }];
+  const yesterday = { ...snapshot, date: '2026-10-28', fetchedAt: '2000-01-01T00:00:00Z', trains: [
+    { ...train, no: '903', overnight: true, stops: [['1000', '23:20', '23:21', 0], ['4400', '00:20', '00:21', 0]] as typeof train.stops },
+  ] };
+  const render = (args: { train_no?: string; station?: string }) => renderFallback(args, 'nokey', snapshot, stations, midnight, yesterday);
+  expect(await render({ train_no: '903' })).toContain('可能不是最新');
+  expect(await render({ train_no: '901' })).not.toContain('可能不是最新');
+  expect(await render({ station: '高雄' })).toContain('可能不是最新');
+  expect(await render({ station: '臺北' })).not.toContain('可能不是最新');
+});

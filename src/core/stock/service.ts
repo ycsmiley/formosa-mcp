@@ -8,7 +8,7 @@ import { findStocks, normalizeStockQuery, type StockIdentity } from './lookup.js
 import { formatStockDividends, formatStockLookup, formatStockQuote } from './format.js';
 export interface StockResult { text: string; isError: boolean }
 export interface TpexCheck { lastSuccessAt: string; dataDate: string }
-export interface StockMarketSnapshot<T> { updatedAt: string; twse: T[] | null; tpex: T[] | null; tpexCheck?: TpexCheck }
+export interface StockMarketSnapshot<T> { updatedAt: string; twse: T[] | null; tpex: T[] | null; tpexCheck?: TpexCheck; warning?: string }
 export interface StockSnapshotProvider {
   marketSummary?(): Promise<MarketSummary | null>;
   quotes(): Promise<StockMarketSnapshot<StockQuote> | null>;
@@ -18,7 +18,7 @@ class Updating extends Error {}
 function fromSnapshot<T>(data: StockMarketSnapshot<T> | null) {
   if (!data) throw new Updating();
   if (!data.twse && !data.tpex) throw new Error('missing markets');
-  return { updatedAt: data.updatedAt, markets: [data.twse !== null ? '上市' : '', data.tpex !== null ? '上櫃' : ''].filter(Boolean).join('＋'), rows: [...(data.twse ?? []), ...(data.tpex ?? [])], tpexCheck: data.tpexCheck, warning: [!data.twse ? '（證交所資料暫時取不到）' : '', !data.tpex ? '（櫃買中心資料暫時取不到）' : ''].filter(Boolean).join('\n') };
+  return { updatedAt: data.updatedAt, markets: [data.twse !== null ? '上市' : '', data.tpex !== null ? '上櫃' : ''].filter(Boolean).join('＋'), rows: [...(data.twse ?? []), ...(data.tpex ?? [])], tpexCheck: data.tpexCheck, warning: [data.warning ?? '', !data.twse ? '（證交所資料暫時取不到）' : '', !data.tpex ? '（櫃買中心資料暫時取不到）' : ''].filter(Boolean).join('\n') };
 }
 export interface StockServiceOptions {
   snapshot?: StockSnapshotProvider;

@@ -1,4 +1,6 @@
 import { collectDisaster, reason as disasterReason } from '../core/disaster/collect.js';
+import { isStale, staleWarning, twseDividendsThreshold, TPEX_DIVIDENDS_STALE_MS } from '../core/freshness.js';
+import { readSuccessAt } from './freshness.js';
 import { fetchText as disasterFetchText } from '../core/disaster/http.js';
 import { decodeIndex as decodeDisasterIndex, decodeShard as decodeDisasterShard, indexKey as disasterIndexKey, shardKey as disasterShardKey, type Writer } from '../core/disaster/model.js';
 import { decodeIndex as decodeOutageIndex, decodeShard as decodeOutageShard } from '../core/outage/model.js';
@@ -14,7 +16,7 @@ import { readTpexCheck, tpexFallback } from './tpex-fallback.js';
 import { fetchInvoiceFeed } from '../core/invoice/source.js';
 import { stockUrls } from '../core/stock/source.js';
 import { decodeStockMeta, fetchStockFeed, type StockMeta } from './stock-source.js';
-import { keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
+import { collectKeys, keys, metaKeys, minimumRows, isQuotes, encodeStoredSnapshot } from './snapshot-keys.js';
 import { FixedWindowCounter, hitCounter, ipShard, rateLimitKey } from './counter.js';
 import { userCredentials, workerRail, type RailEnv } from './rail.js';
 export { TdxGateway } from './tdx-gateway.js';
@@ -38,7 +40,17 @@ async function read<T>(env: Env, key: string): Promise<T | null> {
 }
 async function readMarkets<T>(env: Env, twseKey: string, tpexKey: string) {
   const [twse, tpex, tpexCheck] = await Promise.all([read<MarketSnapshot<T>>(env, twseKey), read<MarketSnapshot<T>>(env, tpexKey), isQuotes(tpexKey) ? readTpexCheck(env) : undefined]);
-  return mergeStockSnapshots(twse, tpex, tpexCheck);
+  const merged = mergeStockSnapshots(twse, tpex, tpexCheck);
+  if (merged && !isQuotes(tpexKey)) {
+    const [twseCheck, tpexCheck] = await Promise.all([
+      readSuccessAt(env.SNAPSHOTS, collectKeys.twseDividends),
+      readSuccessAt(env.SNAPSHOTS, collectKeys.tpex, 'dividendsLastSuccessAt', 'lastSuccessAt'),
+    ]);
+    const now = new Date(), twseAt = twseCheck ?? twse?.updatedAt, tpexAt = tpexCheck ?? tpex?.updatedAt;
+    merged.warning = [twse && isStale(twseAt, now, twseDividendsThreshold(twseAt, now)) ? staleWarning(twseAt, '上市除權息') : '',
+      tpex && isStale(tpexAt, now, TPEX_DIVIDENDS_STALE_MS) ? staleWarning(tpexAt, '上櫃除權息') : ''].filter(Boolean).join('\n');
+  }
+  return merged;
 }
 const plain = (text: string, status = 200, headers = {}) => new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', ...headers } });
 export default {
@@ -72,7 +84,7 @@ export default {
           outageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(outageIndexKey); return raw ? decodeOutageIndex(raw) : null; }, shard: async (source, county, sha) => { const raw = await env.SNAPSHOTS.get(outageShardKey(source, county, sha)); return raw ? decodeOutageShard(raw, source, county) : null; } },
           garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword, filter) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword, filter) : null; } },
           railService,
-          loadDraws: async () => (await read<InvoiceSnapshot>(env, keys.invoice))?.draws ?? null,
+          loadInvoiceSnapshot: () => read<InvoiceSnapshot>(env, keys.invoice),
           snapshot: { marketSummary: async () => { const value = await env.SNAPSHOTS.get(keys.marketSummary); return value === null ? null : decodeMarketSummary(JSON.parse(value)); }, quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },
         });
         return server;
@@ -97,6 +109,16 @@ export default {
       if (await env.SNAPSHOTS.get(key) === encoded) return;
       await env.SNAPSHOTS.put(key, encoded, { metadata: { updatedAt: snapshot.updatedAt } });
       console.log(`${key} ${new TextEncoder().encode(encoded).length} bytes ok`);
+    }
+    async function checkedDividends() {
+      // One tiny heartbeat per successful TWSE run, never rewrite unchanged
+      // payloads/metadata: +48 writes/weekday or +4/weekend. The prior 717/day
+      // envelope becomes 765/day (docs/kv-budget.md), below the shared 1,000/day limit.
+      // Freshness evidence is best effort: its failure must not interrupt stock
+      // publication or validator updates, and KV error details may contain secrets.
+      try {
+        await env.SNAPSHOTS.put(collectKeys.twseDividends, JSON.stringify({ v: 1, lastSuccessAt: new Date().toISOString() }));
+      } catch (error) { console.warn(`${collectKeys.twseDividends} fail ${error instanceof Error ? error.name : 'error'}`); }
     }
     const job = Object.hasOwn(cronJobs, controller.cron) ? cronJobs[controller.cron as keyof typeof cronJobs] : undefined;
     // Production only sends configured crons. Unknown cron is local bootstrap.
@@ -123,7 +145,10 @@ export default {
         const meta = present.every(Boolean) ? decodeStockMeta(previous) : {};
         const feeds = Object.entries(stockUrls).filter(([key]) => key.startsWith(job));
         let results = await Promise.allSettled(feeds.map(([key, url]) => fetchStockFeed(key, url, meta[key])));
+        const dividendResult = results[feeds.findIndex(([feed]) => feed === `${job}-div`)];
+        const dividendNotModified = dividendResult.status === 'fulfilled' && dividendResult.value.status === 304;
         if (results.every(result => result.status === 'fulfilled' && result.value.status === 304)) {
+          await checkedDividends();
           console.log(`stock:${job} 304 skip`);
           return;
         }
@@ -150,6 +175,10 @@ export default {
             return true;
           } catch (error) { console.warn(`${key} fail ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`); return false; }
         }));
+        // A validated 304 confirms the stored payload if re-fetch/parsing fails.
+        // If a new dividend snapshot exists, finish its publication first: a
+        // failed write must never advance the heartbeat. Once/run, best effort.
+        if (succeeded[1] || dividendNotModified && !data.dividends) await checkedDividends();
         if (!succeeded.every(Boolean)) {
           if (previous !== null) await env.SNAPSHOTS.delete(metaKeys[job]);
           return;

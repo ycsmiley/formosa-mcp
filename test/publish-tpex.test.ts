@@ -52,6 +52,7 @@ beforeEach(async () => {
     const key = decodeURIComponent(url.slice(base.length));
     expect(url).toBe(`${base}${encodeURIComponent(key)}`);
     if (key === collectKeys.tpex) {
+      if (init?.method !== 'PUT') return current.has(key) ? new Response(current.get(key)) : new Response(null, { status: 404 });
       expect(init?.method).toBe('PUT');
       expect(typeof init.body).toBe('string');
       heartbeats.push(init.body as string);
@@ -90,7 +91,7 @@ it('first publish puts both exact snapshot strings with encoded URLs and Worker 
   expect(await publish()).toBe(0);
   const snapshots = await buildStockSnapshot('tpex', fixtureFetch, () => now);
   expect([...puts.keys()]).toEqual(tpexKeys);
-  const heartbeat = JSON.stringify({ v: 1, lastSuccessAt: now.toISOString(), dataDate: '2026-10-22' });
+  const heartbeat = JSON.stringify({ v: 1, lastSuccessAt: now.toISOString(), dataDate: '2026-10-22', dividendsLastSuccessAt: now.toISOString() });
   expect(heartbeats).toEqual([heartbeat]);
   const putKeys = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'PUT').map(([url]) => decodeURIComponent(String(url).slice(base.length)));
   expect(putKeys()).toEqual([...tpexKeys, collectKeys.tpex]);
@@ -122,7 +123,7 @@ it('rejects quotes older than KV but still publishes dividends and exits 1', asy
   current.set(keys.tpexQuotes, encodeStoredSnapshot(keys.tpexQuotes, snapshot));
   expect(await publish()).toBe(1);
   expect([...puts.keys()]).toEqual([keys.tpexDividends, keys.marketSummary]);
-  expect(heartbeats).toEqual([]);
+  expect(heartbeats.map(v => JSON.parse(v))).toEqual([{ v: 1, dividendsLastSuccessAt: now.toISOString() }]);
   expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('stale date 2026-10-22 < 2026-10-23'));
 });
 
@@ -196,11 +197,11 @@ it('preserves valid newer summary blocks and skips the KV write for older fetche
   expect(await readFile(join(outDir, 'stock_market_v1.json'), 'utf8')).toBe(previous);
 });
 
-it.each(['tpex-ratios', 'tpex-div'] as const)('never publishes failed %s or a heartbeat, while publishing the other key', async feed => {
+it.each(['tpex-ratios', 'tpex-div'] as const)('publishes only successful datasets and their heartbeat evidence when %s fails', async feed => {
   feedFailure = stockUrls[feed];
   expect(await publish()).toBe(1);
   expect([...puts.keys()]).toEqual([feed === 'tpex-div' ? keys.tpexQuotes : keys.tpexDividends, keys.marketSummary]);
-  expect(heartbeats).toEqual([]);
+  expect(heartbeats.map(v => JSON.parse(v))).toEqual(feed === 'tpex-div' ? [] : [{ v: 1, dividendsLastSuccessAt: now.toISOString() }]);
 });
 
 it.each(['http', 'false-success', 'invalid-json', 'throw'] as const)('failed heartbeat (%s) exits 1 after publishing data, without logging response bodies', async mode => {
@@ -291,4 +292,15 @@ it('reuses confirmed KV margin when newly fetched TWSE headers cannot confirm th
   const next = JSON.parse(String(puts.get(keys.marketSummary)!.get('value')));
   expect(next.twse.margin).toEqual(JSON.parse(previous).twse.margin);
   expect(next.twse.marginReason).toContain('Last-Modified');
+});
+
+it('retains quote heartbeat evidence while advancing independently successful unchanged dividends', async () => {
+  expect(await publish()).toBe(0);
+  for (const [key, body] of puts) current.set(key, String(body.get('value')));
+  const old = { v: 1, lastSuccessAt: '2026-10-28T08:00:00Z', dataDate: '2026-10-22', dividendsLastSuccessAt: '2026-10-28T08:00:00Z' };
+  current.set(collectKeys.tpex, JSON.stringify(old));
+  heartbeats = []; puts.clear(); feedFailure = stockUrls['tpex-ratios'];
+  expect(await publish()).toBe(1);
+  expect(puts.has(keys.tpexDividends)).toBe(false);
+  expect(heartbeats.map(v => JSON.parse(v))).toEqual([{ ...old, dividendsLastSuccessAt: now.toISOString() }]);
 });

@@ -11,15 +11,9 @@ it('derives representative keys from fixtures and respects whole tokens', () => 
   expect(deniedKeys).toEqual(expect.arrayContaining(['Code', 'ClosingPrice', 'SecuritiesCompanyCode', 'TrainNo', 'StartingStationID', 'StationName', 'DailyTrainInfo', 'SW_Area', 'garbagemonday']));
   expect(rawJsonViolations('名稱與時間皆已格式化；請求號數 T1；SomeTrainNoSuffix；中文name中文')).toEqual([]);
 });
-it('rejects a new snapshot reader without a stale case or named exemption', () => {
-  expect(() => assertStaleCoverage(['existing', 'new_reader'], ['existing'], [], ['existing', 'new_reader'])).toThrow('new_reader needs a stale fixture or named exemption');
+it('rejects a new snapshot reader without a stale case', () => {
+  expect(() => assertStaleCoverage(['existing', 'new_reader'], ['existing'], ['existing', 'new_reader'])).toThrow('new_reader needs a stale fixture');
 });
-it('rejects obsolete stale exemptions', () => {
-  expect(() => assertStaleCoverage(['existing'], ['existing'], ['removed'], ['existing'])).toThrow('obsolete stale exemption removed');
-});
-it('rejects a tool with both a warning case and an exemption', () => {
-  expect(() => assertStaleCoverage(['existing'], ['existing'], ['existing'], ['existing'])).toThrow('existing has both a stale fixture and an exemption');
-});
-it('rejects exemption entries that no longer read snapshots', () => {
-  expect(() => assertStaleCoverage(['existing'], ['existing'], ['live_only'], ['existing', 'live_only'])).toThrow();
+it('rejects stale cases that no longer read snapshots', () => {
+  expect(() => assertStaleCoverage(['existing'], ['existing', 'live_only'], ['existing', 'live_only'])).toThrow();
 });
