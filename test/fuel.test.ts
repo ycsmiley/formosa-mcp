@@ -39,7 +39,16 @@ it('accepts the four required station products without ethanol gasoline or marin
 });
 it('strictly decodes snapshots and rejects unknown keys, bad times/dates/items and versions', () => {
   const s = snapshot(); expect(decodeFuel(JSON.stringify(s))).toEqual(s);
-  for (const raw of ['bad', null, [], { ...s, v: 2 }, { ...s, extra: 1 }, { ...s, checkedAt: undefined }, { ...s, checkedAt: '2026-02-30T00:00:00.000Z' }, { ...s, changedAt: 'bad' }, { ...s, items: [{ ...s.items[0], effective: '2026-02-30' }] }, { ...s, items: s.items.map(i => ({ ...i, raw: true })) }]) expect(decodeFuel(raw)).toBeNull();
+  for (const raw of ['bad', null, [], { ...s, v: 2 }, { ...s, extra: 1 }, { ...s, changedAt: 'bad' }, { ...s, items: [{ ...s.items[0], effective: '2026-02-30' }] }, { ...s, items: s.items.map(i => ({ ...i, raw: true })) }]) expect(decodeFuel(raw)).toBeNull();
+});
+it.each([undefined, null, '', 'bad', '2026-02-30T00:00:00.000Z'])('serves validated prices with unknown check time and a stale warning (%s)', async checkedAt => {
+  const raw = JSON.stringify({ ...snapshot(), checkedAt }), decoded = decodeFuel(raw);
+  expect(decoded).toEqual({ ...snapshot(), checkedAt: undefined });
+  const result = await createFuelService({ fuelStore: { read: async () => decodeFuel(raw) }, clock: () => new Date(time) }).query('95');
+  expect(result.isError).not.toBe(true); expect(result.text).toContain('95無鉛汽油：32.7 元/公升');
+  expect(result.text).toContain('資料時間：最後確認時間不明（臺北時間）'); expect(result.text).toContain('資料來源：'); expect(result.text).toContain('可能不是最新');
+  expect(decodeFuel({ ...snapshot(), checkedAt, v: 2 })).toBeNull();
+  expect(decodeFuel({ ...snapshot(), checkedAt, items: snapshot().items.map(i => ({ ...i, price: -1 })) })).toBeNull();
 });
 it('defaults to self-operated station retail, filters all rows, retains units and lists products on no match', () => {
   const s = snapshot(), now = new Date(time), text = formatFuel(s, undefined, now);

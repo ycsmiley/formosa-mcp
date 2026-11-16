@@ -1,11 +1,13 @@
 import { calendarDay, coveredYears } from './index.js';
+const firstYear = Math.min(...coveredYears), lastYear = Math.max(...coveredYears);
+export const calendarCoverage = `${firstYear === lastYear ? firstYear : `${firstYear}–${lastYear}`}（民國${firstYear === lastYear ? firstYear - 1911 : `${firstYear - 1911}–${lastYear - 1911}`}年）`;
 const source = '資料來源：行政院人事行政總處「中華民國政府行政機關辦公日曆表」https://data.gov.tw/dataset/14718；臺灣證券交易所市場開休市日期 https://www.twse.com.tw/zh/trading/holiday.html';
 const reminder = '颱風等天然災害停班停課不在此日曆內，請查 work_school_closure 工具或人事總處 https://www.dgpa.gov.tw/typh/daily/nds.html 。民間企業是否放假依各公司規定。';
 const valid = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d;
 export function createCalendarService(clock = () => new Date()) {
   return { async query(q: { date?: string; end_date?: string }) {
     const start = q.date ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(clock()), end = q.end_date ?? start;
-    const error = (message: string) => ({ text: `${message} 涵蓋範圍：${Math.min(...coveredYears)}-01-01 至 ${Math.max(...coveredYears)}-12-31。 ${source}`, isError: true });
+    const error = (message: string) => ({ text: `${message} 涵蓋範圍：${calendarCoverage}，${Math.min(...coveredYears)}-01-01 至 ${Math.max(...coveredYears)}-12-31。 ${source}`, isError: true });
     if (!valid(start) || !valid(end) || !calendarDay(start).covered || !calendarDay(end).covered) return error('日期無效或超出日曆涵蓋範圍，請使用 YYYY-MM-DD。');
     const length = (Date.parse(end) - Date.parse(start)) / 86400000;
     if (length < 0 || length > 62) return error('結束日期不可早於開始日期，且最多距開始日期 62 天。');

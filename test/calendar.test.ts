@@ -17,6 +17,7 @@ it('regenerates bundled data byte for byte and rejects corrupted CSV before prod
   try {
     await main(['--years', '115,116', '--fetched', '2026-11-16', '--input-dir', inputDir]);
     expect(log).toHaveBeenCalledWith('已產生民國 115、116 年日曆');
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/PR.*npm run build:plugin.*npm run build:collectors.*內嵌日曆.*lhm\.plugin\.json.*逐位元組.*CI 失敗/));
     expect(await readFile('src/core/calendar/data.ts', 'utf8')).toBe(await generate(options));
   } finally { log.mockRestore(); }
   const dir = await mkdtemp(join(tmpdir(), 'calendar-')); await cp(inputDir, dir, { recursive: true });
@@ -68,6 +69,20 @@ it('serves single days, ranges and errors through MCP', async () => {
     const range = await client.callTool({ name: 'taiwan_calendar', arguments: { date: '2026-02-12', end_date: '2026-02-16' } }); expect(JSON.stringify(range.content)).toContain('放假日數（含週末）：3 天'); expect(JSON.stringify(range.content)).toContain('農曆除夕'); expect(JSON.stringify(range.content)).not.toContain('2026-02-14（星期六）');
     const bad = await client.callTool({ name: 'taiwan_calendar', arguments: { date: '2028-01-01' } }); expect(bad.isError).toBe(true); expect(JSON.stringify(bad.content)).toContain('2027-12-31');
   } finally { await client.close(); await server.close(); }
+});
+it.each([[2028], [2028, 2029]])('derives tool and error coverage from bundled years (%j)', async (...years) => {
+  vi.resetModules();
+  vi.doMock('../src/core/calendar/data.js', () => ({ data: Object.fromEntries(years.map(year => [year, {}])) }));
+  const client = new Client({ name: 'calendar-coverage-test', version: '1' });
+  const server = (await import('../src/mcp/server.js')).createServer({ toolsets: ['calendar'] });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(a); await client.connect(b);
+    const coverage = `${years.join('–')}（民國${years.map(year => year - 1911).join('–')}年）`;
+    expect((await client.listTools()).tools[0].description).toContain(coverage);
+    const result = await client.callTool({ name: 'taiwan_calendar', arguments: { date: '2030-01-01' } });
+    expect(result.isError).toBe(true); expect(JSON.stringify(result.content)).toContain(`涵蓋範圍：${coverage}`);
+  } finally { await client.close(); await server.close(); vi.doUnmock('../src/core/calendar/data.js'); vi.resetModules(); }
 });
 it('lists holiday notes on weekends and substitute holidays in ranges', async () => {
   const { text } = await createCalendarService().query({ date: '2026-02-27', end_date: '2026-03-01' });

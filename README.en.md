@@ -243,7 +243,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ### Office calendar and market holidays
 
-`taiwan_calendar` answers office working days, holidays, makeup workdays and stock market closures for 2026–2027. Sources: [DGPA calendar](https://data.gov.tw/dataset/14718) and [TWSE](https://www.twse.com.tw/zh/trading/holiday.html). Each year, after DGPA publishes next year's calendar (usually mid-year) and TWSE publishes its schedule, run `npm run update:calendar`. It defaults to the current ROC year and the next one based on today's date in Asia/Taipei; use `npm run update:calendar -- --years 116,117` to override the years. Review the diff and open a PR. Typhoon closures are excluded; check the closure tool.
+`taiwan_calendar` answers office working days, holidays, makeup workdays and stock market closures for 2026–2027. Sources: [DGPA calendar](https://data.gov.tw/dataset/14718) and [TWSE](https://www.twse.com.tw/zh/trading/holiday.html). Each year, after DGPA publishes next year's calendar (usually mid-year) and TWSE publishes its schedule, run `npm run update:calendar`. It defaults to the current ROC year and the next one based on today's date in Asia/Taipei; use `npm run update:calendar -- --years 116,117` to override the years. The PR must also run `npm run build:plugin` and `npm run build:collectors`, since both bundles embed the calendar, and refresh `lhm.plugin.json` if the tool description changed. Existing byte-identical bundle tests fail CI if a rebuild is missed. Review the diff and open a PR. Typhoon closures are excluded; check the closure tool.
 
 
 ### CPC fuel prices

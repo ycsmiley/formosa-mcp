@@ -64,5 +64,6 @@ export async function main(args = process.argv.slice(2)) {
   const output = await generate({ years, inputDir: value('--input-dir'), fetched });
   await writeFile('src/core/calendar/data.ts', output);
   console.log(`已產生民國 ${years.join('、')} 年日曆`);
+  console.log('提醒：PR 必須一併執行 npm run build:plugin 與 npm run build:collectors（兩種 bundle 皆內嵌日曆）；若工具描述改變，請同步更新 lhm.plugin.json。現有逐位元組比對測試會在漏更新 bundle 時讓 CI 失敗。');
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch(e => { console.error(`日曆更新失敗：${e.message}`); process.exitCode = 1; });

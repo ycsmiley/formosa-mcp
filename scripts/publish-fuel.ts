@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { directoryStore, kvStore, type Store } from './snapshot-store.js';
-import { decodeFuel, fuelKey, validTime, type FuelSnapshot } from '../src/core/fuel/model.js';
+import { decodeFuel, fuelKey, type FuelSnapshot } from '../src/core/fuel/model.js';
 import { parseFuel } from '../src/core/fuel/parse.js';
 import { fetchFuel, fuelReason } from '../src/core/fuel/source.js';
 export interface FuelPublisherOptions { store: Store; fetchFuel?: () => Promise<unknown>; now?: () => Date; sleep?: (ms: number) => Promise<void>; dryRun?: boolean; log?: (s: string) => void }
@@ -14,16 +14,9 @@ export async function publishFuel(options: FuelPublisherOptions) {
   }
   const items = parseFuel(body), time = (options.now ?? (() => new Date()))().toISOString();
   const raw = await options.store.get(fuelKey);
-  let previous = decodeFuel(raw), invalidCheck = false;
-  // Repair a legacy/malformed heartbeat while retaining valid content-change time.
-  if (!previous && raw) {
-    try {
-      const old = JSON.parse(raw);
-      if (!validTime(old.checkedAt)) { previous = decodeFuel({ ...old, checkedAt: time }); invalidCheck = true; }
-    } catch { /* corrupt snapshots are replaced only after a validated fetch */ }
-  }
+  const previous = decodeFuel(raw);
   const changed = !previous || JSON.stringify(items) !== JSON.stringify(previous.items);
-  const heartbeat = !changed && (invalidCheck || Date.parse(time) - Date.parse(previous!.checkedAt) >= 20 * 3600000);
+  const heartbeat = !changed && (!previous!.checkedAt || Date.parse(time) - Date.parse(previous!.checkedAt) >= 20 * 3600000);
   const payload: FuelSnapshot = { v: 1, items, changedAt: changed ? time : previous!.changedAt, checkedAt: changed || heartbeat ? time : previous!.checkedAt };
   const decision = changed ? 'changed' : heartbeat ? 'heartbeat' : 'skip';
   let writes = 0;

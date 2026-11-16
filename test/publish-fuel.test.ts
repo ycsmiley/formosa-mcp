@@ -27,8 +27,8 @@ it.each([0, 6, 19.999])('skips unchanged content checked %sh ago', async age => 
 it.each([20, 24, 48])('heartbeats unchanged content checked %sh ago, preserving changedAt', async age => {
   const o = setup(snapshot(age)), r = await publishFuel(o); expect(r.writes).toBe(1); expect(r.decision).toBe('heartbeat'); expect(r.payload.changedAt).toBe(changedAt); expect(r.payload.checkedAt).toBe(time); expect(o.store.put).toHaveBeenCalledTimes(1);
 });
-it.each([undefined, 'bad'])('repairs missing/invalid checkedAt with a heartbeat (%s)', async checkedAt => {
-  const o = setup({ ...snapshot(1), checkedAt }), r = await publishFuel(o); expect(r.decision).toBe('heartbeat'); expect(r.payload.changedAt).toBe(changedAt); expect(o.store.put).toHaveBeenCalledTimes(1);
+it.each([undefined, null, 'bad', '2026-02-30T00:00:00.000Z'])('repairs missing/invalid checkedAt with a heartbeat (%s)', async checkedAt => {
+  const o = setup({ ...snapshot(1), checkedAt }), r = await publishFuel(o); expect(r.decision).toBe('heartbeat'); expect(r.writes).toBe(1); expect(r.payload.changedAt).toBe(changedAt); expect(r.payload.checkedAt).toBe(time); expect(o.store.put).toHaveBeenCalledExactlyOnceWith(fuelKey, JSON.stringify(r.payload), time);
 });
 it('retries fetch three times at 1s/2s and reports redacted failure with zero writes, exit 1', async () => {
   const o = setup(); o.fetchFuel.mockRejectedValue(Error('token-private https://example.invalid/?token=token-private'));

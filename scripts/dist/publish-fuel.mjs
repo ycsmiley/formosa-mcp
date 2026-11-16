@@ -53,7 +53,8 @@ function validItems(items) {
 function decodeFuel(raw) {
   try {
     const s = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return s && Object.keys(s).sort().join() === "changedAt,checkedAt,items,v" && s.v === 1 && validItems(s.items) && validTime(s.changedAt) && validTime(s.checkedAt) ? s : null;
+    const keys = s && Object.keys(s).filter((k) => k !== "checkedAt").sort().join();
+    return keys === "changedAt,items,v" && s.v === 1 && validItems(s.items) && validTime(s.changedAt) ? { ...s, checkedAt: validTime(s.checkedAt) ? s.checkedAt : void 0 } : null;
   } catch {
     return null;
   }
@@ -106,19 +107,9 @@ async function publishFuel(options) {
   }
   const items = parseFuel(body), time = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
   const raw = await options.store.get(fuelKey);
-  let previous = decodeFuel(raw), invalidCheck = false;
-  if (!previous && raw) {
-    try {
-      const old = JSON.parse(raw);
-      if (!validTime(old.checkedAt)) {
-        previous = decodeFuel({ ...old, checkedAt: time });
-        invalidCheck = true;
-      }
-    } catch {
-    }
-  }
+  const previous = decodeFuel(raw);
   const changed = !previous || JSON.stringify(items) !== JSON.stringify(previous.items);
-  const heartbeat = !changed && (invalidCheck || Date.parse(time) - Date.parse(previous.checkedAt) >= 20 * 36e5);
+  const heartbeat = !changed && (!previous.checkedAt || Date.parse(time) - Date.parse(previous.checkedAt) >= 20 * 36e5);
   const payload = { v: 1, items, changedAt: changed ? time : previous.changedAt, checkedAt: changed || heartbeat ? time : previous.checkedAt };
   const decision = changed ? "changed" : heartbeat ? "heartbeat" : "skip";
   let writes = 0;

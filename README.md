@@ -256,7 +256,7 @@ npm run remote-check
 
 ### 辦公日曆與股市休市
 
-`taiwan_calendar` 查詢行政機關上班、放假、補班及股市開休市，涵蓋 2026–2027 年。資料來自[人事總處辦公日曆](https://data.gov.tw/dataset/14718)與[證交所](https://www.twse.com.tw/zh/trading/holiday.html)。每年在人事總處公布次年辦公日曆（通常於年中）、且證交所公布開休市表後，執行 `npm run update:calendar`，預設依臺北日期更新當年與次年；也可用 `npm run update:calendar -- --years 116,117` 指定民國年份。檢查 diff 後開 PR。颱風停班停課不在內，請查停班停課工具。
+`taiwan_calendar` 查詢行政機關上班、放假、補班及股市開休市，涵蓋 2026–2027 年。資料來自[人事總處辦公日曆](https://data.gov.tw/dataset/14718)與[證交所](https://www.twse.com.tw/zh/trading/holiday.html)。每年在人事總處公布次年辦公日曆（通常於年中）、且證交所公布開休市表後，執行 `npm run update:calendar`，預設依臺北日期更新當年與次年；也可用 `npm run update:calendar -- --years 116,117` 指定民國年份。PR 必須一併執行 `npm run build:plugin` 與 `npm run build:collectors`，因為兩種 bundle 皆內嵌日曆；若工具描述改變，請同步更新 `lhm.plugin.json`。現有逐位元組比對測試會在漏更新 bundle 時讓 CI 失敗。檢查 diff 後開 PR。颱風停班停課不在內，請查停班停課工具。
 
 
 ### 中油油價
