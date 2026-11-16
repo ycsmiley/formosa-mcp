@@ -41,6 +41,13 @@ it('recovers on a subsequent fetch and rejects bad upstream without writing', as
   const o = setup(); o.fetchFuel.mockRejectedValueOnce(Error('offline')); expect((await publishFuel(o)).writes).toBe(1); expect(o.sleep).toHaveBeenCalledWith(1000);
   const invalid = setup(); invalid.fetchFuel.mockResolvedValue([]); await expect(publishFuel(invalid)).rejects.toThrow(/中油/); expect(invalid.store.put).not.toHaveBeenCalled();
 });
+it('rejects a feed missing 95 before accessing a complete snapshot, reports zero writes and exits 1', async () => {
+  const o = setup(snapshot(24)); o.fetchFuel.mockResolvedValue(cpc.filter(r => r.產品名稱 !== '95無鉛汽油'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {}), log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  expect(await main(['--out', '/tmp/unused-fuel'], {}, o)).toBe(1);
+  expect(o.store.get).not.toHaveBeenCalled(); expect(o.store.put).not.toHaveBeenCalled();
+  expect(warn).toHaveBeenCalledWith('::warning::fuel collection failed: 資料格式不正確'); expect(log).toHaveBeenCalledWith('fuel KV writes=0');
+});
 it.each([null, snapshot(20), snapshot(1)])('dry-run prints exact proposed JSON and never calls put (%#)', async old => {
   const o = setup(old), output: string[] = [], r = await publishFuel({ ...o, dryRun: true, log: s => output.push(s) });
   expect(o.store.put).not.toHaveBeenCalled(); expect(r.writes).toBe(0); expect(output[0]).toBe(old === null ? 'would write (changed)' : r.decision === 'skip' ? 'skip' : 'would write (heartbeat)'); expect(JSON.parse(output[1])).toEqual(r.payload);

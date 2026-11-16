@@ -46,8 +46,9 @@ var fuelKey = "fuel:cpc:v1";
 var validDay2 = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 var validTime = (s) => typeof s === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(s) && validDay2(s.slice(0, 10)) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().replace(".000Z", "Z") === s.replace(".000Z", "Z");
 var fields = ["category", "product", "customer", "place", "unit"];
+var requiredRetailProducts = ["98\u7121\u925B\u6C7D\u6CB9", "95\u7121\u925B\u6C7D\u6CB9", "92\u7121\u925B\u6C7D\u6CB9", "\u8D85\u7D1A\u67F4\u6CB9"];
 function validItems(items) {
-  return Array.isArray(items) && items.every((i) => i && typeof i === "object" && Object.keys(i).sort().join() === [...fields, "price", "effective"].sort().join() && fields.every((k) => typeof i[k] === "string" && i[k].trim() === i[k] && i[k].length > 0) && typeof i.price === "number" && Number.isFinite(i.price) && i.price > 0 && validDay2(i.effective)) && items.filter((i) => i.category === "\u6C7D\u67F4\u6CB9\u96F6\u552E").length >= 4;
+  return Array.isArray(items) && items.every((i) => i && typeof i === "object" && Object.keys(i).sort().join() === [...fields, "price", "effective"].sort().join() && fields.every((k) => typeof i[k] === "string" && i[k].trim() === i[k] && i[k].length > 0) && typeof i.price === "number" && Number.isFinite(i.price) && i.price > 0 && validDay2(i.effective)) && requiredRetailProducts.every((product) => items.some((i) => i.category === "\u6C7D\u67F4\u6CB9\u96F6\u552E" && i.place === "\u4E2D\u6CB9\u81EA\u71DF\u7AD9" && i.product === product));
 }
 function decodeFuel(raw) {
   try {
@@ -60,7 +61,7 @@ function decodeFuel(raw) {
 
 // src/core/fuel/parse.ts
 function parseFuel(body) {
-  const invalid = () => new Error("\u4E2D\u6CB9\u724C\u50F9\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA\u6216\u6C7D\u67F4\u6CB9\u96F6\u552E\u7B46\u6578\u4E0D\u8DB3");
+  const invalid = () => new Error("\u4E2D\u6CB9\u724C\u50F9\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA\u6216\u4E2D\u6CB9\u81EA\u71DF\u7AD9\u5FC5\u8981\u6C7D\u67F4\u6CB9\u7522\u54C1\u4E0D\u5B8C\u6574");
   if (!Array.isArray(body)) throw invalid();
   const items = body.map((row) => {
     if (!row || typeof row !== "object") throw invalid();

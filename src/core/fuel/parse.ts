@@ -1,6 +1,6 @@
 import { validDay, validItems, type FuelItem } from './model.js';
 export function parseFuel(body: unknown): FuelItem[] {
-  const invalid = () => new Error('中油牌價資料格式不正確或汽柴油零售筆數不足');
+  const invalid = () => new Error('中油牌價資料格式不正確或中油自營站必要汽柴油產品不完整');
   if (!Array.isArray(body)) throw invalid();
   const items = body.map(row => {
     if (!row || typeof row !== 'object') throw invalid();

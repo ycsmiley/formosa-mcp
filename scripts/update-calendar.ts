@@ -7,6 +7,10 @@ const openUrl = 'https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule'
 const twseUrl = (year: number) => `https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?date=${year}0101&response=json`;
 const trading = (name: string) => /開始交易|最後交易/.test(name);
 const iso = (s: string) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+export function defaultYears(today = new Date()): number[] {
+  const current = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Taipei', year: 'numeric' }).format(today)) - 1911;
+  return [current, current + 1];
+}
 export function parseCsv(csv: string, year: number) {
   const lines = csv.replace(/^\uFEFF/, '').trimEnd().split(/\r?\n/);
   if (lines.shift() !== '西元日期,星期,是否放假,備註') throw Error('辦公日曆欄位不正確');
@@ -33,7 +37,7 @@ export async function generate(options: { years: number[]; inputDir?: string; fe
   for (const roc of options.years) {
     const year = roc + 1911;
     const resources = metadata.result.distribution.filter((r: any) => r.resourceDescription.startsWith(`${roc}年`) && !/google/i.test(r.resourceDescription) && String(r.resourceFormat).toUpperCase() === 'CSV' && /dgpa\/files\/\d{6}\//i.test(r.resourceDownloadUrl)).sort((a: any, b: any) => b.resourceDownloadUrl.match(/dgpa\/files\/(\d{6})\//i)[1].localeCompare(a.resourceDownloadUrl.match(/dgpa\/files\/(\d{6})\//i)[1]));
-    const resource = resources[0]; if (!resource) throw Error(`找不到民國 ${roc} 年辦公日曆資源`);
+    const resource = resources[0]; if (!resource) throw Error(`找不到民國 ${roc} 年辦公日曆資源；若次年資料尚未公布，可用 --years ${defaultYears()[0]} 僅更新今年`);
     const month = resource.resourceDownloadUrl.match(/dgpa\/files\/(\d{4})(\d{2})\//i);
     const office = parseCsv(await get(`dgpa-${roc}.csv`, resource.resourceDownloadUrl), year);
     const market = JSON.parse(await get(`twse-rwd-${year}.json`, twseUrl(year)));
@@ -52,11 +56,13 @@ export async function generate(options: { years: number[]; inputDir?: string; fe
   }
   return `// Generated; do not edit. Regenerate with npm run update:calendar; update yearly via PR.\nexport const data = ${JSON.stringify(result, null, 2)} as const;\n`;
 }
-async function main() {
-  const args = process.argv.slice(2); const value = (name: string, fallback?: string) => { const i = args.indexOf(name); if (i < 0) return fallback; if (!args[i + 1] || args[i + 1].startsWith('--')) throw Error(`${name} 缺少參數`); return args[i + 1]; };
-  const years = value('--years', '115,116')!.split(',').map(Number), fetched = value('--fetched', new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date()))!;
+export async function main(args = process.argv.slice(2)) {
+  const today = new Date();
+  const value = (name: string, fallback?: string) => { const i = args.indexOf(name); if (i < 0) return fallback; if (!args[i + 1] || args[i + 1].startsWith('--')) throw Error(`${name} 缺少參數`); return args[i + 1]; };
+  const years = value('--years', defaultYears(today).join(','))!.split(',').map(Number), fetched = value('--fetched', new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(today))!;
   if (years.some(y => !Number.isInteger(y) || y < 1) || !/^\d{4}-\d{2}-\d{2}$/.test(fetched) || !Number.isFinite(Date.parse(fetched)) || new Date(fetched).toISOString().slice(0, 10) !== fetched) throw Error('年份或取得日期無效');
   const output = await generate({ years, inputDir: value('--input-dir'), fetched });
   await writeFile('src/core/calendar/data.ts', output);
+  console.log(`已產生民國 ${years.join('、')} 年日曆`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch(e => { console.error(`日曆更新失敗：${e.message}`); process.exitCode = 1; });

@@ -243,7 +243,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ### Office calendar and market holidays
 
-`taiwan_calendar` answers office working days, holidays, makeup workdays and stock market closures for 2026–2027. Sources: [DGPA calendar](https://data.gov.tw/dataset/14718) and [TWSE](https://www.twse.com.tw/zh/trading/holiday.html). Update annually via `npm run update:calendar` and a PR. Typhoon closures are excluded; check the closure tool.
+`taiwan_calendar` answers office working days, holidays, makeup workdays and stock market closures for 2026–2027. Sources: [DGPA calendar](https://data.gov.tw/dataset/14718) and [TWSE](https://www.twse.com.tw/zh/trading/holiday.html). Each year, after DGPA publishes next year's calendar (usually mid-year) and TWSE publishes its schedule, run `npm run update:calendar`. It defaults to the current ROC year and the next one based on today's date in Asia/Taipei; use `npm run update:calendar -- --years 116,117` to override the years. Review the diff and open a PR. Typhoon closures are excluded; check the closure tool.
 
 
 ### CPC fuel prices

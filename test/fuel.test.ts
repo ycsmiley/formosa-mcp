@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createServer } from '../src/mcp/server.js';
 import cpc from './fixtures/fuel/cpc-mainprodlistprice-2026-11-16.json';
 import { parseFuel } from '../src/core/fuel/parse.js';
 import { decodeFuel } from '../src/core/fuel/model.js';
@@ -16,6 +19,23 @@ it('normalizes all 13 CPC rows including ROC dates, trimmed customers and indust
 });
 it.each([null, {}, [], cpc.slice(0, 3), [...cpc, null], cpc.map((r, i) => i ? r : { ...r, 參考牌價_金額: 0 }), cpc.map((r, i) => i ? r : { ...r, 參考牌價_金額: Infinity }), cpc.map((r, i) => i ? r : { ...r, 參考牌價_金額: '34.7' }), cpc.map((r, i) => i ? r : { ...r, 牌價生效日期: '1150230' }), cpc.map((r, i) => i ? r : { ...r, 牌價生效日期: '0001116' }), cpc.map((r, i) => i ? r : { ...r, 產品名稱: ' ' })])('rejects incomplete or invalid upstream data (%#)', value => {
   expect(() => parseFuel(value)).toThrow(/中油牌價資料/);
+});
+it.each(['98無鉛汽油', '95無鉛汽油', '92無鉛汽油', '超級柴油'])('requires %s even when marine diesel keeps the retail row count above four', product => {
+  const partial = cpc.filter(r => r.產品名稱 !== product);
+  expect(partial.filter(r => r.型別名稱 === '汽柴油零售').length).toBeGreaterThanOrEqual(4);
+  expect(() => parseFuel(partial)).toThrow(/中油自營站必要汽柴油產品不完整/);
+  const s = snapshot(); expect(decodeFuel({ ...s, items: s.items.filter(i => i.product !== product) })).toBeNull();
+});
+it.each([
+  { 交貨地點: '中油自營漁船站' }, { 型別名稱: '燃料油' },
+  { 參考牌價_金額: 0 }, { 參考牌價_金額: -1 }, { 參考牌價_金額: Infinity }, { 參考牌價_金額: NaN },
+  { 牌價生效日期: '1150230' },
+])('requires valid station retail prices and dates for 95 gasoline (%#)', patch => {
+  expect(() => parseFuel(cpc.map(r => r.產品名稱 === '95無鉛汽油' ? { ...r, ...patch } : r))).toThrow(/中油牌價資料/);
+});
+it('accepts the four required station products without ethanol gasoline or marine diesel', () => {
+  const required = cpc.filter(r => r.交貨地點 === '中油自營站' && r.產品名稱 !== '酒精汽油');
+  const items = parseFuel(required); expect(items).toHaveLength(4); expect(decodeFuel({ ...snapshot(), items })).not.toBeNull();
 });
 it('strictly decodes snapshots and rejects unknown keys, bad times/dates/items and versions', () => {
   const s = snapshot(); expect(decodeFuel(JSON.stringify(s))).toEqual(s);
@@ -79,4 +99,16 @@ it('caches successes for an hour using fetch time and never caches failures', as
   expect((await service.query()).isError).toBeUndefined(); now = new Date(now.getTime() + 3599999);
   expect((await service.query('95')).text).toContain('01:17'); expect(load).toHaveBeenCalledTimes(2);
   now = new Date(now.getTime() + 1); await service.query(); expect(load).toHaveBeenCalledTimes(3);
+});
+it('returns a clear local MCP source error for a feed missing 95 and does not cache it', async () => {
+  const load = vi.fn().mockResolvedValueOnce(cpc.filter(r => r.產品名稱 !== '95無鉛汽油')).mockResolvedValue(cpc);
+  const server = createServer({ toolsets: ['fuel'], fetchFuel: load, clock: () => new Date(time) });
+  const client = new Client({ name: 'fuel-test', version: '1' }), [a, b] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(a); await client.connect(b);
+    const failed = await client.callTool({ name: 'fuel_price', arguments: {} });
+    expect(failed.isError).toBe(true); expect(JSON.stringify(failed.content)).toContain('無法取得中油牌價（資料格式不正確）'); expect(JSON.stringify(failed.content)).toContain(fuelUrl);
+    const recovered = await client.callTool({ name: 'fuel_price', arguments: {} });
+    expect(recovered.isError).not.toBe(true); expect(JSON.stringify(recovered.content)).toContain('95無鉛汽油：32.7'); expect(load).toHaveBeenCalledTimes(2);
+  } finally { await client.close(); await server.close(); }
 });

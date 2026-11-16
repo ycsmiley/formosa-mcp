@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { generate, parseCsv } from '../scripts/update-calendar.js';
+import { defaultYears, generate, main, parseCsv } from '../scripts/update-calendar.js';
 import { calendarDay, interpretDay, isTradingDay } from '../src/core/calendar/index.js';
 import * as calendar from '../src/core/calendar/index.js';
 import { createCalendarService } from '../src/core/calendar/service.js';
@@ -13,11 +13,33 @@ const inputDir = 'test/fixtures/calendar';
 it('regenerates bundled data byte for byte and rejects corrupted CSV before producing output', async () => {
   const options = { years: [115, 116], inputDir, fetched: '2026-11-16' };
   expect(await generate(options)).toBe(await readFile('src/core/calendar/data.ts', 'utf8'));
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    await main(['--years', '115,116', '--fetched', '2026-11-16', '--input-dir', inputDir]);
+    expect(log).toHaveBeenCalledWith('已產生民國 115、116 年日曆');
+    expect(await readFile('src/core/calendar/data.ts', 'utf8')).toBe(await generate(options));
+  } finally { log.mockRestore(); }
   const dir = await mkdtemp(join(tmpdir(), 'calendar-')); await cp(inputDir, dir, { recursive: true });
   const csv = await readFile(join(dir, 'dgpa-115.csv'), 'utf8'); await writeFile(join(dir, 'dgpa-115.csv'), csv.replace('20260101,四,2', '20260101,四,9'));
   const before = await readFile('src/core/calendar/data.ts', 'utf8');
   await expect(generate({ ...options, inputDir: dir })).rejects.toThrow(/放假代碼/);
   expect(await readFile('src/core/calendar/data.ts', 'utf8')).toBe(before);
+});
+it.each([
+  ['2026-01-01T00:00:00+08:00', [115, 116]],
+  ['2026-12-31T15:59:59Z', [115, 116]],
+  ['2026-12-31T16:00:00Z', [116, 117]],
+  ['2027-07-01T00:00:00+08:00', [116, 117]],
+])('defaults to the current and next ROC years using Taipei time at %s', (today, years) => {
+  expect(defaultYears(new Date(today))).toEqual(years);
+});
+it('requests 2028 by default in 2027 and suggests the current year when DGPA has not published it', async () => {
+  const before = await readFile('src/core/calendar/data.ts', 'utf8');
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-12-31T16:00:00Z'));
+  try {
+    await expect(main(['--input-dir', inputDir])).rejects.toThrow('找不到民國 117 年辦公日曆資源；若次年資料尚未公布，可用 --years 116 僅更新今年');
+    expect(await readFile('src/core/calendar/data.ts', 'utf8')).toBe(before);
+  } finally { vi.useRealTimers(); }
 });
 it('parses a synthetic weekend makeup workday', async () => {
   const csv = await readFile(`${inputDir}/dgpa-115.csv`, 'utf8');
