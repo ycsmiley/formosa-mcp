@@ -1,5 +1,5 @@
 import { taipeiParts, type Clock } from '../clock.js';
-import { dateKey, stockFooter } from './format.js';
+import { dateKey, stockFooter, tradingDay } from './format.js';
 import { parseNumber, parseRocDate, rocDateLabel, stockRows, type StockDate } from './parse.js';
 import { marketUrls } from './source.js';
 import { decodeMarketSummary, type MarketBlock, type MarketMargin, type MarketSummary } from './market-schema.js';
@@ -85,19 +85,19 @@ const signed = (n: number, digits = 2) => `${n >= 0 ? '+' : ''}${number(n, digit
 function staleness(block: MarketBlock, market: string, now: Date) {
   const today = taipeiParts(now);
   let expected = Date.UTC(today.year, today.month - 1, today.day);
-  // Weekday-only expectation, deliberately retaining dated data across holidays/typhoons.
+  // Bundled TWSE closures, with weekday fallback outside calendar coverage.
   if (today.hour < 14 || today.hour === 14 && now.getUTCMinutes() < 30) expected -= 86400000;
-  while ([0, 6].includes(new Date(expected).getUTCDay())) expected -= 86400000;
+  while (!tradingDay(expected)) expected -= 86400000;
   let weekdays = 0;
   for (let day = Date.UTC(block.dataDate.year, block.dataDate.month - 1, block.dataDate.day) + 86400000; day <= expected; day += 86400000) {
-    if (![0, 6].includes(new Date(day).getUTCDay()) && ++weekdays > 1) return `（注意：${market}資料停在 ${rocDateLabel(block.dataDate)}，可能尚未更新或遇休市）`;
+    if (tradingDay(day) && ++weekdays > 1) return `（注意：${market}資料停在 ${rocDateLabel(block.dataDate)}，可能尚未更新或遇休市）`;
   }
   return '';
 }
 export function formatMarketSummary(value: unknown, clock: Clock): string {
   const summary = decodeMarketSummary(value);
   const now = clock(), today = taipeiParts(now), minutes = today.hour * 60 + now.getUTCMinutes();
-  const trading = ![0, 6].includes(new Date(Date.UTC(today.year, today.month - 1, today.day)).getUTCDay()) && minutes >= 540 && minutes <= 810;
+  const trading = tradingDay(Date.UTC(today.year, today.month - 1, today.day)) && minutes >= 540 && minutes <= 810;
   const lines: string[] = [];
   for (const key of ['twse', 'tpex'] as const) {
     const block = summary[key], twse = key === 'twse', market = twse ? '上市' : '上櫃';

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { cases, snapshotReaders, staleCases, upstreamColumns, upstreamObjects } from './output-contract-fixtures.js';
+import { cases, bundledTools, snapshotReaders, staleCases, upstreamColumns, upstreamObjects } from './output-contract-fixtures.js';
 // Attribution labels actually printed by these tools: invoice/stock/garbage/NCDR
 // use 資料來源, DGPA/outages use 來源, and rail uses the required TDX credit.
 // Require a value on the same line; the mere word 資料來源 is insufficient.
@@ -24,7 +24,7 @@ function keys(value: unknown): string[] {
 // columns. Common Chinese labels such as 請求號數 are intentionally formatted by
 // outage tools; those labels alone are not evidence of a leaked upstream object.
 export const deniedKeys = [...new Set([...upstreamObjects.flatMap(keys), ...upstreamColumns])]
-  .filter(key => /^[A-Za-z][A-Za-z0-9_]*$/.test(key) || ['第一次停電時間', '第二次停電時間', '停電範圍', '工作概述', '營業區處'].includes(key));
+  .filter(key => /^[A-Za-z][A-Za-z0-9_]*$/.test(key) || ['第一次停電時間', '第二次停電時間', '停電範圍', '工作概述', '營業區處', '型別名稱', '產品編號', '產品名稱', '銷售對象', '交貨地點', '計價單位', '參考牌價_金額', '牌價生效日期', '營業稅_稅捐', '貨物稅'].includes(key));
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const rawKey = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${deniedKeys.map(escape).join('|')})(?![\\p{L}\\p{N}_])`, 'u');
 export function rawJsonViolations(text: string): string[] {
@@ -47,7 +47,7 @@ export function textOf(reply: Reply) {
   expect(text.trim(), 'nonempty formatted output').not.toBe('');
   return text;
 }
-export interface Harness { listTools(): Promise<string[]>; call(name: string, args: Record<string, unknown>, stale?: boolean): Promise<Reply> }
+export interface Harness { sourceFailure(): Promise<Reply>; listTools(): Promise<string[]>; call(name: string, args: Record<string, unknown>, stale?: boolean): Promise<Reply> }
 export function assertStaleCoverage(readers: string[], warningCases: string[], registered: string[]) {
   for (const name of readers) {
     expect(registered, `unregistered snapshot reader ${name}`).toContain(name);
@@ -82,10 +82,21 @@ export function contractSuite(side: keyof typeof snapshotReaders, harness: Harne
       }
       // Every current Worker registration reads snapshots. An added tool must
       // update this inventory and add a warning case.
-      if (side === 'worker') expect([...snapshotReaders.worker].sort()).toEqual([...registered].sort());
+      if (side === 'worker') expect([...snapshotReaders.worker, ...bundledTools].sort()).toEqual([...registered].sort());
       assertStaleCoverage(Object.values(snapshotReaders).flat(), Object.keys(staleCases), registered);
     });
-    if (side === 'worker') for (const name of ['invoice_get_winning_numbers', 'invoice_check', 'stock_dividends', 'thsr_timetable', 'tra_timetable', 'tra_live']) {
+    it('fuel source failure returns isError, attribution and CPC-only scope', async () => {
+      const reply = await harness.sourceFailure();
+      expect(reply.isError).toBe(true);
+      const text = (reply.content as { text: string }[]).map(c => c.text).join('\n');
+      expect(text).toMatch(sourcePattern); expect(text).toContain('https://vipmbr.cpc.com.tw/opendata/mainprodlistprice'); expect(text).toContain('不含台塑石化'); expect(rawJsonViolations(text)).toEqual([]);
+    });
+    it('bundled calendar reports dates beyond coverage', async () => {
+      const reply = await harness.call('taiwan_calendar', { date: '2028-01-01' });
+      expect(reply.isError).toBe(true);
+      expect(JSON.stringify(reply.content)).toMatch(/2027-12-31.*https:\/\/data.gov.tw\/dataset\/14718/);
+    });
+    if (side === 'worker') for (const name of ['fuel_price', 'invoice_get_winning_numbers', 'invoice_check', 'stock_dividends', 'thsr_timetable', 'tra_timetable', 'tra_live']) {
       it(`${name}: fresh snapshot has no stale warning`, async () => {
         const args = name === 'tra_live' ? { train_no: '149' } : cases[name];
         const text = textOf(await harness.call(name, args));

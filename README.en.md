@@ -146,7 +146,7 @@ From-source configuration (replace the path with your absolute path):
 
 The committed bundle also runs without installing npm packages via `node plugin/server/formosa-mcp.mjs`. Install the Claude Code plugin with `claude plugin marketplace add ycsmiley/formosa-mcp`, then `claude plugin install formosa@formosa-mcp`.
 
-`invoice`, `stock`, `garbage` and `outage` toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
+`invoice`, `stock`, `garbage`, `outage`, `calendar` and `fuel` toolsets are enabled by default; use `--toolsets` to select them or opt into rail, and `--help` for usage. MOF invoice RSS caches for six hours (ten minutes on announcement day when the new draw is pending); TWSE and TPEx stock datasets cache for one hour. Run `npm run build`, `npm test`, `npm run live-check` and `npm run eval:live`; the latter two need network access. See [live evaluations](evals/README.md).
 
 For local outage snapshots run `npm run collect:outages -- --out /tmp/formosa-outages`, then set `FORMOSA_OUTAGE_DIR=/tmp/formosa-outages` for stdio. Without that directory, Node fetches relevant sources, caching successes for 12 hours and allowing immediate retries after failures. Regenerate and commit collector bundles with `npm run build:collectors` and the plugin bundle with `npm run build:plugin`.
 
@@ -240,3 +240,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 [MIT](LICENSE)
 
 [Want another kind of Taiwan data?](https://github.com/ycsmiley/formosa-mcp/issues/new?template=data-request.yml)
+
+### Office calendar and market holidays
+
+`taiwan_calendar` answers office working days, holidays, makeup workdays and stock market closures for 2026–2027. Sources: [DGPA calendar](https://data.gov.tw/dataset/14718) and [TWSE](https://www.twse.com.tw/zh/trading/holiday.html). Update annually via `npm run update:calendar` and a PR. Typhoon closures are excluded; check the closure tool.
+
+
+### CPC fuel prices
+
+`fuel_price` shows retail gasoline/diesel list prices by default. Optional `product` (up to 30 characters) filters all products, e.g. `95`, `柴油` or `燃料油`. Results include units, effective dates and last successful check time. Industrial fuel oil and marine diesel may be priced per kiloliter. CPC only: no Formosa Petrochemical data is available; actual station prices may differ.
+
+Source: [CPC openData main product list prices](https://vipmbr.cpc.com.tw/opendata/mainprodlistprice), [dataset 6339](https://data.gov.tw/dataset/6339), Open Government Data License, version 1.0. Local/stdio fetches openData with a one-hour success cache; the remote Worker only reads the Actions KV snapshot. The [fuel collector](.github/workflows/fuel-collect.yml) checks daily at 01:17 and 07:17 Taipei, writing a change or a 20-hour heartbeat, at most once per run. Prices are announced Sunday and take effect Monday 00:00 Taipei; unchanged weeks retain old effective dates, so freshness uses successful checks. Quote and market-summary freshness now uses bundled TWSE closures, falling back to weekdays outside coverage. Dividend snapshot thresholds stay unchanged.

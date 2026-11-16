@@ -1,3 +1,6 @@
+import cpc from './fixtures/fuel/cpc-mainprodlistprice-2026-11-16.json';
+import { parseFuel } from '../src/core/fuel/parse.js';
+import { fuelKey } from '../src/core/fuel/model.js';
 // Shared, offline fixtures for both Vitest pools. Only test code imports this file.
 import xml from './fixtures/invoice.xml?raw';
 import garbageCsv from './fixtures/garbage/real/ntpc.csv?raw';
@@ -30,6 +33,8 @@ export const archive = '2000-01-01T00:00:00.000Z';
 // Taipei midnight boundary so the contract checks the displayed data day.
 export const dividendUpdatedAt = '2026-10-22T16:30:00.000Z';
 export const cases: Record<string, Record<string, unknown>> = {
+  fuel_price: {},
+  taiwan_calendar: { date: '2026-02-12' },
   invoice_get_winning_numbers: {}, invoice_check: { number: '54348835', period: '11508' },
   stock_quote: { query: '6488' }, stock_market_summary: {}, stock_dividends: {},
   garbage_schedule: { city: '新北市', district: '板橋區', keyword: '民生路' },
@@ -42,13 +47,16 @@ export const cases: Record<string, Record<string, unknown>> = {
 // worker/rail.ts:59-102. Local market/rail/invoice/stock caches fetch on expiry;
 // they do not serve persisted snapshots. TPEx fallback's heartbeat is a cron
 // dispatch decision, not a tool; stock_quote reads it to warn about stale TPEx.
+// Bundled yearly data has no fetch/KV; staleness is the coverage end.
+export const bundledTools = ['taiwan_calendar'];
 export const snapshotReaders = {
   local: ['garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts'],
-  worker: ['invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_market_summary', 'stock_dividends', 'garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts', 'thsr_timetable', 'tra_timetable', 'tra_live'],
+  worker: ['fuel_price', 'invoice_get_winning_numbers', 'invoice_check', 'stock_quote', 'stock_market_summary', 'stock_dividends', 'garbage_schedule', 'outage_schedule', 'work_school_closure', 'disaster_alerts', 'thsr_timetable', 'tra_timetable', 'tra_live'],
 };
 // Independent case maps: removing a case fails coverage; removing a reader fails
 // the reverse audit against this map. These are existing warning phrases only.
 export const staleCases: Record<string, { warning: RegExp; args?: Record<string, unknown> }> = {
+  fuel_price: { warning: /可能不是最新/ },
   invoice_get_winning_numbers: { warning: /可能不是最新/ }, invoice_check: { warning: /可能不是最新/ },
   stock_dividends: { warning: /可能不是最新/ }, thsr_timetable: { warning: /可能不是最新/ },
   tra_timetable: { warning: /可能不是最新/ }, tra_live: { warning: /可能不是最新/ },
@@ -81,11 +89,12 @@ export const marketFeed = async (url: string) => {
 };
 // Fixture key inventory feeds the raw-key denylist; use actual JSON keys and CSV
 // headers, not made-up field names. Shared in node and Workers.
-export const upstreamObjects = [...Object.values(stock), water, ncdrJson, thsrStations, traStations, thsrOD, traOD, liveTrain];
+export const upstreamObjects = [cpc, ...Object.values(stock), water, ncdrJson, thsrStations, traStations, thsrOD, traOD, liveTrain];
 export const upstreamColumns = [garbageCsv, powerCsv].flatMap(csv => csv.trim().split(/\r?\n/)[0].replace(/^\uFEFF/, '').split(','));
 export async function fixtureData(stale = false) {
   const time = stale ? archive : now;
   const values = new Map<string, string>();
+  values.set(fuelKey, JSON.stringify({ v: 1, items: parseFuel(cpc), changedAt: time, checkedAt: time }));
   const garbage = await buildCity('ntpc', garbageCsv, new Date(time));
   const garbageIndex = { v: 2 as const, generatedAt: time, cities: { ntpc: garbage.entry } };
   values.set(garbageKey, JSON.stringify(garbageIndex));
@@ -129,7 +138,7 @@ export async function fixtureData(stale = false) {
     values.set(timetableKey(railway, '2026-11-02'), JSON.stringify(compactTimetable(railway, railway === 'THSR' ? thsrDaily : traOD, '2026-11-02', time)));
   }
   const options: ServerOptions = {
-    toolsets: ['invoice', 'stock', 'garbage', 'outage', 'disaster', 'rail'], clock, fetchFeed: async () => xml, fetchJson: stockFetch, fetchMarketFeed: marketFeed,
+    toolsets: ['invoice', 'stock', 'garbage', 'outage', 'disaster', 'rail', 'fuel'], fetchFuel: async () => cpc, clock, fetchFeed: async () => xml, fetchJson: stockFetch, fetchMarketFeed: marketFeed,
     garbageStore: { index: async () => garbageIndex, shard: async (_c, _g, district, keyword, filter) => decodeGarbage(garbage.shards.get(district)!, district, keyword, filter) },
     outageStore: { index: async () => outageIndex, shard: async (s, c, hash) => JSON.parse(values.get(outageShardKey(s, c, hash))!) },
     disasterStore: { indexes: async () => ({ worker: disasterIndex, gha: null }), shard: async s => s === 'dgpa' ? dgpa : alerts },

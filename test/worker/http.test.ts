@@ -153,11 +153,11 @@ it.each(['GET', 'POST'].flatMap(method => ['idFromName', 'get', 'hit'].map(failu
     expect(warn).toHaveBeenCalledExactlyOnceWith('mcp rate limit unavailable');
   },
 );
-it('lists exactly ten tools and serves seeded snapshots without upstream fetch', async () => {
+it('lists exactly twelve tools and serves seeded snapshots without upstream fetch', async () => {
   await seed();
   const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
   try {
-    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_market_summary', 'stock_quote', 'thsr_timetable', 'tra_live', 'tra_timetable']);
+    expect((await rpc('tools/list')).tools.map((t: { name: string }) => t.name).sort()).toEqual(['fuel_price', 'garbage_schedule', 'invoice_check', 'invoice_get_winning_numbers', 'outage_schedule', 'stock_dividends', 'stock_market_summary', 'stock_quote', 'taiwan_calendar', 'thsr_timetable', 'tra_live', 'tra_timetable']);
     for (const [name, args, expected] of [ ['stock_quote', { query: '2330' }, '台積電'], ['stock_quote', { query: '6488' }, '環球晶'], ['stock_dividends', {}, '近期除權息'], ['invoice_get_winning_numbers', {}, '統一發票中獎號碼'], ['invoice_check', { number: '54348835' }, '頭獎'] ] as const) {
       const result = await rpc('tools/call', { name, arguments: args }); const text = result.content[0].text;
       expect(text).toContain(expected); expect(text).not.toMatch(/undefined|null|NaN|\[object/);

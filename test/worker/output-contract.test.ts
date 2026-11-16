@@ -10,7 +10,7 @@ async function rpc(method: string, params?: object, old = false, name?: string, 
   vi.useFakeTimers({ toFake: ['Date'] });
   // Stock fixture dates stop in Oct/early Nov: Nov 20 is past the existing
   // weekday thresholds (stock/format.ts:24-27, stock/market.ts:85-94).
-  vi.setSystemTime(new Date(old && name?.startsWith('invoice_') ? '2026-11-29T01:15:00Z' : old && name?.startsWith('stock_') ? '2026-11-20T11:00:00Z' : now));
+  vi.setSystemTime(new Date(old && name === 'fuel_price' ? '2026-11-04T01:15:00Z' : old && name?.startsWith('invoice_') ? '2026-11-29T01:15:00Z' : old && name?.startsWith('stock_') ? '2026-11-20T11:00:00Z' : now));
   const data = await (old ? stale : fresh), kv = env.SNAPSHOTS as KVNamespace;
   const listed = await kv.list(); await Promise.all(listed.keys.map(k => kv.delete(k.name)));
   for (const [key, value] of values ?? data.values) await kv.put(key, value);
@@ -37,7 +37,7 @@ async function rpc(method: string, params?: object, old = false, name?: string, 
 // tools/list is the Worker HTTP equivalent of Client.listTools(), using the
 // existing worker.fetch RPC harness (not a duplicate registration).
 async function listTools(): Promise<string[]> { return (await rpc('tools/list')).tools.map((t: { name: string }) => t.name); }
-contractSuite('worker', { listTools, call: (name, args, old) => rpc('tools/call', { name, arguments: args }, old, name) });
+contractSuite('worker', { sourceFailure: () => rpc('tools/call', { name: 'fuel_price', arguments: {} }, false, 'fuel_price', new Map()), listTools, call: (name, args, old) => rpc('tools/call', { name, arguments: args }, old, name) });
 it.each([{}, { query: '2330' }])('empty Worker dividends label the content-change date rather than the query date (%j)', async args => {
   const text = textOf(await rpc('tools/call', { name: 'stock_dividends', arguments: args }, true, 'stock_dividends'));
   expect(text).toContain('\n資料更新：115年10月23日\n');

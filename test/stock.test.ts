@@ -287,7 +287,7 @@ it.each(['上市', '上櫃'] as const)('labels stale %s quotes independently of 
   }
 });
 
-it.each(['2026-10-26', '2026-10-27', '2026-10-28'])('counts only weekdays strictly between Friday data and %s', async today => {
+it.each(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29'])('counts only weekdays strictly between Friday data and %s', async today => {
   const service = createStockService({ clock: () => new Date(`${today}T12:00:00+08:00`), snapshot: {
     quotes: async () => ({ updatedAt: '', twse: tw.map(row => ({ ...row, date: { year: 2026, month: 10, day: 23 } })), tpex: null }),
     dividends: async () => null,
@@ -295,8 +295,8 @@ it.each(['2026-10-26', '2026-10-27', '2026-10-28'])('counts only weekdays strict
   expect((await service.quote('2330')).text).not.toContain('注意：');
 });
 
-it('starts warning at three intervening weekdays', async () => {
-  const service = createStockService({ clock: () => new Date('2026-10-29T12:00:00+08:00'), snapshot: {
+it('starts warning at three intervening trading days (skipping Oct 26 holiday)', async () => {
+  const service = createStockService({ clock: () => new Date('2026-10-30T12:00:00+08:00'), snapshot: {
     quotes: async () => ({ updatedAt: '', twse: tw.map(row => ({ ...row, date: { year: 2026, month: 10, day: 23 } })), tpex: null }),
     dividends: async () => null,
   } });

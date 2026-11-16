@@ -1,3 +1,6 @@
+import { fuel } from './fuel.js';
+import type { FuelStore } from '../core/fuel/service.js';
+import { calendar } from './calendar.js';
 import { disaster } from './disaster.js';
 import type { DisasterStore } from '../core/disaster/service.js';
 import { outage } from './outage.js';
@@ -18,6 +21,8 @@ export interface ToolRegistrar {
   registerTool(name: string, config: { description: string; inputSchema: z.ZodRawShape }, cb: (args: any) => Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }>): unknown;
 }
 export interface ToolsetContext extends InvoiceServiceOptions {
+  fuelStore?: FuelStore;
+  fetchFuel?: () => Promise<unknown>;
   garbageStore?: GarbageStore;
   outageStore?: OutageStore;
   disasterStore?: DisasterStore;
@@ -35,8 +40,8 @@ export interface Toolset {
   requiredEnv?: string[];
   register(server: ToolRegistrar, ctx: ToolsetContext): void;
 }
-export const DEFAULT_TOOLSETS = ['invoice', 'stock', 'garbage', 'outage'];
-export const toolsets: Toolset[] = [invoice, stock, garbage, outage, disaster, rail];
+export const DEFAULT_TOOLSETS = ['invoice', 'stock', 'garbage', 'outage', 'calendar', 'fuel'];
+export const toolsets: Toolset[] = [invoice, stock, garbage, outage, disaster, rail, calendar, fuel];
 export function registerToolsets(server: ToolRegistrar, selected: Toolset[], env: Record<string, string | undefined>, ctx: ToolsetContext = {}): void {
   const log = ctx.log ?? console.error;
   for (const toolset of selected) {

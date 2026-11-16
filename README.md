@@ -152,7 +152,7 @@ claude plugin marketplace add ycsmiley/formosa-mcp
 claude plugin install formosa@formosa-mcp
 ```
 
-`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage` 四組，鐵路須明確啟用。`--help` 顯示用法。
+`--toolsets=invoice,stock` 啟用發票與台股，也可只選一組；預設啟用 `invoice`、`stock`、`garbage`、`outage`、`calendar`、`fuel` 六組，鐵路須明確啟用。`--help` 顯示用法。
 
 資料來源與快取：
 
@@ -253,3 +253,14 @@ npm run remote-check
 [MIT](LICENSE)
 
 [想要哪種台灣資料？](https://github.com/ycsmiley/formosa-mcp/issues/new?template=data-request.yml)
+
+### 辦公日曆與股市休市
+
+`taiwan_calendar` 查詢行政機關上班、放假、補班及股市開休市，涵蓋 2026–2027 年。資料來自[人事總處辦公日曆](https://data.gov.tw/dataset/14718)與[證交所](https://www.twse.com.tw/zh/trading/holiday.html)，每年透過 `npm run update:calendar` 更新並以 PR 提交。颱風停班停課不在內，請查停班停課工具。
+
+
+### 中油油價
+
+`fuel_price` 預設查汽柴油零售牌價；`product` 可輸入「95」、「柴油」或「燃料油」（最多 30 字）。輸出含價格、單位、牌價生效日及最後確認時間；工業燃料油、海運柴油可能以元／公秉計價。只有台灣中油牌價，不含台塑石化；各加油站實際售價可能不同。
+
+來源為[台灣中油 openData 主要產品牌價](https://vipmbr.cpc.com.tw/opendata/mainprodlistprice)（[資料集 6339](https://data.gov.tw/dataset/6339)，政府資料開放授權條款第1版）。本機／stdio 直接抓取 openData，成功資料快取一小時；遠端 Worker 只讀 Actions KV 快照。每天臺北時間 01:17、07:17 的 [fuel collector](.github/workflows/fuel-collect.yml) 更新內容或 20 小時心跳，每次最多一筆 KV 寫入。週日公告、週一 00:00 生效，未調價週生效日可能維持較早日期；過期判斷採最後成功確認時間。股價與大盤 freshness 也使用內建 TWSE 休市日，涵蓋外沿用平日規則；除權息快照門檻維持不變。

@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `fuel_price`: CPC-only retail/industrial list prices, local one-hour cache, read-only remote KV snapshots and a twice-daily Actions collector with a 20-hour heartbeat.
+- Bundled TWSE holidays now guide quote and market-summary freshness and trading-session notices; weekday fallback outside coverage, unchanged dividend thresholds.
+- Bundled 2026–2027 office calendar and TWSE market holidays via `taiwan_calendar`.
 - `stock_market_summary` in the stock toolset: independently dated TWSE/TPEx closing indexes, turnover and margin balances in lots; uncertain margin dates retain clearly labelled last confirmed balances. Local feeds cache for one hour; remote reads one KV summary maintained by the existing TPEx collector, with warning-only failures and no new schedule.
 
 ## [0.2.0] - 2026-11-04

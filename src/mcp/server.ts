@@ -9,6 +9,8 @@ import type { RailHttp } from '../core/rail/client.js';
 import type { Clock } from '../core/clock.js';
 import { DEFAULT_TOOLSETS, registerToolsets, toolsets } from './toolsets.js';
 export interface ServerOptions {
+  fuelStore?: import('../core/fuel/service.js').FuelStore;
+  fetchFuel?: () => Promise<unknown>;
   garbageStore?: GarbageStore;
   outageStore?: OutageStore;
   disasterStore?: DisasterStore;

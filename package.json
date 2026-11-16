@@ -54,7 +54,9 @@
     "build:collectors": "node scripts/build-collectors.mjs",
     "collect:garbage": "tsx scripts/collect-garbage.ts",
     "collect:outages": "tsx scripts/collect-outages.ts",
-    "collect:disaster": "tsx scripts/collect-disaster.ts"
+    "collect:disaster": "tsx scripts/collect-disaster.ts",
+    "update:calendar": "tsx scripts/update-calendar.ts",
+    "collect:fuel": "tsx scripts/publish-fuel.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

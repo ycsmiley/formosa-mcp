@@ -1,3 +1,4 @@
+import { validTime } from './fuel/model.js';
 import { comparePeriods, expectedDrawDate, latestExpectedDrawnPeriod, periodLabel, type Draw } from './invoice/parse.js';
 import { updated } from './rail/time.js';
 
@@ -25,6 +26,16 @@ export const RAIL_STATIONS_STALE_MS = 380 * hour;
 // do not warn on fetch age alone, and therefore need no invoice heartbeat.
 export const INVOICE_DRAW_BUFFER_MS = 3 * 24 * hour;
 
+// CPC adjusts weekly at Monday 00:00 Taipei. Daily 01:17/07:17 checks
+// refresh checkedAt at least daily (heartbeat). Allow both Monday runs and
+// Tuesday 01:17 to miss: 18h maximum run gap + 7h buffer = 25h.
+export const FUEL_ADJUST_BUFFER_MS = 25 * hour;
+export function fuelWarning(checkedAt: string | undefined, now: Date): string {
+  const taipei = new Date(now.getTime() + 8 * hour);
+  const boundary = Date.UTC(taipei.getUTCFullYear(), taipei.getUTCMonth(), taipei.getUTCDate() - (taipei.getUTCDay() + 6) % 7) - 8 * hour;
+  return !validTime(checkedAt) || Date.parse(checkedAt) < boundary && now.getTime() - boundary > FUEL_ADJUST_BUFFER_MS ? staleWarning(checkedAt, '中油牌價') : '';
+}
+// TWSE/TPEx dividend collector crons run on holidays too; keep their age thresholds.
 export function isStale(at: string | undefined, now: Date, threshold: number): boolean {
   return !at || !Number.isFinite(Date.parse(at)) || now.getTime() - Date.parse(at) > threshold;
 }

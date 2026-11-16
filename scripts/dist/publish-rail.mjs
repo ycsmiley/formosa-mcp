@@ -80,6 +80,7 @@ var TPEX_DIVIDENDS_STALE_MS = 136 * hour;
 var RAIL_TIMETABLE_STALE_MS = 48 * hour;
 var RAIL_STATIONS_STALE_MS = 380 * hour;
 var INVOICE_DRAW_BUFFER_MS = 3 * 24 * hour;
+var FUEL_ADJUST_BUFFER_MS = 25 * hour;
 
 // src/core/rail/snapshot.ts
 var stationKey = (railway) => `rail:stations:${railway}:v1`;

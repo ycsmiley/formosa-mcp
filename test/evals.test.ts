@@ -8,23 +8,23 @@ import { createServer } from '../src/mcp/server.js';
 
 it('validates eval schema, unique ids, and registered tool names', async () => {
   const schema = z.array(z.object({
-    id: z.string().regex(/^(invoice|stock|rail|garbage|outage|disaster)-\d{3}$/),
+    id: z.string().regex(/^(invoice|stock|rail|garbage|outage|disaster|calendar|fuel)-\d{3}$/),
     question: z.string().min(1),
-    toolset: z.enum(['invoice', 'stock', 'rail', 'garbage', 'outage', 'disaster']),
+    toolset: z.enum(['invoice', 'stock', 'rail', 'garbage', 'outage', 'disaster', 'calendar', 'fuel']),
     expected_tool: z.string().min(1),
-    expected_args: z.object({ query: z.string().optional(), number: z.string().optional(), period: z.string().optional(), origin: z.string().optional(), destination: z.string().optional(), date: z.string().optional(), time: z.string().optional(), train_no: z.string().optional(), station: z.string().optional(), city: z.string().optional(), district: z.string().optional(), keyword: z.string().optional(), weekday: z.string().optional(), type: z.enum(['water', 'power', 'all']).optional(), start_date: z.string().optional(), end_date: z.string().optional() }).strict(),
+    expected_args: z.object({ product: z.string().optional(), query: z.string().optional(), number: z.string().optional(), period: z.string().optional(), origin: z.string().optional(), destination: z.string().optional(), date: z.string().optional(), time: z.string().optional(), train_no: z.string().optional(), station: z.string().optional(), city: z.string().optional(), district: z.string().optional(), keyword: z.string().optional(), weekday: z.string().optional(), type: z.enum(['water', 'power', 'all']).optional(), start_date: z.string().optional(), end_date: z.string().optional() }).strict(),
     expected_key_facts: z.array(z.string().min(1)).min(1),
     notes: z.string().min(1),
     daily_ci: z.boolean(),
     expires: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, 'Invalid date').optional(),
     requires_key: z.enum(['TDX']).nullable(),
-  }).strict()).length(48);
+  }).strict()).length(55);
   const questions = schema.parse(JSON.parse(readFileSync(new URL('../evals/taiwan-questions.json', import.meta.url), 'utf8')));
   expect(new Set(questions.map(q => q.id)).size).toBe(questions.length);
   expect(Object.fromEntries(questions.filter(q => q.expires).map(q => [q.id, q.expires]))).toEqual({
     'invoice-008': '2026-11-25', 'invoice-011': '2027-07-01', 'invoice-012': '2027-07-01', 'invoice-013': '2027-03-25',
   });
-  for (const [toolset, count] of [['invoice', 13], ['stock', 17], ['rail', 4], ['garbage', 4], ['outage', 5], ['disaster', 5]] as const) expect(questions.filter(q => q.toolset === toolset)).toHaveLength(count);
+  for (const [toolset, count] of [['invoice', 13], ['stock', 17], ['rail', 4], ['garbage', 4], ['outage', 5], ['disaster', 5], ['calendar', 4], ['fuel', 3]] as const) expect(questions.filter(q => q.toolset === toolset)).toHaveLength(count);
   const daily = questions.filter(q => q.daily_ci);
   expect(daily.length).toBeGreaterThanOrEqual(8);
   expect(daily.length).toBeLessThanOrEqual(10);
@@ -32,7 +32,7 @@ it('validates eval schema, unique ids, and registered tool names', async () => {
     expect(q.requires_key).toBe(q.toolset === 'rail' ? 'TDX' : null);
     if (q.daily_ci) { expect(['invoice', 'stock']).toContain(q.toolset); expect(checks[q.id]).toBeDefined(); }
   }
-  const server = createServer({ toolsets: ['invoice', 'stock', 'rail', 'garbage', 'outage', 'disaster'] });
+  const server = createServer({ toolsets: ['invoice', 'stock', 'rail', 'garbage', 'outage', 'disaster', 'calendar', 'fuel'] });
   const client = new Client({ name: 'eval-schema-client', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   try {
@@ -54,8 +54,8 @@ it('validates eval schema, unique ids, and registered tool names', async () => {
   }
 });
 
-it('keeps all implemented toolsets within the 12-tool limit', async () => {
-  const server = createServer({ toolsets: ['invoice', 'stock', 'rail', 'garbage', 'outage', 'disaster'] });
+it('keeps default remote toolsets within the 12-tool limit', async () => {
+  const server = createServer({ toolsets: ['invoice', 'stock', 'rail', 'garbage', 'outage', 'calendar', 'fuel'] });
   const client = new Client({ name: 'tool-count-client', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   try {

@@ -1,3 +1,4 @@
+import { decodeFuel, fuelKey } from '../core/fuel/model.js';
 import { collectDisaster, reason as disasterReason } from '../core/disaster/collect.js';
 import { isStale, staleWarning, twseDividendsThreshold, TPEX_DIVIDENDS_STALE_MS } from '../core/freshness.js';
 import { readSuccessAt } from './freshness.js';
@@ -83,6 +84,7 @@ export default {
           disasterStore: enabled ? { indexes: async () => { const load = async (writer: Writer) => { const raw = await env.SNAPSHOTS.get(disasterIndexKey(writer)); return raw === null ? null : decodeDisasterIndex(raw); }; const [worker, gha] = await Promise.allSettled([load('worker'), load('gha')]); return { worker: worker.status === 'fulfilled' ? worker.value : null, gha: gha.status === 'fulfilled' ? gha.value : null, errors: { worker: worker.status === 'rejected', gha: gha.status === 'rejected' } }; }, shard: async (source, sha) => { const raw = await env.SNAPSHOTS.get(disasterShardKey(source, sha)); return raw ? decodeDisasterShard(raw, source) : null; } } : undefined,
           outageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(outageIndexKey); return raw ? decodeOutageIndex(raw) : null; }, shard: async (source, county, sha) => { const raw = await env.SNAPSHOTS.get(outageShardKey(source, county, sha)); return raw ? decodeOutageShard(raw, source, county) : null; } },
           garbageStore: { index: async () => { const raw = await env.SNAPSHOTS.get(indexKey); return raw ? decodeIndex(raw) : null; }, shard: async (city, gen, district, keyword, filter) => { const raw = await env.SNAPSHOTS.get(shardKey(city, gen, district)); return raw ? decodeShard(raw, district, keyword, filter) : null; } },
+          fuelStore: { read: async () => decodeFuel(await env.SNAPSHOTS.get(fuelKey)) },
           railService,
           loadInvoiceSnapshot: () => read<InvoiceSnapshot>(env, keys.invoice),
           snapshot: { marketSummary: async () => { const value = await env.SNAPSHOTS.get(keys.marketSummary); return value === null ? null : decodeMarketSummary(JSON.parse(value)); }, quotes: () => readMarkets<StockQuote>(env, keys.twseQuotes, keys.tpexQuotes), dividends: () => readMarkets<DividendEvent>(env, keys.twseDividends, keys.tpexDividends) },

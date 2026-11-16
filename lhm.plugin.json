@@ -180,6 +180,39 @@
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
+    },
+    {
+      "name": "taiwan_calendar",
+      "description": "查詢 2026–2027（民國115–116年）行政機關上班／放假／補班及股市開休市；不包含颱風停班停課。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "description": "日期 YYYY-MM-DD，預設臺北時間今天",
+            "type": "string"
+          },
+          "end_date": {
+            "description": "迄日 YYYY-MM-DD，最多距起日 62 天",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "fuel_price",
+      "description": "查詢台灣中油汽柴油與燃料油牌價、生效日；只有中油，不含台塑石化，實際站售價格可能不同。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "description": "產品關鍵字，例如 95、柴油、燃料油；預設汽柴油零售",
+            "type": "string",
+            "maxLength": 30
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
     }
   ]
 }

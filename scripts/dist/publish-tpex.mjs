@@ -27,14 +27,14 @@ function parseRocDate(s) {
   const d = new Date(Date.UTC(year, month - 1, day));
   return year > 1911 && d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month && d.getUTCDate() === day ? { year, month, day } : null;
 }
-function stockRows(data) {
-  if (!Array.isArray(data) || data.some((r) => !r || typeof r !== "object" || Object.values(r).some((v) => typeof v !== "string"))) throw new Error("\u80A1\u7968\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA");
-  return data;
+function stockRows(data2) {
+  if (!Array.isArray(data2) || data2.some((r) => !r || typeof r !== "object" || Object.values(r).some((v) => typeof v !== "string"))) throw new Error("\u80A1\u7968\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA");
+  return data2;
 }
-function parseQuotes(data, ratios, market) {
+function parseQuotes(data2, ratios, market) {
   const tw = market === "\u4E0A\u5E02", codeKey = tw ? "Code" : "SecuritiesCompanyCode";
   const byCode = new Map(stockRows(ratios).map((r) => [r[codeKey], r]));
-  return stockRows(data).flatMap((r) => {
+  return stockRows(data2).flatMap((r) => {
     const code = r[codeKey]?.trim(), date2 = parseRocDate(r.Date ?? "");
     if (!code || !date2) return [];
     const ratio = byCode.get(code) ?? {}, n = (key) => parseNumber(r[key]);
@@ -60,9 +60,9 @@ function parseQuotes(data, ratios, market) {
     }];
   });
 }
-function parseDividends(data, market) {
+function parseDividends(data2, market) {
   const tw = market === "\u4E0A\u5E02";
-  return stockRows(data).flatMap((r) => {
+  return stockRows(data2).flatMap((r) => {
     const date2 = parseRocDate(r[tw ? "Date" : "ExRrightsExDividendDate"] ?? "");
     const type = (r[tw ? "Exdividend" : "ExRrightsExDividend"] ?? "").trim().replace(/^除/, "");
     if (!date2 || !["\u606F", "\u6B0A", "\u6B0A\u606F"].includes(type)) return [];
@@ -135,9 +135,9 @@ function encodeQuotesSnapshot({ updatedAt, rows: rows2 }) {
   }) } });
 }
 function decodeQuotesSnapshot(encoded) {
-  const data = JSON.parse(encoded);
-  if (data.v !== 3 || !data.d || !Array.isArray(data.d.k) || !Array.isArray(data.d.r)) throw new Error("Invalid quotes snapshot");
-  const table = data.d;
+  const data2 = JSON.parse(encoded);
+  if (data2.v !== 3 || !data2.d || !Array.isArray(data2.d.k) || !Array.isArray(data2.d.r)) throw new Error("Invalid quotes snapshot");
+  const table = data2.d;
   return { updatedAt: table.updatedAt, rows: table.r.map((row) => {
     const quote = { market: table.market, date: table.date };
     table.k.forEach((key, i) => {
@@ -157,8 +157,8 @@ function encodeSnapshot(snapshot) {
   });
 }
 function decodeSnapshot(encoded) {
-  const data = JSON.parse(encoded);
-  if (data.v !== 1 || !data.d || typeof data.d !== "object") throw new Error("Invalid snapshot");
+  const data2 = JSON.parse(encoded);
+  if (data2.v !== 1 || !data2.d || typeof data2.d !== "object") throw new Error("Invalid snapshot");
   function unpack(value) {
     if (!value || typeof value !== "object") return value;
     if (Array.isArray(value.k) && Array.isArray(value.r)) {
@@ -167,7 +167,7 @@ function decodeSnapshot(encoded) {
     if (Array.isArray(value)) return value.map(unpack);
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unpack(item)]));
   }
-  return unpack(data.d);
+  return unpack(data2.d);
 }
 
 // src/core/stock/market-schema.ts
@@ -190,11 +190,11 @@ function isMarketBlock(value) {
   return isRecord(value) && isDate(value.dataDate) && isNumber(value.taiex) && value.taiex > 0 && isNumber(value.change) && value.taiex - value.change > 0 && isNumber(value.value) && value.value >= 0 && (value.margin === void 0 || isMargin(value.margin)) && optionalString(value.marginReason);
 }
 function decodeMarketSummary(value) {
-  const data = isRecord(value) ? value : {};
+  const data2 = isRecord(value) ? value : {};
   return {
-    ...isMarketBlock(data.twse) ? { twse: data.twse } : {},
-    ...isMarketBlock(data.tpex) ? { tpex: data.tpex } : {},
-    fetchedAt: typeof data.fetchedAt === "string" ? data.fetchedAt : ""
+    ...isMarketBlock(data2.twse) ? { twse: data2.twse } : {},
+    ...isMarketBlock(data2.tpex) ? { tpex: data2.tpex } : {},
+    fetchedAt: typeof data2.fetchedAt === "string" ? data2.fetchedAt : ""
   };
 }
 
@@ -213,6 +213,367 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
+
+// src/core/calendar/data.ts
+var data = {
+  "2026": {
+    "days": "20220000022000002200000220000022000002200000222222222000022200000220000022000002200000220000222200002200000220000022000022200000220000022000002200000220000022000002200002220000022000002200000220000022000002200000220000022000002200000220000022000002200000220000022000022220000220000222000002200000222000022000002200000220000022000002200000220000022000002200002220000",
+    "notes": {
+      "2026-01-01": "\u958B\u570B\u7D00\u5FF5\u65E5",
+      "2026-02-15": "\u5C0F\u5E74\u591C",
+      "2026-02-16": "\u8FB2\u66C6\u9664\u5915",
+      "2026-02-17": "\u6625\u7BC0",
+      "2026-02-18": "\u6625\u7BC0",
+      "2026-02-19": "\u6625\u7BC0",
+      "2026-02-20": "\u88DC\u5047",
+      "2026-02-27": "\u88DC\u5047",
+      "2026-02-28": "\u548C\u5E73\u7D00\u5FF5\u65E5",
+      "2026-04-03": "\u88DC\u5047",
+      "2026-04-04": "\u5152\u7AE5\u7BC0",
+      "2026-04-05": "\u6E05\u660E\u7BC0",
+      "2026-04-06": "\u88DC\u5047",
+      "2026-05-01": "\u52DE\u52D5\u7BC0",
+      "2026-06-19": "\u7AEF\u5348\u7BC0",
+      "2026-09-25": "\u4E2D\u79CB\u7BC0",
+      "2026-09-28": "\u5B54\u5B50\u8A95\u8FB0\u7D00\u5FF5\u65E5/\u6559\u5E2B\u7BC0",
+      "2026-10-09": "\u88DC\u5047",
+      "2026-10-10": "\u570B\u6176\u65E5",
+      "2026-10-25": "\u81FA\u7063\u5149\u5FA9\u66A8\u91D1\u9580\u53E4\u5BE7\u982D\u5927\u6377\u7D00\u5FF5\u65E5",
+      "2026-10-26": "\u88DC\u5047",
+      "2026-12-25": "\u884C\u61B2\u7D00\u5FF5\u65E5"
+    },
+    "entries": [
+      [
+        "2026-01-01",
+        "\u4E2D\u83EF\u6C11\u570B\u958B\u570B\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2026-01-02",
+        "\u570B\u66C6\u65B0\u5E74\u958B\u59CB\u4EA4\u6613\u65E5",
+        true
+      ],
+      [
+        "2026-02-11",
+        "\u8FB2\u66C6\u6625\u7BC0\u524D\u6700\u5F8C\u4EA4\u6613\u65E5",
+        true
+      ],
+      [
+        "2026-02-12",
+        "\u5E02\u5834\u7121\u4EA4\u6613\uFF0C\u50C5\u8FA6\u7406\u7D50\u7B97\u4EA4\u5272\u4F5C\u696D",
+        false
+      ],
+      [
+        "2026-02-13",
+        "\u5E02\u5834\u7121\u4EA4\u6613\uFF0C\u50C5\u8FA6\u7406\u7D50\u7B97\u4EA4\u5272\u4F5C\u696D",
+        false
+      ],
+      [
+        "2026-02-15",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2026-02-16",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2026-02-17",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2026-02-18",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2026-02-19",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2026-02-20",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2026-02-23",
+        "\u8FB2\u66C6\u6625\u7BC0\u5F8C\u958B\u59CB\u4EA4\u6613\u65E5",
+        true
+      ],
+      [
+        "2026-02-27",
+        "\u548C\u5E73\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2026-02-28",
+        "\u548C\u5E73\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2026-04-03",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2026-04-04",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2026-04-05",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2026-04-06",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2026-05-01",
+        "\u52DE\u52D5\u7BC0",
+        false
+      ],
+      [
+        "2026-06-19",
+        "\u7AEF\u5348\u7BC0",
+        false
+      ],
+      [
+        "2026-09-25",
+        "\u4E2D\u79CB\u7BC0",
+        false
+      ],
+      [
+        "2026-09-28",
+        "\u5B54\u5B50\u8A95\u8FB0\u7D00\u5FF5\u65E5/ \u6559\u5E2B\u7BC0",
+        false
+      ],
+      [
+        "2026-10-09",
+        "\u570B\u6176\u65E5",
+        false
+      ],
+      [
+        "2026-10-10",
+        "\u570B\u6176\u65E5",
+        false
+      ],
+      [
+        "2026-10-25",
+        "\u81FA\u7063\u5149\u5FA9\u66A8\u91D1\u9580\u53E4\u5BE7\u982D\u5927\u6377\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2026-10-26",
+        "\u81FA\u7063\u5149\u5FA9\u66A8\u91D1\u9580\u53E4\u5BE7\u982D\u5927\u6377\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2026-12-25",
+        "\u884C\u61B2\u7D00\u5FF5\u65E5",
+        false
+      ]
+    ],
+    "source": {
+      "title": "115\u5E74\u4E2D\u83EF\u6C11\u570B\u653F\u5E9C\u884C\u653F\u6A5F\u95DC\u8FA6\u516C\u65E5\u66C6\u8868",
+      "url": "https://www.dgpa.gov.tw/FileConversion?filename=dgpa/files/202506/a52331bd-a189-466b-b0f0-cae3062bbf74.csv&nfix=&name=115%e5%b9%b4%e4%b8%ad%e8%8f%af%e6%b0%91%e5%9c%8b%e6%94%bf%e5%ba%9c%e8%a1%8c%e6%94%bf%e6%a9%9f%e9%97%9c%e8%be%a6%e5%85%ac%e6%97%a5%e6%9b%86%e8%a1%a8.csv",
+      "published": "2025-06",
+      "twse": "https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?date=20260101&response=json",
+      "fetched": "2026-11-16"
+    }
+  },
+  "2027": {
+    "days": "22200000220000022000002200000220002222222002200000220000022200002200000220000022000002200000222200022000002200000220000222000002200000220000022000002200000220020022000002200000220000022000002200000220000022000002200000220000022000002200000220000022000002200200220000022020002200000222000022000002220000220000022000002200000220000022000002200000220000022000022200002",
+    "notes": {
+      "2027-01-01": "\u958B\u570B\u7D00\u5FF5\u65E5",
+      "2027-02-04": "\u5C0F\u5E74\u591C",
+      "2027-02-05": "\u8FB2\u66C6\u9664\u5915",
+      "2027-02-06": "\u6625\u7BC0",
+      "2027-02-07": "\u6625\u7BC0",
+      "2027-02-08": "\u6625\u7BC0",
+      "2027-02-09": "\u88DC\u5047",
+      "2027-02-10": "\u88DC\u5047",
+      "2027-02-28": "\u548C\u5E73\u7D00\u5FF5\u65E5",
+      "2027-03-01": "\u88DC\u5047",
+      "2027-04-04": "\u5152\u7AE5\u7BC0",
+      "2027-04-05": "\u6E05\u660E\u7BC0",
+      "2027-04-06": "\u88DC\u5047",
+      "2027-04-30": "\u88DC\u5047",
+      "2027-05-01": "\u52DE\u52D5\u7BC0",
+      "2027-06-09": "\u7AEF\u5348\u7BC0",
+      "2027-09-15": "\u4E2D\u79CB\u7BC0",
+      "2027-09-28": "\u5B54\u5B50\u8A95\u8FB0\u7D00\u5FF5\u65E5/\u6559\u5E2B\u7BC0",
+      "2027-10-10": "\u570B\u6176\u65E5",
+      "2027-10-11": "\u88DC\u5047",
+      "2027-10-25": "\u81FA\u7063\u5149\u5FA9\u66A8\u91D1\u9580\u53E4\u5BE7\u982D\u5927\u6377\u7D00\u5FF5\u65E5",
+      "2027-12-24": "\u88DC\u5047",
+      "2027-12-25": "\u884C\u61B2\u7D00\u5FF5\u65E5",
+      "2027-12-31": "\u88DC\u5047"
+    },
+    "entries": [
+      [
+        "2027-01-01",
+        "\u4E2D\u83EF\u6C11\u570B\u958B\u570B\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2027-01-04",
+        "\u570B\u66C6\u65B0\u5E74\u958B\u59CB\u4EA4\u6613\u65E5",
+        true
+      ],
+      [
+        "2027-02-01",
+        "\u8FB2\u66C6\u6625\u7BC0\u524D\u6700\u5F8C\u4EA4\u6613\u65E5",
+        true
+      ],
+      [
+        "2027-02-02",
+        "\u5E02\u5834\u7121\u4EA4\u6613\uFF0C\u50C5\u8FA6\u7406\u7D50\u7B97\u4EA4\u5272\u4F5C\u696D\u3002",
+        false
+      ],
+      [
+        "2027-02-03",
+        "\u5E02\u5834\u7121\u4EA4\u6613\uFF0C\u50C5\u8FA6\u7406\u7D50\u7B97\u4EA4\u5272\u4F5C\u696D\u3002",
+        false
+      ],
+      [
+        "2027-02-04",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-05",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-06",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-07",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-08",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-09",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-10",
+        "\u8FB2\u66C6\u9664\u5915\u53CA\u6625\u7BC0",
+        false
+      ],
+      [
+        "2027-02-11",
+        "\u8FB2\u66C6\u6625\u7BC0\u5F8C\u958B\u59CB\u4EA4\u6613\u65E5",
+        true
+      ],
+      [
+        "2027-02-28",
+        "\u548C\u5E73\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2027-03-01",
+        "\u548C\u5E73\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2027-04-04",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2027-04-05",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2027-04-06",
+        "\u5152\u7AE5\u7BC0\u53CA\u6C11\u65CF\u6383\u5893\u7BC0",
+        false
+      ],
+      [
+        "2027-04-30",
+        "\u52DE\u52D5\u7BC0",
+        false
+      ],
+      [
+        "2027-05-01",
+        "\u52DE\u52D5\u7BC0",
+        false
+      ],
+      [
+        "2027-06-09",
+        "\u7AEF\u5348\u7BC0",
+        false
+      ],
+      [
+        "2027-09-15",
+        "\u4E2D\u79CB\u7BC0",
+        false
+      ],
+      [
+        "2027-09-28",
+        "\u5B54\u5B50\u8A95\u8FB0\u7D00\u5FF5\u65E5/ \u6559\u5E2B\u7BC0",
+        false
+      ],
+      [
+        "2027-10-10",
+        "\u570B\u6176\u65E5",
+        false
+      ],
+      [
+        "2027-10-11",
+        "\u570B\u6176\u65E5",
+        false
+      ],
+      [
+        "2027-10-25",
+        "\u81FA\u7063\u5149\u5FA9\u66A8\u91D1\u9580\u53E4\u5BE7\u982D\u5927\u6377\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2027-12-24",
+        "\u884C\u61B2\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2027-12-25",
+        "\u884C\u61B2\u7D00\u5FF5\u65E5",
+        false
+      ],
+      [
+        "2027-12-31",
+        "117\u5E74\u4E2D\u83EF\u6C11\u570B\u958B\u570B\u7D00\u5FF5\u65E5",
+        false
+      ]
+    ],
+    "source": {
+      "title": "116\u5E74\u4E2D\u83EF\u6C11\u570B\u653F\u5E9C\u884C\u653F\u6A5F\u95DC\u8FA6\u516C\u65E5\u66C6\u8868",
+      "url": "https://www.dgpa.gov.tw/FileConversion?filename=dgpa/files/202607/f538b1ff-ba60-4c63-9477-10db8e6612d1.csv&nfix=&name=116%e5%b9%b4%e4%b8%ad%e8%8f%af%e6%b0%91%e5%9c%8b%e6%94%bf%e5%ba%9c%e8%a1%8c%e6%94%bf%e6%a9%9f%e9%97%9c%e8%be%a6%e5%85%ac%e6%97%a5%e6%9b%86%e8%a1%a8_utf8bom.csv",
+      "published": "2026-07",
+      "twse": "https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?date=20270101&response=json",
+      "fetched": "2026-11-16"
+    }
+  }
+};
+
+// src/core/calendar/index.ts
+var coveredYears = Object.keys(data).map(Number);
 
 // src/core/stock/format.ts
 var dateKey = (d) => d.year * 1e4 + d.month * 100 + d.day;
@@ -234,10 +595,10 @@ function date(row) {
   return result;
 }
 function index(body, twse) {
-  const data = rows(body);
-  const latest = data.reduce((a, b) => dateKey(date(a)) >= dateKey(date(b)) ? a : b);
+  const data2 = rows(body);
+  const latest = data2.reduce((a, b) => dateKey(date(a)) >= dateKey(date(b)) ? a : b);
   const block = { dataDate: date(latest), taiex: numeric(latest, twse ? "TAIEX" : "TPExIndex"), change: numeric(latest, "Change"), value: numeric(latest, twse ? "TradeValue" : "TradeAmount") };
-  for (const row of data) {
+  for (const row of data2) {
     date(row);
     for (const key of twse ? ["TAIEX", "Change", "TradeValue", "TradeVolume", "Transaction"] : ["TPExIndex", "Change", "TradeAmount", "TradeVolume", "NumberOfTransactions"]) numeric(row, key);
   }
@@ -245,11 +606,11 @@ function index(body, twse) {
   return block;
 }
 function margin(body, twse, dataDate) {
-  const data = rows(body, twse ? 100 : 50);
+  const data2 = rows(body, twse ? 100 : 50);
   const fields = twse ? ["\u878D\u8CC7\u524D\u65E5\u9918\u984D", "\u878D\u8CC7\u4ECA\u65E5\u9918\u984D", "\u878D\u5238\u524D\u65E5\u9918\u984D", "\u878D\u5238\u4ECA\u65E5\u9918\u984D"] : ["MarginPurchaseBalancePreviousDay", "MarginPurchaseBalance", "ShortSaleBalancePreviousDay", "ShortSaleBalance"];
-  const totals = fields.map((key) => data.reduce((sum, row) => sum + numeric(row, key, true), 0));
-  if (!twse) for (const row of data) date(row);
-  return { date: twse ? dataDate : date(data[0]), dateConfirmed: true, financePrev: totals[0], finance: totals[1], shortPrev: totals[2], short: totals[3] };
+  const totals = fields.map((key) => data2.reduce((sum, row) => sum + numeric(row, key, true), 0));
+  if (!twse) for (const row of data2) date(row);
+  return { date: twse ? dataDate : date(data2[0]), dateConfirmed: true, financePrev: totals[0], finance: totals[1], shortPrev: totals[2], short: totals[3] };
 }
 function twseMarginReason(dataDate, fmtqik, margn) {
   const a = fmtqik ? Date.parse(fmtqik) : NaN, b = margn ? Date.parse(margn) : NaN;
@@ -478,14 +839,14 @@ async function collectTpex({ outDir, previous, previousDir, now = /* @__PURE__ *
       if (result.status !== 200) throw new Error(`HTTP ${result.status}`);
       return result;
     }));
-    const data = results2.map((r) => r.status === "fulfilled" ? r.value : void 0);
+    const data2 = results2.map((r) => r.status === "fulfilled" ? r.value : void 0);
     const summary = buildMarketSummary({
-      fmtqik: data[0]?.body,
-      margn: data[1]?.body,
-      fmtqikLastModified: data[0]?.validators.lastModified,
-      margnLastModified: data[1]?.validators.lastModified,
-      tpexIndex: data[2]?.body,
-      tpexMargin: data[3]?.body,
+      fmtqik: data2[0]?.body,
+      margn: data2[1]?.body,
+      fmtqikLastModified: data2[0]?.validators.lastModified,
+      margnLastModified: data2[1]?.validators.lastModified,
+      tpexIndex: data2[2]?.body,
+      tpexMargin: data2[3]?.body,
       fetchedAt: generatedAt
     }, oldSummary);
     for (const market of ["twse", "tpex"]) {

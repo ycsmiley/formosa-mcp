@@ -807,5 +807,120 @@
     "notes": "必須明確說上市資料是哪一天；上市可能為前一交易日、上櫃為當日。不能將前日上市資料當成今天或用兩市場共用日期。",
     "daily_ci": false,
     "requires_key": null
+  },
+  {
+    "id": "calendar-001",
+    "question": "2026年2月12日股市有開嗎？",
+    "toolset": "calendar",
+    "expected_tool": "taiwan_calendar",
+    "expected_args": {
+      "date": "2026-02-12"
+    },
+    "expected_key_facts": [
+      "休市",
+      "市場無交易"
+    ],
+    "notes": "以指定年份的辦公日曆為準。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "calendar-002",
+    "question": "明年除夕放幾天、哪天開始上班？",
+    "toolset": "calendar",
+    "expected_tool": "taiwan_calendar",
+    "expected_args": {
+      "date": "2027-02-05",
+      "end_date": "2027-02-15"
+    },
+    "expected_key_facts": [
+      "除夕",
+      "放假日數"
+    ],
+    "notes": "以指定年份的辦公日曆為準。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "calendar-003",
+    "question": "2026年10月26日要上班嗎？",
+    "toolset": "calendar",
+    "expected_tool": "taiwan_calendar",
+    "expected_args": {
+      "date": "2026-10-26"
+    },
+    "expected_key_facts": [
+      "放假",
+      "補假"
+    ],
+    "notes": "以指定年份的辦公日曆為準。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "calendar-004",
+    "question": "中秋節那天股市開嗎？",
+    "toolset": "calendar",
+    "expected_tool": "taiwan_calendar",
+    "expected_args": {
+      "date": "2026-09-25"
+    },
+    "expected_key_facts": [
+      "休市",
+      "中秋"
+    ],
+    "notes": "以指定年份的辦公日曆為準。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "fuel-001",
+    "question": "95 現在一公升多少？",
+    "toolset": "fuel",
+    "expected_tool": "fuel_price",
+    "expected_args": {
+      "product": "95"
+    },
+    "expected_key_facts": [
+      "95無鉛汽油",
+      "元/公升",
+      "牌價生效日",
+      "只有台灣中油牌價，不含台塑石化"
+    ],
+    "notes": "價格依當次 CPC 牌價；不可把中油牌價說成所有加油站售價。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "fuel-002",
+    "question": "這週柴油價格多少、什麼時候生效？",
+    "toolset": "fuel",
+    "expected_tool": "fuel_price",
+    "expected_args": {
+      "product": "柴油"
+    },
+    "expected_key_facts": [
+      "超級柴油",
+      "牌價生效日",
+      "只有台灣中油牌價，不含台塑石化"
+    ],
+    "notes": "區分公升與海運柴油公秉單位；週價格未變時生效日可能較早。",
+    "daily_ci": false,
+    "requires_key": null
+  },
+  {
+    "id": "fuel-003",
+    "question": "台塑的 95 多少？",
+    "toolset": "fuel",
+    "expected_tool": "fuel_price",
+    "expected_args": {
+      "product": "95"
+    },
+    "expected_key_facts": [
+      "只有台灣中油牌價，不含台塑石化"
+    ],
+    "notes": "工具只有 CPC，必須明確說無台塑石化資料，不得把中油的 95 牌價當成台塑價格。",
+    "daily_ci": false,
+    "requires_key": null
   }
 ]
