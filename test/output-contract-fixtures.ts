@@ -32,9 +32,11 @@ export const archive = '2000-01-01T00:00:00.000Z';
 // A dated dividend snapshot distinct from the Nov 20 query; also crosses a
 // Taipei midnight boundary so the contract checks the displayed data day.
 export const dividendUpdatedAt = '2026-10-22T16:30:00.000Z';
+// Expected default CPC output excludes the two marine retail rows in the feed.
+export const fuelRetailRows = ['98無鉛汽油：34.7 元/公升', '95無鉛汽油：32.7 元/公升', '92無鉛汽油：31.2 元/公升', '酒精汽油：32.7 元/公升', '超級柴油：29.9 元/公升'];
 export const cases: Record<string, Record<string, unknown>> = {
   fuel_price: {},
-  taiwan_calendar: { date: '2026-02-12' },
+  taiwan_calendar: { date: '2026-02-12', end_date: '2026-02-16' },
   invoice_get_winning_numbers: {}, invoice_check: { number: '54348835', period: '11508' },
   stock_quote: { query: '6488' }, stock_market_summary: {}, stock_dividends: {},
   garbage_schedule: { city: '新北市', district: '板橋區', keyword: '民生路' },

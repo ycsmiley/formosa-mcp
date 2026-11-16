@@ -261,6 +261,6 @@ npm run remote-check
 
 ### 中油油價
 
-`fuel_price` 預設查汽柴油零售牌價；`product` 可輸入「95」、「柴油」或「燃料油」（最多 30 字）。輸出含價格、單位、牌價生效日及最後確認時間；工業燃料油、海運柴油可能以元／公秉計價。只有台灣中油牌價，不含台塑石化；各加油站實際售價可能不同。
+`fuel_price` 預設查交貨至中油自營站的汽柴油零售牌價（98／95／92／酒精汽油／超級柴油）；`product` 搜尋所有產品，可輸入「95」、「柴油」或「燃料油」（最多 30 字）。輸出含價格、單位、牌價生效日及最後確認時間；工業燃料油、海運柴油可能以元／公秉計價。只有台灣中油牌價，不含台塑石化；各加油站實際售價可能不同。
 
-來源為[台灣中油 openData 主要產品牌價](https://vipmbr.cpc.com.tw/opendata/mainprodlistprice)（[資料集 6339](https://data.gov.tw/dataset/6339)，政府資料開放授權條款第1版）。本機／stdio 直接抓取 openData，成功資料快取一小時；遠端 Worker 只讀 Actions KV 快照。每天臺北時間 01:17、07:17 的 [fuel collector](.github/workflows/fuel-collect.yml) 更新內容或 20 小時心跳，每次最多一筆 KV 寫入。週日公告、週一 00:00 生效，未調價週生效日可能維持較早日期；過期判斷採最後成功確認時間。股價與大盤 freshness 也使用內建 TWSE 休市日，涵蓋外沿用平日規則；除權息快照門檻維持不變。
+來源為[台灣中油 openData 主要產品牌價](https://vipmbr.cpc.com.tw/opendata/mainprodlistprice)（[資料集 6339](https://data.gov.tw/dataset/6339)，政府資料開放授權條款第1版）。本機／stdio 直接抓取 openData，成功資料快取一小時；遠端 Worker 只讀 Actions KV 快照。每天臺北時間 01:17、07:17 的 [fuel collector](.github/workflows/fuel-collect.yml) 更新內容或 20 小時心跳，每次最多一筆 KV 寫入。汽柴油零售通常週日公告、週一 00:00 生效，工業燃料油也可能在其他日調價；未調價週生效日可能維持較早日期。最後成功確認時間缺失／無效、距今超過 49 小時，或早於最近週一 00:00 且該週一已過超過 25 小時時會警示；門檻相等仍視為新鮮。49 小時為正常儲存確認時間最大間隔 24 小時 × 2 + 1 小時緩衝。股價與大盤 freshness 也使用內建 TWSE 休市日，涵蓋外沿用平日規則；除權息快照門檻維持不變。

@@ -26,14 +26,20 @@ export const RAIL_STATIONS_STALE_MS = 380 * hour;
 // do not warn on fetch age alone, and therefore need no invoice heartbeat.
 export const INVOICE_DRAW_BUFFER_MS = 3 * 24 * hour;
 
-// CPC adjusts weekly at Monday 00:00 Taipei. Daily 01:17/07:17 checks
-// refresh checkedAt at least daily (heartbeat). Allow both Monday runs and
-// Tuesday 01:17 to miss: 18h maximum run gap + 7h buffer = 25h.
+// CPC checks run daily at 01:17/07:17 Taipei and store an unchanged heartbeat
+// when checkedAt is >=20h old: the longest normal stored-check gap is 24h.
+// 24h × 2 + 1h buffer = 49h catches long outages across weekly boundaries
+// and industrial fuel oil changes, which can occur on non-Monday days.
+export const FUEL_CHECK_STALE_MS = 49 * hour;
+// Retail prices adjust Monday 00:00 Taipei. Also warn if no check since that
+// boundary after 25h: allow both Monday runs and Tuesday 01:17 to miss
+// (18h maximum run gap + 7h buffer). Equality at either threshold is fresh.
 export const FUEL_ADJUST_BUFFER_MS = 25 * hour;
 export function fuelWarning(checkedAt: string | undefined, now: Date): string {
   const taipei = new Date(now.getTime() + 8 * hour);
   const boundary = Date.UTC(taipei.getUTCFullYear(), taipei.getUTCMonth(), taipei.getUTCDate() - (taipei.getUTCDay() + 6) % 7) - 8 * hour;
-  return !validTime(checkedAt) || Date.parse(checkedAt) < boundary && now.getTime() - boundary > FUEL_ADJUST_BUFFER_MS ? staleWarning(checkedAt, '中油牌價') : '';
+  return !validTime(checkedAt) || now.getTime() - Date.parse(checkedAt) > FUEL_CHECK_STALE_MS
+    || Date.parse(checkedAt) < boundary && now.getTime() - boundary > FUEL_ADJUST_BUFFER_MS ? staleWarning(checkedAt, '中油牌價') : '';
 }
 // TWSE/TPEx dividend collector crons run on holidays too; keep their age thresholds.
 export function isStale(at: string | undefined, now: Date, threshold: number): boolean {

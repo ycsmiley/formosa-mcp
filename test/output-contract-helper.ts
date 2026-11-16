@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { cases, bundledTools, snapshotReaders, staleCases, upstreamColumns, upstreamObjects } from './output-contract-fixtures.js';
+import { cases, bundledTools, fuelRetailRows, snapshotReaders, staleCases, upstreamColumns, upstreamObjects } from './output-contract-fixtures.js';
 // Attribution labels actually printed by these tools: invoice/stock/garbage/NCDR
 // use 資料來源, DGPA/outages use 來源, and rail uses the required TDX credit.
 // Require a value on the same line; the mere word 資料來源 is insufficient.
@@ -84,6 +84,24 @@ export function contractSuite(side: keyof typeof snapshotReaders, harness: Harne
       // update this inventory and add a warning case.
       if (side === 'worker') expect([...snapshotReaders.worker, ...bundledTools].sort()).toEqual([...registered].sort());
       assertStaleCoverage(Object.values(snapshotReaders).flat(), Object.keys(staleCases), registered);
+    });
+    it('default fuel output shows five self-operated station prices and the product hint', () => {
+      const text = replies.get('fuel_price')!;
+      expect(text.match(/^.+：\d+(?:\.\d+)? 元\/公升$/gm)).toEqual(fuelRetailRows);
+      expect(text).not.toMatch(/海運[輕重]柴油|中油自營漁船站|元\/公秉/);
+      expect(text).toContain('另有海運柴油、燃料油等牌價，可用 product 參數查詢（例如「燃料油」）。');
+    });
+    it('fuel product filters still find marine diesel and Friday industrial prices', async () => {
+      const marine = textOf(await harness.call('fuel_price', { product: '柴油' }));
+      expect(marine).toContain('海運輕柴油：29900 元/公秉'); expect(marine).toContain('海運重柴油：29400 元/公秉');
+      const industrial = textOf(await harness.call('fuel_price', { product: '燃料油' }));
+      expect(industrial).toContain('特種低硫燃料油：27937 元/公秉'); expect(industrial).toContain('2026-11-06（星期五）');
+    });
+    it('calendar range lists notable days and counts ordinary weekends without listing them', () => {
+      const text = replies.get('taiwan_calendar')!;
+      expect(text).toContain('2026-02-12（星期四）'); expect(text).toContain('市場無交易');
+      expect(text).toContain('2026-02-15（星期日）；行政機關：放假（小年夜）'); expect(text).toContain('農曆除夕');
+      expect(text).not.toContain('2026-02-14（星期六）'); expect(text).toContain('放假日數（含週末）：3 天');
     });
     it('fuel source failure returns isError, attribution and CPC-only scope', async () => {
       const reply = await harness.sourceFailure();

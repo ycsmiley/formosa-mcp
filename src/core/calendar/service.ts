@@ -15,8 +15,8 @@ export function createCalendarService(clock = () => new Date()) {
       const market = d.market.open ? `開市${d.market.name ? `（${d.market.name}）` : ''}` : `休市（${d.market.name ? `證交所：${d.market.name}` : '週末'}）`;
       return `${d.date}（星期${'日一二三四五六'[d.weekday]}）\n行政機關：${office}\n股市：${market}`;
     };
-    const shown = q.end_date === undefined ? days : days.filter(d => d.office !== 'workday' || !d.market.open);
+    const shown = q.end_date === undefined ? days : days.filter(d => d.note || d.office === 'makeup_workday' || d.weekday !== 0 && d.weekday !== 6 && (!d.market.open || d.market.name));
     const details = [...new Map(days.map(d => [d.date.slice(0, 4), d])).values()].map(d => `人事總處 ${Number(d.date.slice(0, 4)) - 1911} 年辦公日曆表（${d.sources.published} 公布）；證交所 ${Number(d.date.slice(0, 4)) - 1911} 年開休市日期（${d.sources.fetched} 取得）`).join('；');
-    return { text: [...(q.end_date === undefined ? [] : [`${start} 至 ${end}`, ...shown.map(d => format(d).replaceAll('\n', '；')), `放假日數：${days.filter(d => d.office === 'holiday' || d.office === 'weekend').length} 天`]), ...(q.end_date === undefined ? shown.map(format) : []), source, `資料日期：${details}`, reminder].join('\n'), isError: false };
+    return { text: [...(q.end_date === undefined ? [] : [`${start} 至 ${end}`, ...(shown.length ? shown.map(d => format(d).replaceAll('\n', '；')) : ['此期間沒有國定假日、補班或股市休市日（週末除外）。']), `放假日數（含週末）：${days.filter(d => d.office === 'holiday' || d.office === 'weekend').length} 天`]), ...(q.end_date === undefined ? shown.map(format) : []), source, `資料日期：${details}`, reminder].join('\n'), isError: false };
   } };
 }

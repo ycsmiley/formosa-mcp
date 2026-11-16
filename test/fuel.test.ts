@@ -5,7 +5,7 @@ import { decodeFuel } from '../src/core/fuel/model.js';
 import { formatFuel } from '../src/core/fuel/format.js';
 import { createFuelService } from '../src/core/fuel/service.js';
 import { fetchFuel, fuelUrl } from '../src/core/fuel/source.js';
-import { fuelWarning, FUEL_ADJUST_BUFFER_MS } from '../src/core/freshness.js';
+import { fuelWarning, FUEL_ADJUST_BUFFER_MS, FUEL_CHECK_STALE_MS } from '../src/core/freshness.js';
 const time = '2026-11-15T17:17:00.000Z', snapshot = () => ({ v: 1 as const, items: parseFuel(cpc), changedAt: time, checkedAt: time });
 afterEach(() => { vi.restoreAllMocks(); });
 it('normalizes all 13 CPC rows including ROC dates, trimmed customers and industrial units', () => {
@@ -21,14 +21,17 @@ it('strictly decodes snapshots and rejects unknown keys, bad times/dates/items a
   const s = snapshot(); expect(decodeFuel(JSON.stringify(s))).toEqual(s);
   for (const raw of ['bad', null, [], { ...s, v: 2 }, { ...s, extra: 1 }, { ...s, checkedAt: undefined }, { ...s, checkedAt: '2026-02-30T00:00:00.000Z' }, { ...s, changedAt: 'bad' }, { ...s, items: [{ ...s.items[0], effective: '2026-02-30' }] }, { ...s, items: s.items.map(i => ({ ...i, raw: true })) }]) expect(decodeFuel(raw)).toBeNull();
 });
-it('defaults to retail, filters all rows, retains units and lists products on no match', () => {
+it('defaults to self-operated station retail, filters all rows, retains units and lists products on no match', () => {
   const s = snapshot(), now = new Date(time), text = formatFuel(s, undefined, now);
   expect(text).toContain('95無鉛汽油：32.7 元/公升'); expect(text).not.toContain('特種低硫燃料油');
+  expect(text.match(/^.+：\d+(?:\.\d+)? 元\/公升$/gm)).toEqual(['98無鉛汽油：34.7 元/公升', '95無鉛汽油：32.7 元/公升', '92無鉛汽油：31.2 元/公升', '酒精汽油：32.7 元/公升', '超級柴油：29.9 元/公升']);
+  expect(text).not.toMatch(/海運[輕重]柴油|中油自營漁船站|元\/公秉/);
+  expect(text).toContain('另有海運柴油、燃料油等牌價，可用 product 參數查詢（例如「燃料油」）。');
   expect(text).toContain('牌價生效日：2026-11-16（星期一）'); expect(text.match(/牌價生效日/g)).toHaveLength(1);
   expect(text).toContain('2026-11-16 01:17（臺北時間，最後確認）');
   expect(formatFuel(s, '95', now)).not.toContain('98無鉛');
-  expect(formatFuel(s, '燃料油', now)).toContain('27937 元/公秉');
-  expect(formatFuel(s, '柴油', now)).toContain('海運輕柴油'); expect(formatFuel(s, '柴油', now)).not.toContain('95無鉛汽油');
+  const industrial = formatFuel(s, '燃料油', now); expect(industrial).toContain('27937 元/公秉'); expect(industrial).toContain('2026-11-06（星期五）'); expect(industrial).not.toContain('另有海運柴油');
+  expect(formatFuel(s, '柴油', now)).toContain('海運輕柴油'); expect(formatFuel(s, '柴油', now)).toContain('海運重柴油'); expect(formatFuel(s, '柴油', now)).not.toContain('95無鉛汽油');
   const none = formatFuel(s, '台塑', now); expect(none).toContain('找不到'); expect(none).toContain('可查詢產品：98無鉛汽油'); expect(none).toContain('不含台塑石化'); expect(none).toContain(fuelUrl);
 });
 it('prints dates per row when effective dates differ', () => {
@@ -37,17 +40,32 @@ it('prints dates per row when effective dates differ', () => {
   expect(text).toContain('98無鉛汽油：34.7 元/公升｜牌價生效日：2026-11-09（星期一）');
   expect(text).toContain('95無鉛汽油：32.7 元/公升｜牌價生效日：2026-11-16'); expect(text).not.toMatch(/^牌價生效日/m);
 });
-describe('weekly freshness uses successful checks, never price effective date', () => {
+describe('fuel freshness combines check age and weekly adjustment, never price effective date', () => {
   const boundary = Date.parse('2026-11-16T00:00:00+08:00'), before = new Date(boundary - 1).toISOString();
   it('is fresh at Monday boundary +25h equality and stale one millisecond later', () => {
     expect(fuelWarning(before, new Date(boundary + FUEL_ADJUST_BUFFER_MS))).toBe('');
     expect(fuelWarning(before, new Date(boundary + FUEL_ADJUST_BUFFER_MS + 1))).toMatch(/可能不是最新.*中油牌價/);
   });
   it('is fresh for checks at or after the Monday boundary and warns for missing/invalid checks', () => {
-    const now = new Date(boundary + 5 * 86400000);
+    const now = new Date(boundary + FUEL_ADJUST_BUFFER_MS + 1);
     for (const at of [boundary, boundary + 1]) expect(fuelWarning(new Date(at).toISOString(), now)).toBe('');
     for (const at of [undefined, '', 'invalid', '2026-02-30T00:00:00.000Z']) expect(fuelWarning(at, now)).toMatch(/可能不是最新/);
     const s = snapshot(); s.items = s.items.map(i => ({ ...i, effective: '2025-01-01' })); expect(formatFuel(s, undefined, now)).not.toMatch(/可能不是最新/);
+  });
+  it('keeps a week-long outage stale across the next Monday boundary and grace period', () => {
+    const checkedAt = new Date(boundary - 8 * 86400000).toISOString();
+    for (const offset of [-1, 0, 30 * 60_000, FUEL_ADJUST_BUFFER_MS, FUEL_ADJUST_BUFFER_MS + 1]) {
+      expect(fuelWarning(checkedAt, new Date(boundary + offset))).toMatch(/可能不是最新.*中油牌價/);
+    }
+  });
+  it.each(['2026-11-18T02:17:00+08:00', '2026-11-19T01:17:00+08:00'])('is fresh at 49h and stale one millisecond later, queried %s', queryTime => {
+    const now = new Date(queryTime), checked = now.getTime() - FUEL_CHECK_STALE_MS;
+    expect(FUEL_CHECK_STALE_MS).toBe(49 * 3600000);
+    expect(fuelWarning(new Date(checked).toISOString(), now)).toBe('');
+    expect(fuelWarning(new Date(checked - 1).toISOString(), now)).toMatch(/可能不是最新.*中油牌價/);
+  });
+  it('warns on Thursday for Monday-morning checks even after the retail boundary', () => {
+    expect(fuelWarning(time, new Date('2026-11-19T01:17:00+08:00'))).toMatch(/可能不是最新.*中油牌價/);
   });
 });
 it('fetches the lowercase URL with redirect-follow and a 15s timeout', async () => {
