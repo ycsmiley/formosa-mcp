@@ -2,7 +2,7 @@
 
 [繁體中文](README.md) · **English**
 
-[![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
+[![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json) [![ycsmiley/formosa-mcp MCP server](https://glama.ai/mcp/servers/ycsmiley/formosa-mcp/badges/score.svg)](https://glama.ai/mcp/servers/ycsmiley/formosa-mcp)
 
 Taiwan e-invoice lottery, TWSE/TPEx end-of-day stocks, garbage schedules for New Taipei/Taipei/Taichung, and planned water/power outages for AI assistants, with no API key; remote HSR and TRA provide timetables for today and tomorrow.
 

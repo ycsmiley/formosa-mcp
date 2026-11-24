@@ -2,7 +2,7 @@
 
 **繁體中文** · [English](README.en.md)
 
-[![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json)
+[![npm](https://img.shields.io/npm/v/formosa-mcp)](https://www.npmjs.com/package/formosa-mcp) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![CI](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ycsmiley/formosa-mcp/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/formosa-mcp)](package.json) [![ycsmiley/formosa-mcp MCP server](https://glama.ai/mcp/servers/ycsmiley/formosa-mcp/badges/score.svg)](https://glama.ai/mcp/servers/ycsmiley/formosa-mcp)
 
 讓 Claude、Cursor 等 AI 助手查台灣統一發票對獎、台股（上市＋上櫃）盤後行情與新北、臺北、臺中垃圾車時刻、計畫性停水停電，免金鑰；高鐵／台鐵遠端版提供今天與明天的時刻表。
 Taiwan e-invoice lottery and TWSE/TPEx stock data for AI agents (MCP), no API key.
